@@ -1,0 +1,15 @@
+ root = true
+
+[*]
+charset = utf-8                    # 强制所有文件使用 UTF-8
+end_of_line = lf                   # 和 .gitattributes 配合
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,cshtml}]
+indent_style = space
+indent_size = 4
+
+[*.{js,ts,jsx,tsx,html,css,json}]
+indent_style = space
+indent_size = 2

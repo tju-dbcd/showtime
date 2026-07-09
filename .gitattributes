@@ -1,0 +1,10 @@
+# 所有文本文件统一用 LF
+* text=auto eol=lf
+
+# 强制指定 Windows 脚本文件必须使用 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 指定二进制文件，避免 Git 对其内容进行任何修改
+*.png binary
+*.jpg binary
