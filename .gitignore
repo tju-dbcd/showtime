@@ -1,1 +1,38 @@
- 
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.userosscache
+
+## NuGet
+packages/
+*.nupkg
+**/packages/*
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]pp/[Bb]uild/
+build/
+
+## VS / Rider
+.vs/
+.idea/
+*.swp
+*.*~
+*.orig
+*.dbmdl
+*.jfm
+*.pfx
+*.publishsettings
+
+## dotenv
+.env
+*.env
+
