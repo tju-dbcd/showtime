@@ -1,6 +1,6 @@
-using ShowtimeBackend.Entities.ShowSessions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using ShowtimeBackend.Entities.ShowSessions;
 
 namespace ShowtimeBackend.Data.Configurations.ShowSessions
 {
@@ -8,112 +8,94 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
     {
         public void Configure(EntityTypeBuilder<PurchaseLimit> builder)
         {
-            // 映射表名
-            builder.ToTable("PURCHASE_LIMIT");
+            // 设置表名与 4 项 CHECK 约束
+            builder.ToTable("PURCHASE_LIMIT", t =>
+            {
+                t.HasCheckConstraint("CK_LIMIT_CHANNEL", "CHANNEL IN ('WEB', 'APP', 'MINI_PROGRAM')");
+                t.HasCheckConstraint("CK_LIMIT_USER_TYPE", "USER_TYPE IN ('NORMAL', 'MEMBER', 'VIP')");
+                t.HasCheckConstraint("CK_LIMIT_TYPE", "LIMIT_TYPE IN ('TICKET', 'ORDER')");
+                t.HasCheckConstraint("CK_LIMIT_STATUS", "STATUS IN ('ENABLED', 'DISABLED')");
+            });
 
-            // 主键配置
-            builder.HasKey(pl => pl.LimitId);
-            builder.Property(pl => pl.LimitId)
+            // 主键配置 (PK_PURCHASE_LIMIT)
+            builder.HasKey(x => x.LimitId).HasName("PK_PURCHASE_LIMIT");
+            builder.Property(x => x.LimitId)
                    .HasColumnName("LIMIT_ID")
-                   .HasColumnType("NUMBER(19)")
-                   .ValueGeneratedOnAdd(); // 自增主键
+                   .HasColumnType("NUMBER(19,0)")
+                   .ValueGeneratedOnAdd();
 
-            // 业务属性配置
-            builder.Property(pl => pl.LimitName)
+            // 业务字段映射
+            builder.Property(x => x.LimitName)
                    .HasColumnName("LIMIT_NAME")
                    .HasColumnType("VARCHAR2(100 CHAR)")
                    .HasMaxLength(100)
                    .IsRequired();
 
-            // 可空外键列
-            builder.Property(pl => pl.ShowId)
+            builder.Property(x => x.ShowId)
                    .HasColumnName("SHOW_ID")
-                   .HasColumnType("NUMBER(19)")
+                   .HasColumnType("NUMBER(19,0)")
                    .IsRequired(false);
 
-            builder.Property(pl => pl.SessionId)
+            builder.Property(x => x.SessionId)
                    .HasColumnName("SESSION_ID")
-                   .HasColumnType("NUMBER(19)")
+                   .HasColumnType("NUMBER(19,0)")
                    .IsRequired(false);
 
-            builder.Property(pl => pl.Channel)
+            builder.Property(x => x.Channel)
                    .HasColumnName("CHANNEL")
                    .HasColumnType("VARCHAR2(20 CHAR)")
                    .HasMaxLength(20)
                    .IsRequired(false);
 
-            builder.Property(pl => pl.UserType)
+            builder.Property(x => x.UserType)
                    .HasColumnName("USER_TYPE")
                    .HasColumnType("VARCHAR2(20 CHAR)")
                    .HasMaxLength(20)
                    .IsRequired(false);
 
-            builder.Property(pl => pl.MaxBuyCount)
+            builder.Property(x => x.MaxBuyCount)
                    .HasColumnName("MAX_BUY_COUNT")
-                   .HasColumnType("NUMBER(5)")
-                   .HasDefaultValue(1)
+                   .HasColumnType("NUMBER(5,0)")
                    .IsRequired();
 
-            builder.Property(pl => pl.LimitType)
+            builder.Property(x => x.LimitType)
                    .HasColumnName("LIMIT_TYPE")
                    .HasColumnType("VARCHAR2(20 CHAR)")
                    .HasMaxLength(20)
                    .HasDefaultValue("TICKET")
                    .IsRequired();
 
-            // 生效/失效时间配置（可为空）
-            builder.Property(pl => pl.StartTime)
+            builder.Property(x => x.StartTime)
                    .HasColumnName("START_TIME")
                    .HasColumnType("TIMESTAMP(6)")
                    .IsRequired(false);
 
-            builder.Property(pl => pl.EndTime)
+            builder.Property(x => x.EndTime)
                    .HasColumnName("END_TIME")
                    .HasColumnType("TIMESTAMP(6)")
                    .IsRequired(false);
 
-            builder.Property(pl => pl.Status)
+            builder.Property(x => x.Status)
                    .HasColumnName("STATUS")
                    .HasColumnType("VARCHAR2(20 CHAR)")
                    .HasMaxLength(20)
                    .HasDefaultValue("ENABLED")
                    .IsRequired();
 
-            // 审计字段配置
-            builder.Property(pl => pl.CreateTime)
-                   .HasColumnName("CREATE_TIME")
-                   .HasColumnType("TIMESTAMP(6)")
-                   .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                   .IsRequired();
-
-            builder.Property(pl => pl.UpdateTime)
-                   .HasColumnName("UPDATE_TIME")
-                   .HasColumnType("TIMESTAMP(6)")
-                   .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                   .IsRequired();
-
-            builder.Property(pl => pl.CreateBy)
-                   .HasColumnName("CREATE_BY")
-                   .HasColumnType("VARCHAR2(50 CHAR)")
-                   .HasMaxLength(50)
+            // 外键配置 (FK_LIMIT_SHOW 与 FK_LIMIT_SESSION)
+            builder.HasOne(x => x.Show)
+                   .WithMany()
+                   .HasForeignKey(x => x.ShowId)
+                   .HasConstraintName("FK_LIMIT_SHOW")
                    .IsRequired(false);
 
-            builder.Property(pl => pl.UpdateBy)
-                   .HasColumnName("UPDATE_BY")
-                   .HasColumnType("VARCHAR2(50 CHAR)")
-                   .HasMaxLength(50)
+            builder.HasOne(x => x.ShowSession)
+                   .WithMany()
+                   .HasForeignKey(x => x.SessionId)
+                   .HasConstraintName("FK_LIMIT_SESSION")
                    .IsRequired(false);
 
-            // 外键关系配置 (可选外键 HasOne -> WithMany)
-            builder.HasOne(pl => pl.Show)
-                   .WithMany()
-                   .HasForeignKey(pl => pl.ShowId)
-                   .OnDelete(DeleteBehavior.Restrict);
-
-            builder.HasOne(pl => pl.Session)
-                   .WithMany()
-                   .HasForeignKey(pl => pl.SessionId)
-                   .OnDelete(DeleteBehavior.Restrict);
+            // 审计字段映射 (AuditableEntity)
             builder.ConfigureAuditableEntity();
         }
     }
