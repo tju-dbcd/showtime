@@ -2,6 +2,10 @@ using ShowtimeBackend.Entities.Base;
 
 namespace ShowtimeBackend.Entities.SeatZone;
 
+/// <summary>
+/// Stores a temporary exclusive lock for one seat in one show session.
+/// Session and user references remain scalar IDs until their owning modules are mapped.
+/// </summary>
 public class SeatLock : AuditableEntity
 {
     public long SeatLockId { get; set; }

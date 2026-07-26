@@ -17,6 +17,7 @@ public class SeatReservationConfiguration : IEntityTypeConfiguration<SeatReserva
         });
         builder.HasKey(entity => entity.SeatReservationId).HasName("PK_SEAT_RESERVATION");
         builder.Property(entity => entity.SeatReservationId).HasColumnName("SEAT_RESERVATION_ID").HasColumnType("NUMBER(19)").ValueGeneratedOnAdd();
+        // SHOW_SESSION and ORDER_ITEM are mapped by other modules; keep their IDs without cross-module navigations.
         builder.Property(entity => entity.SessionId).HasColumnName("SESSION_ID").HasColumnType("NUMBER(19)").IsRequired();
         builder.Property(entity => entity.SeatId).HasColumnName("SEAT_ID").HasColumnType("NUMBER(19)").IsRequired();
         builder.Property(entity => entity.OrderItemId).HasColumnName("ORDER_ITEM_ID").HasColumnType("NUMBER(19)");

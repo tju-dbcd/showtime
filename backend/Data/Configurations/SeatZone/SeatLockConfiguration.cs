@@ -16,6 +16,7 @@ public class SeatLockConfiguration : IEntityTypeConfiguration<SeatLock>
         });
         builder.HasKey(entity => entity.SeatLockId).HasName("PK_SEAT_LOCK");
         builder.Property(entity => entity.SeatLockId).HasColumnName("SEAT_LOCK_ID").HasColumnType("NUMBER(19)").ValueGeneratedOnAdd();
+        // SHOW_SESSION and SYS_USER belong to other modules, so only their foreign-key IDs are mapped here.
         builder.Property(entity => entity.SessionId).HasColumnName("SESSION_ID").HasColumnType("NUMBER(19)").IsRequired();
         builder.Property(entity => entity.SeatId).HasColumnName("SEAT_ID").HasColumnType("NUMBER(19)").IsRequired();
         builder.Property(entity => entity.UserId).HasColumnName("USER_ID").HasColumnType("NUMBER(19)").IsRequired();

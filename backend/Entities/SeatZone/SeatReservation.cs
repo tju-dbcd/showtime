@@ -2,6 +2,10 @@ using ShowtimeBackend.Entities.Base;
 
 namespace ShowtimeBackend.Entities.SeatZone;
 
+/// <summary>
+/// Stores a seat reservation after a lock is converted or a system reservation is created.
+/// Order-item references remain scalar IDs until the order-ticket module is mapped.
+/// </summary>
 public class SeatReservation : AuditableEntity
 {
     public long SeatReservationId { get; set; }
