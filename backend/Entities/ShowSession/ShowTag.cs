@@ -1,42 +1,34 @@
-//namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
-
-using ShowtimeBackend.Entities.Base;
-
-/// <summary>
-/// 演出标签关联实体
-/// </summary>>
-/// <remarks>
-/// 没有审计字段仅作为一个关联表使用不需要继承自AuditableEntity
-/// </remarks>>
 namespace ShowtimeBackend.Entities.ShowSessions
 {
-    public class ShowTag 
+    /// <summary>
+    /// 演出标签关联实体（中间表）
+    /// </summary>
+    public class ShowTag
     {
         /// <summary>
-        /// 关联记录唯一标识，主键，自增
+        /// 主键 SHOW_TAG_ID NUMBER(19,0)
         /// </summary>
         public long ShowTagId { get; set; }
 
         /// <summary>
-        /// 演出 ID，外键 SHOW.SHOW_ID
+        /// 演出 ID 外键 SHOW_ID NUMBER(19,0)
         /// </summary>
         public long ShowId { get; set; }
 
         /// <summary>
-        /// 标签 ID，外键 TAG.TAG_ID
+        /// 标签 ID 外键 TAG_ID NUMBER(19,0)
         /// </summary>
         public long TagId { get; set; }
 
+        // ============= 导航属性 ================
         /// <summary>
-        /// 关联的演出实体对象
+        /// 关联的演出实体
         /// </summary>
         public virtual Show Show { get; set; } = null!;
 
         /// <summary>
-        /// 关联的标签实体对象
+        /// 关联的标签实体
         /// </summary>
         public virtual Tag Tag { get; set; } = null!;
-
     }
-
 }

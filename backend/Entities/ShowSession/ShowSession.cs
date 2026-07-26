@@ -1,5 +1,4 @@
-//namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
-
+using System;
 using ShowtimeBackend.Entities.Base;
 
 namespace ShowtimeBackend.Entities.ShowSessions
@@ -10,55 +9,55 @@ namespace ShowtimeBackend.Entities.ShowSessions
     public class ShowSession : AuditableEntity
     {
         /// <summary>
-        /// 场次唯一标识，主键，自增
+        /// 场次主键 SESSION_ID NUMBER(19,0)
         /// </summary>
         public long SessionId { get; set; }
 
         /// <summary>
-        /// 所属演出 ID（外键）
+        /// 演出 ID 外键 SHOW_ID NUMBER(19,0)
         /// </summary>
         public long ShowId { get; set; }
 
         /// <summary>
-        /// 座位图/票区配置 ID（外键）
+        /// 座位图 ID 外键 SEAT_MAP_ID NUMBER(19,0)
         /// </summary>
         public long SeatMapId { get; set; }
 
         /// <summary>
-        /// 演出开始时间
+        /// 演出开始时间 START_TIME TIMESTAMP(6)
         /// </summary>
         public DateTime StartTime { get; set; }
 
         /// <summary>
-        /// 演出结束时间
+        /// 演出结束时间 END_TIME TIMESTAMP(6)
         /// </summary>
         public DateTime EndTime { get; set; }
 
         /// <summary>
-        /// 售票开始时间
+        /// 售票开始时间 SALE_START_TIME TIMESTAMP(6)
         /// </summary>
         public DateTime SaleStartTime { get; set; }
 
         /// <summary>
-        /// 售票结束时间
+        /// 售票结束时间 SALE_END_TIME TIMESTAMP(6)
         /// </summary>
         public DateTime SaleEndTime { get; set; }
 
         /// <summary>
-        /// 状态：UPCOMING-待售，PRESALE-预售，ONSALE-在售，SOLD_OUT-售罄，ENDED-已结束
+        /// 场次状态 SESSION_STATUS VARCHAR2(20 CHAR) 默认 UPCOMING
+        /// 允许值: UPCOMING, PRESALE, ONSALE, SOLD_OUT, ENDED
         /// </summary>
         public string SessionStatus { get; set; } = "UPCOMING";
 
-        #region 导航属性 (Navigation Properties)
-
+        // ================= 导航属性 ===============
         /// <summary>
-        /// 所属演出导航属性（多对一）
+        /// 关联的演出实体
         /// </summary>
         public virtual Show Show { get; set; } = null!;
 
-        // 如果后续有 SeatMap 实体，取消下方注释：
-        // public virtual SeatMap SeatMap { get; set; } = null!;
-
-        #endregion
+        /// <summary>
+        /// TODO:关联的座位图实体等待关联
+        /// </summary>
+        //public virtual SeatMap SeatMap { get; set; } = null!;
     }
 }

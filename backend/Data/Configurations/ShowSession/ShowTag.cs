@@ -1,6 +1,6 @@
-using ShowtimeBackend.Entities.ShowSessions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using ShowtimeBackend.Entities.ShowSessions;
 
 namespace ShowtimeBackend.Data.Configurations.ShowSessions
 {
@@ -8,36 +8,44 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
     {
         public void Configure(EntityTypeBuilder<ShowTag> builder)
         {
-            // 设置表名
+            // 设置目标表名
             builder.ToTable("SHOW_TAG");
-            // 设置主键
-            builder.HasKey(st => st.ShowTagId)
-                   .HasName("PK_SHOW_TAG");
-            // 设置索引
-            builder.HasIndex(st => new { st.ShowId, st.TagId })
-                .IsUnique()
-                .HasDatabaseName("UK_SHOW_TAG");
-            // 设置属性映射
-            builder.Property(st => st.ShowTagId)
-                .HasColumnName("SHOW_TAG_ID")
-                .ValueGeneratedOnAdd();
-            builder.Property(st => st.ShowId)
-                .HasColumnName("SHOW_ID")
-                .IsRequired();
-            builder.Property(st => st.TagId)
-                .HasColumnName("TAG_ID")
-                .IsRequired();
 
+            // 主键配置 (PK_SHOW_TAG)
+            builder.HasKey(x => x.ShowTagId).HasName("PK_SHOW_TAG");
+            builder.Property(x => x.ShowTagId)
+                   .HasColumnName("SHOW_TAG_ID")
+                   .HasColumnType("NUMBER(19,0)")
+                   .ValueGeneratedOnAdd();
+
+            // 基础外键字段映射
+            builder.Property(x => x.ShowId)
+                   .HasColumnName("SHOW_ID")
+                   .HasColumnType("NUMBER(19,0)")
+                   .IsRequired();
+
+            builder.Property(x => x.TagId)
+                   .HasColumnName("TAG_ID")
+                   .HasColumnType("NUMBER(19,0)")
+                   .IsRequired();
+
+            // 复合唯一索引 (UK_SHOW_TAG)
+            builder.HasIndex(x => new { x.ShowId, x.TagId })
+                   .IsUnique()
+                   .HasDatabaseName("UK_SHOW_TAG");
+
+            // 外键与级联删除配置 (FK_SHOW_TAG_SHOW & FK_SHOW_TAG_TAG)
             builder.HasOne(x => x.Show)
-                   .WithMany(s => s.ShowTags) // 或 WithMany()，按 Entity 中定义的集合导航属性调整
+                   .WithMany()
                    .HasForeignKey(x => x.ShowId)
                    .HasConstraintName("FK_SHOW_TAG_SHOW")
-                   .OnDelete(DeleteBehavior.Cascade);
+                   .OnDelete(DeleteBehavior.Cascade); // 对应 ON DELETE CASCADE
+
             builder.HasOne(x => x.Tag)
-                   .WithMany(t => t.ShowTags) // 或 WithMany()，按 Entity 中定义的集合导航属性调整
+                   .WithMany()
                    .HasForeignKey(x => x.TagId)
                    .HasConstraintName("FK_SHOW_TAG_TAG")
-                   .OnDelete(DeleteBehavior.Cascade);
+                   .OnDelete(DeleteBehavior.Cascade); // 对应 ON DELETE CASCADE
         }
     }
 }

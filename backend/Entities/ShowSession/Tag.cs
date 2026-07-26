@@ -1,31 +1,30 @@
-//namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
-
-using global::ShowtimeBackend.Entities.Base;
+using ShowtimeBackend.Entities.Base;
 
 namespace ShowtimeBackend.Entities.ShowSessions
 {
     /// <summary>
-    /// 标签信息实体
+    /// 标签实体
     /// </summary>
     public class Tag : AuditableEntity
     {
         /// <summary>
-        /// 标签唯一标识，主键，自增
+        /// 主键 TAG_ID NUMBER(19,0)
         /// </summary>
         public long TagId { get; set; }
 
         /// <summary>
-        /// 标签名称
+        /// 标签名称 TAG_NAME VARCHAR2(50 CHAR)
         /// </summary>
         public string TagName { get; set; } = string.Empty;
 
         /// <summary>
-        /// 标签颜色（十六进制色值，如 #FF5733）
+        /// 颜色 COLOR VARCHAR2(20 CHAR)
         /// </summary>
         public string? Color { get; set; }
 
         /// <summary>
-        /// 状态：0-禁用，1-启用
+        /// 状态 STATUS NUMBER(1,0) 默认 1
+        /// 允许值: 0 (禁用/停用), 1 (启用/正常)
         /// </summary>
         public int Status { get; set; } = 1;
 

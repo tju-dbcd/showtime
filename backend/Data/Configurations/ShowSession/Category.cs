@@ -1,6 +1,6 @@
-using ShowtimeBackend.Entities.ShowSessions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using ShowtimeBackend.Entities.ShowSessions;
 
 namespace ShowtimeBackend.Data.Configurations.ShowSessions
 {
@@ -8,70 +8,56 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
     {
         public void Configure(EntityTypeBuilder<Category> builder)
         {
-            // 映射表名
-            builder.ToTable("CATEGORY");
+            // 设置表名与 CHECK 约束 (CK_CATEGORY_STATUS)
+            builder.ToTable("CATEGORY", t =>
+            {
+                t.HasCheckConstraint("CK_CATEGORY_STATUS", "STATUS IN (0, 1)");
+            });
 
-            // 主键配置
-            builder.HasKey(c => c.CategoryId);
-            builder.Property(c => c.CategoryId)
+            // 主键配置 (PK_CATEGORY)
+            builder.HasKey(x => x.CategoryId).HasName("PK_CATEGORY");
+            builder.Property(x => x.CategoryId)
                    .HasColumnName("CATEGORY_ID")
-                   .HasColumnType("NUMBER(19)")
+                   .HasColumnType("NUMBER(19,0)")
                    .ValueGeneratedOnAdd();
 
-            // 基础属性配置
-            builder.Property(c => c.CategoryName)
+            // 唯一索引配置 (UK_CATEGORY_NAME)
+            builder.HasIndex(x => x.CategoryName)
+                   .IsUnique()
+                   .HasDatabaseName("UK_CATEGORY_NAME");
+
+            // 业务字段映射
+            builder.Property(x => x.CategoryName)
                    .HasColumnName("CATEGORY_NAME")
                    .HasColumnType("VARCHAR2(50 CHAR)")
                    .HasMaxLength(50)
                    .IsRequired();
 
-            builder.Property(c => c.ParentId)
+            builder.Property(x => x.ParentId)
                    .HasColumnName("PARENT_ID")
-                   .HasColumnType("NUMBER(19)")
-                   .IsRequired(false); // 允许为空（顶级分类没有父级）
-
-            builder.Property(c => c.SortOrder)
-                   .HasColumnName("SORT_ORDER")
-                   .HasColumnType("NUMBER(5)")
-                   .HasDefaultValue(0)
+                   .HasColumnType("NUMBER(19,0)")
                    .IsRequired(false);
 
-            builder.Property(c => c.Status)
+            builder.Property(x => x.SortOrder)
+                   .HasColumnName("SORT_ORDER")
+                   .HasColumnType("NUMBER(5,0)")
+                   .HasDefaultValue(0)
+                   .IsRequired();
+
+            builder.Property(x => x.Status)
                    .HasColumnName("STATUS")
-                   .HasColumnType("NUMBER(1)")
+                   .HasColumnType("NUMBER(1,0)")
                    .HasDefaultValue(1)
                    .IsRequired();
 
-            // 审计字段配置
-            builder.Property(c => c.CreateTime)
-                   .HasColumnName("CREATE_TIME")
-                   .HasColumnType("TIMESTAMP(6)")
-                   .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                   .IsRequired();
+            // 自引用外键配置 (FK_CATEGORY_PARENT)
+            builder.HasOne(x => x.ParentCategory)
+                   .WithMany(x => x.SubCategories)
+                   .HasForeignKey(x => x.ParentId)
+                   .HasConstraintName("FK_CATEGORY_PARENT")
+                   .OnDelete(DeleteBehavior.Restrict); // 避免删父级时产生级联删除
 
-            builder.Property(c => c.UpdateTime)
-                   .HasColumnName("UPDATE_TIME")
-                   .HasColumnType("TIMESTAMP(6)")
-                   .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                   .IsRequired();
-
-            builder.Property(c => c.CreateBy)
-                   .HasColumnName("CREATE_BY")
-                   .HasColumnType("VARCHAR2(50 CHAR)")
-                   .HasMaxLength(50)
-                   .IsRequired(false);
-
-            builder.Property(c => c.UpdateBy)
-                   .HasColumnName("UPDATE_BY")
-                   .HasColumnType("VARCHAR2(50 CHAR)")
-                   .HasMaxLength(50)
-                   .IsRequired(false);
-
-            // 自关联树形外键配置 (Self-Referencing Relationship)
-            builder.HasOne(c => c.Parent)
-                   .WithMany(c => c.Children)
-                   .HasForeignKey(c => c.ParentId)
-                   .OnDelete(DeleteBehavior.Restrict); // 删除父分类时，阻止直接级联删除子分类，保护分类树安全
+            // 审计字段映射 (AuditableEntity)
             builder.ConfigureAuditableEntity();
         }
     }

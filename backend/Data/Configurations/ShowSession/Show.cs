@@ -1,6 +1,6 @@
-using ShowtimeBackend.Entities.ShowSessions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using ShowtimeBackend.Entities.ShowSessions;
 
 namespace ShowtimeBackend.Data.Configurations.ShowSessions
 {
@@ -8,101 +8,82 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
     {
         public void Configure(EntityTypeBuilder<Show> builder)
         {
-            // 映射表名
-            builder.ToTable("SHOW");
+            // 设置目标表名与两项 CHECK 约束（与 DDL 名称及条件 100% 对齐）
+            builder.ToTable("SHOW", t =>
+            {
+                t.HasCheckConstraint("CK_SHOW_STATUS", "STATUS IN ('DRAFT', 'PUBLISHED', 'UNPUBLISHED')");
+                t.HasCheckConstraint("CK_SHOW_AUDIT", "AUDIT_STATUS IN ('PENDING', 'APPROVED', 'REJECTED')");
+            });
 
-            // 主键配置
-            builder.HasKey(s => s.ShowId);
-            builder.Property(s => s.ShowId)
+            // 主键配置 (PK_SHOW)
+            builder.HasKey(x => x.ShowId).HasName("PK_SHOW");
+            builder.Property(x => x.ShowId)
                    .HasColumnName("SHOW_ID")
-                   .HasColumnType("NUMBER(19)")
-                   .ValueGeneratedOnAdd(); // 对应自增列
+                   .HasColumnType("NUMBER(19,0)")
+                   .ValueGeneratedOnAdd();
 
-            // 核心字段与长度限制配置
-            builder.Property(s => s.ShowName)
+            // 基础业务字段映射
+            builder.Property(x => x.ShowName)
                    .HasColumnName("SHOW_NAME")
                    .HasColumnType("VARCHAR2(200 CHAR)")
                    .HasMaxLength(200)
                    .IsRequired();
 
-            builder.Property(s => s.CategoryId)
+            builder.Property(x => x.CategoryId)
                    .HasColumnName("CATEGORY_ID")
-                   .HasColumnType("NUMBER(19)")
+                   .HasColumnType("NUMBER(19,0)")
                    .IsRequired();
 
-            builder.Property(s => s.Description)
+            builder.Property(x => x.Description)
                    .HasColumnName("DESCRIPTION")
                    .HasColumnType("VARCHAR2(2000 CHAR)")
                    .HasMaxLength(2000)
-                   .IsRequired(false); // 允许为空
-
-            builder.Property(s => s.DurationMinutes)
-                   .HasColumnName("DURATION_MINUTES")
-                   .HasColumnType("NUMBER(5)")
                    .IsRequired(false);
 
-            builder.Property(s => s.PosterUrl)
+            builder.Property(x => x.DurationMinutes)
+                   .HasColumnName("DURATION_MINUTES")
+                   .HasColumnType("NUMBER(5,0)")
+                   .IsRequired(false);
+
+            builder.Property(x => x.PosterUrl)
                    .HasColumnName("POSTER_URL")
                    .HasColumnType("VARCHAR2(500 CHAR)")
                    .HasMaxLength(500)
                    .IsRequired(false);
 
-            // 状态与默认值配置
-            builder.Property(s => s.Status)
+            // 状态与审核字段配置（包含默认值与长度约束）
+            builder.Property(x => x.Status)
                    .HasColumnName("STATUS")
                    .HasColumnType("VARCHAR2(20 CHAR)")
                    .HasMaxLength(20)
                    .HasDefaultValue("DRAFT")
                    .IsRequired();
 
-            builder.Property(s => s.AuditStatus)
+            builder.Property(x => x.AuditStatus)
                    .HasColumnName("AUDIT_STATUS")
                    .HasColumnType("VARCHAR2(20 CHAR)")
                    .HasMaxLength(20)
                    .HasDefaultValue("PENDING")
                    .IsRequired();
 
-            builder.Property(s => s.AuditBy)
+            builder.Property(x => x.AuditBy)
                    .HasColumnName("AUDIT_BY")
                    .HasColumnType("VARCHAR2(50 CHAR)")
                    .HasMaxLength(50)
                    .IsRequired(false);
 
-            builder.Property(s => s.AuditTime)
+            builder.Property(x => x.AuditTime)
                    .HasColumnName("AUDIT_TIME")
                    .HasColumnType("TIMESTAMP(6)")
                    .IsRequired(false);
 
-            // 审计字段配置
-            builder.Property(s => s.CreateTime)
-                   .HasColumnName("CREATE_TIME")
-                   .HasColumnType("TIMESTAMP(6)")
-                   .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                   .IsRequired();
+            // 外键配置 (FK_SHOW_CATEGORY)
+            builder.HasOne(x => x.Category)
+                   .WithMany()
+                   .HasForeignKey(x => x.CategoryId)
+                   .HasConstraintName("FK_SHOW_CATEGORY");
 
-            builder.Property(s => s.UpdateTime)
-                   .HasColumnName("UPDATE_TIME")
-                   .HasColumnType("TIMESTAMP(6)")
-                   .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                   .IsRequired();
-
-            builder.Property(s => s.CreateBy)
-                   .HasColumnName("CREATE_BY")
-                   .HasColumnType("VARCHAR2(50 CHAR)")
-                   .HasMaxLength(50)
-                   .IsRequired(false);
-
-            builder.Property(s => s.UpdateBy)
-                   .HasColumnName("UPDATE_BY")
-                   .HasColumnType("VARCHAR2(50 CHAR)")
-                   .HasMaxLength(50)
-                   .IsRequired(false);
-
-            // 外键关系映射（一对多：一个 Category 下有多场 Show）
-            builder.HasOne(s => s.Category)
-                   .WithMany() 
-                   .HasForeignKey(s => s.CategoryId)
-                   .OnDelete(DeleteBehavior.Restrict); // 禁止级联删除，保护主表数据
+            // 复用 4 个标准审计字段（CREATE_TIME, UPDATE_TIME, CREATE_BY, UPDATE_BY）
             builder.ConfigureAuditableEntity();
         }
     }
