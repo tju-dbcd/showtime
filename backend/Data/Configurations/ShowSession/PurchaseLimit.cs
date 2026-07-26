@@ -114,6 +114,7 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .WithMany()
                    .HasForeignKey(pl => pl.SessionId)
                    .OnDelete(DeleteBehavior.Restrict);
+            builder.ConfigureAuditableEntity();
         }
     }
 }

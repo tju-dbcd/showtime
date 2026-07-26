@@ -29,5 +29,6 @@ namespace ShowtimeBackend.Entities.ShowSessions
         /// </summary>
         public int Status { get; set; } = 1;
 
+        public virtual ICollection<ShowTag> ShowTags { get; set; } = new List<ShowTag>();
     }
 }

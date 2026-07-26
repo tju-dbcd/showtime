@@ -103,6 +103,7 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .WithMany() 
                    .HasForeignKey(s => s.CategoryId)
                    .OnDelete(DeleteBehavior.Restrict); // 禁止级联删除，保护主表数据
+            builder.ConfigureAuditableEntity();
         }
     }
 }

@@ -61,6 +61,7 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .HasColumnType("VARCHAR2(50 CHAR)")
                    .HasMaxLength(50)
                    .IsRequired(false);
+            builder.ConfigureAuditableEntity();
         }
     }
 }

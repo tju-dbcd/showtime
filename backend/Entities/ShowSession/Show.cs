@@ -66,6 +66,8 @@ namespace ShowtimeBackend.Entities.ShowSessions
 		/// </summary>
 		public virtual Category Category { get; set; } = null!;
 
-		#endregion
-	}
+        public virtual ICollection<ShowTag> ShowTags { get; set; } = new List<ShowTag>();
+
+        #endregion
+    }
 }

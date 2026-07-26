@@ -27,6 +27,16 @@ namespace ShowtimeBackend.Entities.ShowSessions
         /// </summary>
         public long TagId { get; set; }
 
+        /// <summary>
+        /// 关联的演出实体对象
+        /// </summary>
+        public virtual Show Show { get; set; } = null!;
+
+        /// <summary>
+        /// 关联的标签实体对象
+        /// </summary>
+        public virtual Tag Tag { get; set; } = null!;
+
     }
 
 }

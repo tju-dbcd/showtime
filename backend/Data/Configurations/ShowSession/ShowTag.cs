@@ -2,7 +2,7 @@ using ShowtimeBackend.Entities.ShowSessions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace ShowtimeBackend.Data.Configurations.ShowSession
+namespace ShowtimeBackend.Data.Configurations.ShowSessions
 {
     public class ShowTagConfiguration : IEntityTypeConfiguration<ShowTag>
     {
@@ -14,7 +14,9 @@ namespace ShowtimeBackend.Data.Configurations.ShowSession
             builder.HasKey(st => st.ShowTagId)
                    .HasName("PK_SHOW_TAG");
             // 设置索引
-            builder.HasIndex(st => new { st.ShowId, st.TagId }).IsUnique();
+            builder.HasIndex(st => new { st.ShowId, st.TagId })
+                .IsUnique()
+                .HasDatabaseName("UK_SHOW_TAG");
             // 设置属性映射
             builder.Property(st => st.ShowTagId)
                 .HasColumnName("SHOW_TAG_ID")

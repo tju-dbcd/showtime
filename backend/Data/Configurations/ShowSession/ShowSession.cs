@@ -88,6 +88,7 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .WithMany()
                    .HasForeignKey(s => s.ShowId)
                    .OnDelete(DeleteBehavior.Restrict); // 保护机制：删除 SHOW 时阻止直接级联删场次，避免数据灾难
+            builder.ConfigureAuditableEntity();
         }
     }
 }

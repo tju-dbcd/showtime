@@ -72,6 +72,7 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .WithMany(c => c.Children)
                    .HasForeignKey(c => c.ParentId)
                    .OnDelete(DeleteBehavior.Restrict); // 删除父分类时，阻止直接级联删除子分类，保护分类树安全
+            builder.ConfigureAuditableEntity();
         }
     }
 }
