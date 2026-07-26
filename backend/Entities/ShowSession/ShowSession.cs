@@ -1,9 +1,8 @@
-namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
+//namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
 
 using ShowtimeBackend.Entities.Base;
 
-namespace ShowSession
-{
+namespace ShowtimeBackend.Entities{
     /// <summary>
     /// 演出场次实体
     /// </summary>
@@ -48,30 +47,6 @@ namespace ShowSession
         /// 状态：UPCOMING-待售，PRESALE-预售，ONSALE-在售，SOLD_OUT-售罄，ENDED-已结束
         /// </summary>
         public string SessionStatus { get; set; } = "UPCOMING";
-
-        #region 审计字段
-
-        /// <summary>
-        /// 创建时间
-        /// </summary>
-        public DateTime CreateTime { get; set; }
-
-        /// <summary>
-        /// 更新时间
-        /// </summary>
-        public DateTime UpdateTime { get; set; }
-
-        /// <summary>
-        /// 创建人
-        /// </summary>
-        public string? CreateBy { get; set; }
-
-        /// <summary>
-        /// 修改人
-        /// </summary>
-        public string? UpdateBy { get; set; }
-
-        #endregion
 
         #region 导航属性 (Navigation Properties)
 

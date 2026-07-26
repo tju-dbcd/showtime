@@ -1,4 +1,4 @@
-namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
+//namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
 
 using ShowtimeBackend.Entities.Base;
 
@@ -8,7 +8,8 @@ using ShowtimeBackend.Entities.Base;
 /// <remarks>
 /// 没有审计字段仅作为一个关联表使用不需要继承自AuditableEntity
 /// </remarks>>
-namespace ShowTag {
+namespace ShowtimeBackend.Entities
+{
     public class ShowTag 
     {
         /// <summary>
@@ -19,7 +20,7 @@ namespace ShowTag {
         /// <summary>
         /// 演出 ID，外键 SHOW.SHOW_ID
         /// </summary>
-        public string ShowId { get; set; } = string.Empty;
+        public long ShowId { get; set; }
 
         /// <summary>
         /// 标签 ID，外键 TAG.TAG_ID

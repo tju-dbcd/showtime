@@ -1,14 +1,14 @@
-namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
+//namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
 
 using ShowtimeBackend.Entities.Base;
 
-namespace PurchaseLimit {
+namespace ShowtimeBackend.Entities
+{
     /// <summary>
     /// 演出购买限制实体
     /// </summary>
     public class PurchaseLimit : AuditableEntity
     {
-        {
         /// <summary>
         /// 限购策略唯一标识，主键，自增
         /// </summary>
@@ -74,7 +74,7 @@ namespace PurchaseLimit {
         /// <summary>
         /// 关联场次导航属性
         /// </summary>
-        public virtual Session? Session { get; set; }
+        public virtual ShowSession? Session { get; set; }
 
         #endregion
     }

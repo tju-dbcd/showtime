@@ -1,8 +1,8 @@
-namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
+//namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
 
 using global::ShowtimeBackend.Entities.Base;
 
-namespace Tag
+namespace ShowtimeBackend.Entities
 {
     /// <summary>
     /// 标签信息实体
@@ -29,28 +29,5 @@ namespace Tag
         /// </summary>
         public int Status { get; set; } = 1;
 
-        #region 审计字段
-
-        /// <summary>
-        /// 创建时间
-        /// </summary>
-        public DateTime CreateTime { get; set; }
-
-        /// <summary>
-        /// 更新时间
-        /// </summary>
-        public DateTime UpdateTime { get; set; }
-
-        /// <summary>
-        /// 创建人
-        /// </summary>
-        public string? CreateBy { get; set; }
-
-        /// <summary>
-        /// 修改人
-        /// </summary>
-        public string? UpdateBy { get; set; }
-
-        #endregion
     }
 }

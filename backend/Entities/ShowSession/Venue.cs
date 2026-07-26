@@ -1,9 +1,8 @@
-namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
+//namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
 
 using ShowtimeBackend.Entities.Base;
 
-
-namespace Venue
+namespace ShowtimeBackend.Entities
 {
 	/// <summary>
 	/// 场馆信息实体

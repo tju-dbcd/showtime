@@ -1,8 +1,8 @@
-namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
+//namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
 
 using ShowtimeBackend.Entities.Base;
 
-namespace Price_Strategy
+namespace ShowtimeBackend.Entities
 {
 	/// <summary>
 	/// 票价策略实体
@@ -69,12 +69,13 @@ namespace Price_Strategy
 		/// <summary>
 		/// 所属场次导航属性
 		/// </summary>
-		public virtual Session? Session { get; set; }
+		public virtual ShowSession? Session { get; set; }
 
-		/// <summary>
-		/// 适用座位区域导航属性
-		/// </summary>
-		public virtual SeatSection? SeatSection { get; set; }
+        /// <summary>
+        /// TODO: 等其他小组合并 SeatSection 实体后解封
+        /// 适用座位区域导航属性
+        /// </summary>
+        //public virtual SeatSection? SeatSection { get; set; }
 
 		#endregion
 	}

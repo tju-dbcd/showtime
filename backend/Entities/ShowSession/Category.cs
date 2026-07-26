@@ -1,8 +1,8 @@
-namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
+//namespace ShowtimeBackend.Entities.Session // 由base派生出session类管理演出场次相关数据
 
 using ShowtimeBackend.Entities.Base;
 
-namespace Category
+namespace ShowtimeBackend.Entities
 {
     /// <summary>
     /// 演出分类实体（支持无限级树形分类）
@@ -34,30 +34,8 @@ namespace Category
         /// </summary>
         public int Status { get; set; } = 1;
 
-        #region 审计字段
 
-        /// <summary>
-        /// 创建时间
-        /// </summary>
-        public DateTime CreateTime { get; set; }
-
-        /// <summary>
-        /// 更新时间
-        /// </summary>
-        public DateTime UpdateTime { get; set; }
-
-        /// <summary>
-        /// 创建人
-        /// </summary>
-        public string? CreateBy { get; set; }
-
-        /// <summary>
-        /// 修改人
-        /// </summary>
-        public string? UpdateBy { get; set; }
-
-        #endregion
-
+        
         #region 自关联导航属性 (Tree Navigation Properties)
 
         /// <summary>
