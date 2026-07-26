@@ -2,7 +2,7 @@
 
 using ShowtimeBackend.Entities.Base;
 
-namespace ShowtimeBackend.Entities
+namespace ShowtimeBackend.Entities.ShowSessions
 {
 	/// <summary>
 	/// 场馆信息实体

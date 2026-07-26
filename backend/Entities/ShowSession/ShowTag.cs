@@ -8,7 +8,7 @@ using ShowtimeBackend.Entities.Base;
 /// <remarks>
 /// 没有审计字段仅作为一个关联表使用不需要继承自AuditableEntity
 /// </remarks>>
-namespace ShowtimeBackend.Entities
+namespace ShowtimeBackend.Entities.ShowSessions
 {
     public class ShowTag 
     {

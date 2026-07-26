@@ -2,7 +2,7 @@
 
 using ShowtimeBackend.Entities.Base;
 
-namespace ShowtimeBackend.Entities
+namespace ShowtimeBackend.Entities.ShowSessions
 {
     /// <summary>
     /// 演出购买限制实体

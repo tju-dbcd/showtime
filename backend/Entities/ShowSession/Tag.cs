@@ -2,7 +2,7 @@
 
 using global::ShowtimeBackend.Entities.Base;
 
-namespace ShowtimeBackend.Entities
+namespace ShowtimeBackend.Entities.ShowSessions
 {
     /// <summary>
     /// 标签信息实体

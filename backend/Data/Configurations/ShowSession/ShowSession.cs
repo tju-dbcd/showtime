@@ -1,12 +1,12 @@
-using ShowtimeBackend.Entities;
+using ShowtimeBackend.Entities.ShowSessions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace ShowtimeBackend.Data.Configurations
+namespace ShowtimeBackend.Data.Configurations.ShowSessions
 {
-    public class ShowSessionConfiguration : IEntityTypeConfiguration<ShowtimeBackend.Entities.ShowSession>
+    public class ShowSessionConfiguration : IEntityTypeConfiguration<ShowtimeBackend.Entities.ShowSessions.ShowSession>
     {
-        public void Configure(EntityTypeBuilder<ShowtimeBackend.Entities.ShowSession> builder)
+        public void Configure(EntityTypeBuilder<ShowtimeBackend.Entities.ShowSessions.ShowSession> builder)
         {
             // 映射表名
             builder.ToTable("SHOW_SESSION");

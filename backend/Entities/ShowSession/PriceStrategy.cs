@@ -2,7 +2,7 @@
 
 using ShowtimeBackend.Entities.Base;
 
-namespace ShowtimeBackend.Entities
+namespace ShowtimeBackend.Entities.ShowSessions
 {
 	/// <summary>
 	/// 票价策略实体

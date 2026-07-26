@@ -1,8 +1,8 @@
-using ShowtimeBackend.Entities;
+using ShowtimeBackend.Entities.ShowSessions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace ShowtimeBackend.Data.Configurations
+namespace ShowtimeBackend.Data.Configurations.ShowSessions
 {
     public class CategoryConfiguration : IEntityTypeConfiguration<Category>
     {
