@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using ShowtimeBackend.Entities.ShowSessions;
+using ShowtimeBackend.Entities.ShowSession;
 
-namespace ShowtimeBackend.Data.Configurations.ShowSessions
+namespace ShowtimeBackend.Data.Configurations.ShowSession
 {
     public class CategoryConfiguration : IEntityTypeConfiguration<Category>
     {
@@ -56,6 +56,10 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .HasForeignKey(x => x.ParentId)
                    .HasConstraintName("FK_CATEGORY_PARENT")
                    .OnDelete(DeleteBehavior.Restrict); // 避免删父级时产生级联删除
+
+            // 查询索引 (IDX_CATEGORY_PARENT) - 与 DDL 命名对齐，显式抑制 EF 默认 IX_CATEGORY_PARENT_ID
+            builder.HasIndex(x => x.ParentId)
+                   .HasDatabaseName("IDX_CATEGORY_PARENT");
 
             // 审计字段映射 (AuditableEntity)
             builder.ConfigureAuditableEntity();

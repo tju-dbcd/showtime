@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using ShowtimeBackend.Entities.ShowSessions;
+using ShowtimeBackend.Entities.ShowSession;
 
-namespace ShowtimeBackend.Data.Configurations.ShowSessions
+namespace ShowtimeBackend.Data.Configurations.ShowSession
 {
     public class ShowTagConfiguration : IEntityTypeConfiguration<ShowTag>
     {
@@ -34,15 +34,22 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .IsUnique()
                    .HasDatabaseName("UK_SHOW_TAG");
 
+            // 单列查询索引 (IDX_SHOW_TAG_TAG)
+            // 显式声明 FK 列索引与 DDL 命名一致，同时抑制 EF 默认 IX_SHOW_TAG_TAG_ID 自动索引
+            builder.HasIndex(x => x.TagId)
+                   .HasDatabaseName("IDX_SHOW_TAG_TAG");
+
             // 外键与级联删除配置 (FK_SHOW_TAG_SHOW & FK_SHOW_TAG_TAG)
+            // 显式指定 inverse 导航集合，否则 EF 会因 Show.ShowTags / Tag.ShowTags 已存在
+            // 而误判为另一条关系，自动生成影子 FK 列 ShowId1 / TagId1。
             builder.HasOne(x => x.Show)
-                   .WithMany()
+                   .WithMany(x => x.ShowTags)
                    .HasForeignKey(x => x.ShowId)
                    .HasConstraintName("FK_SHOW_TAG_SHOW")
                    .OnDelete(DeleteBehavior.Cascade); // 对应 ON DELETE CASCADE
 
             builder.HasOne(x => x.Tag)
-                   .WithMany()
+                   .WithMany(x => x.ShowTags)
                    .HasForeignKey(x => x.TagId)
                    .HasConstraintName("FK_SHOW_TAG_TAG")
                    .OnDelete(DeleteBehavior.Cascade); // 对应 ON DELETE CASCADE

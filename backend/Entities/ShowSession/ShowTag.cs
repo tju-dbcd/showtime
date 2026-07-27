@@ -1,4 +1,4 @@
-namespace ShowtimeBackend.Entities.ShowSessions
+namespace ShowtimeBackend.Entities.ShowSession
 {
     /// <summary>
     /// 演出标签关联实体（中间表）

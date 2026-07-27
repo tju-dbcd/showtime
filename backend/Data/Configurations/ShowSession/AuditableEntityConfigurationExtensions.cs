@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using ShowtimeBackend.Entities.Base;
 
-namespace ShowtimeBackend.Data.Configurations.ShowSessions;
+namespace ShowtimeBackend.Data.Configurations.ShowSession;
 
 internal static class AuditableEntityConfigurationExtensions
 {

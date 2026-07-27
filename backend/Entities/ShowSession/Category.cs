@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using ShowtimeBackend.Entities.Base;
 
-namespace ShowtimeBackend.Entities.ShowSessions
+namespace ShowtimeBackend.Entities.ShowSession
 {
     /// <summary>
     /// 分类实体（支持父子层级结构）

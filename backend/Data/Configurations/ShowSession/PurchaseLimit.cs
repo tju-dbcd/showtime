@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using ShowtimeBackend.Entities.ShowSessions;
+using ShowtimeBackend.Entities.ShowSession;
 
-namespace ShowtimeBackend.Data.Configurations.ShowSessions
+namespace ShowtimeBackend.Data.Configurations.ShowSession
 {
     public class PurchaseLimitConfiguration : IEntityTypeConfiguration<PurchaseLimit>
     {
@@ -94,6 +94,13 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .HasForeignKey(x => x.SessionId)
                    .HasConstraintName("FK_LIMIT_SESSION")
                    .IsRequired(false);
+
+            // 查询索引 (与 DDL 命名对齐, 同时显式抑制 EF 默认 IX 自动索引)
+            // IDX_LIMIT_SHOW / IDX_LIMIT_SESSION
+            builder.HasIndex(x => x.ShowId)
+                   .HasDatabaseName("IDX_LIMIT_SHOW");
+            builder.HasIndex(x => x.SessionId)
+                   .HasDatabaseName("IDX_LIMIT_SESSION");
 
             // 审计字段映射 (AuditableEntity)
             builder.ConfigureAuditableEntity();
