@@ -3,8 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using Bogus;
 using Microsoft.EntityFrameworkCore;
+using ShowtimeBackend.Data;
+using ShowtimeBackend.Entities.ShowSession;
+using ShowtimeBackend.Entities.SeatZone;
 
-namespace ShowTick.Tests.DataGenerator
+namespace ShowtimeBackend.TestData
 {
     public class TestDataGenerator
     {
@@ -34,67 +37,67 @@ namespace ShowTick.Tests.DataGenerator
                 var categories = GenerateCategories();
                 _context.Set<Category>().AddRange(categories);
                 _context.SaveChanges();
-                Console.WriteLine($"  [1/9] Generated {categories.Count} categories");
+                Console.WriteLine($"  [1/10] Generated {categories.Count} categories");
 
                 // 2. 生成标签
                 var tags = GenerateTags();
                 _context.Set<Tag>().AddRange(tags);
                 _context.SaveChanges();
-                Console.WriteLine($"  [2/9] Generated {tags.Count} tags");
+                Console.WriteLine($"  [2/10] Generated {tags.Count} tags");
 
                 // 3. 生成场馆
                 var venues = GenerateVenues();
                 _context.Set<Venue>().AddRange(venues);
                 _context.SaveChanges();
-                Console.WriteLine($"  [3/9] Generated {venues.Count} venues");
+                Console.WriteLine($"  [3/10] Generated {venues.Count} venues");
 
                 // 4. 生成座位图
                 var seatMaps = GenerateSeatMaps(venues);
                 _context.Set<SeatMap>().AddRange(seatMaps);
                 _context.SaveChanges();
-                Console.WriteLine($"  [4/9] Generated {seatMaps.Count} seat maps");
+                Console.WriteLine($"  [4/10] Generated {seatMaps.Count} seat maps");
 
                 // 5. 生成座位区域
                 var seatSections = GenerateSeatSections(seatMaps);
                 _context.Set<SeatSection>().AddRange(seatSections);
                 _context.SaveChanges();
-                Console.WriteLine($"  [5/9] Generated {seatSections.Count} seat sections");
+                Console.WriteLine($"  [5/10] Generated {seatSections.Count} seat sections");
 
-                // 6. 生成演出
+                // 6. 生成座位
+                var seats = GenerateSeats(seatSections);
+                _context.Set<Seat>().AddRange(seats);
+                _context.SaveChanges();
+                Console.WriteLine($"  [6/10] Generated {seats.Count} seats");
+
+                // 7. 生成演出
                 var shows = GenerateShows(categories);
                 _context.Set<Show>().AddRange(shows);
                 _context.SaveChanges();
-                Console.WriteLine($"  [6/9] Generated {shows.Count} shows");
+                Console.WriteLine($"  [7/10] Generated {shows.Count} shows");
 
-                // 7. 生成演出标签关联
+                // 8. 生成演出标签关联
                 var showTags = GenerateShowTags(shows, tags);
                 _context.Set<ShowTag>().AddRange(showTags);
                 _context.SaveChanges();
-                Console.WriteLine($"  [7/9] Generated {showTags.Count} show-tag associations");
+                Console.WriteLine($"  [8/10] Generated {showTags.Count} show-tag associations");
 
-                // 8. 生成场次
-                var sessions = GenerateSessions(shows, seatMaps);
-                _context.Set<Session>().AddRange(sessions);
+                // 9. 生成场次
+                var showSessions = GenerateShowSessions(shows, seatMaps);
+                _context.Set<ShowSession>().AddRange(showSessions);
                 _context.SaveChanges();
-                Console.WriteLine($"  [8/9] Generated {sessions.Count} sessions");
+                Console.WriteLine($"  [9/10] Generated {showSessions.Count} show sessions");
 
-                // 9. 生成票价策略
-                var priceStrategies = GeneratePriceStrategies(sessions, seatSections);
+                // 10. 生成票价策略
+                var priceStrategies = GeneratePriceStrategies(showSessions, seatSections);
                 _context.Set<PriceStrategy>().AddRange(priceStrategies);
                 _context.SaveChanges();
-                Console.WriteLine($"  [9/9] Generated {priceStrategies.Count} price strategies");
+                Console.WriteLine($"  [10/11] Generated {priceStrategies.Count} price strategies");
 
-                // 10. 生成限购策略
-                var purchaseLimits = GeneratePurchaseLimits(shows, sessions);
+                // 11. 生成限购策略
+                var purchaseLimits = GeneratePurchaseLimits(shows, showSessions);
                 _context.Set<PurchaseLimit>().AddRange(purchaseLimits);
                 _context.SaveChanges();
-                Console.WriteLine($"  [10/10] Generated {purchaseLimits.Count} purchase limits");
-
-                // 11. 生成营销内容
-                var marketingContents = GenerateMarketingContents(shows);
-                _context.Set<MarketingContent>().AddRange(marketingContents);
-                _context.SaveChanges();
-                Console.WriteLine($"  [11/11] Generated {marketingContents.Count} marketing contents");
+                Console.WriteLine($"  [11/11] Generated {purchaseLimits.Count} purchase limits");
 
                 transaction.Commit();
 
@@ -115,20 +118,14 @@ namespace ShowTick.Tests.DataGenerator
         {
             var categoryNames = new[]
             {
-                ("话剧", null),
-                ("音乐剧", null),
-                ("演唱会", null),
-                ("舞蹈", null),
-                ("戏曲", null),
-                ("儿童剧", null),
-                ("音乐会", null),
-                ("脱口秀", null)
+                "话剧", "音乐剧", "演唱会", "舞蹈",
+                "戏曲", "儿童剧", "音乐会", "脱口秀"
             };
 
             var categories = new List<Category>();
             int order = 0;
 
-            foreach (var (name, parent) in categoryNames)
+            foreach (var name in categoryNames)
             {
                 categories.Add(new Category
                 {
@@ -186,7 +183,10 @@ namespace ShowTick.Tests.DataGenerator
             };
 
             var venues = new List<Venue>();
-            foreach (var (name, address, phone) in venueData.Take(_random.Next(4, 7)))
+            int venueCount = _random.Next(4, Math.Min(7, venueData.Length + 1));
+            var selectedVenues = venueData.OrderBy(x => Guid.NewGuid()).Take(venueCount);
+
+            foreach (var (name, address, phone) in selectedVenues)
             {
                 venues.Add(new Venue
                 {
@@ -203,10 +203,12 @@ namespace ShowTick.Tests.DataGenerator
         private List<SeatMap> GenerateSeatMaps(List<Venue> venues)
         {
             var seatMaps = new List<SeatMap>();
-            foreach (var venue in venues.Take(_random.Next(3, 6)))
+            int mapCount = Math.Min(_random.Next(3, 6), venues.Count);
+
+            foreach (var venue in venues.Take(mapCount))
             {
-                int mapCount = _random.Next(1, 3);
-                for (int i = 0; i < mapCount; i++)
+                int mapsPerVenue = _random.Next(1, 3);
+                for (int i = 0; i < mapsPerVenue; i++)
                 {
                     int rows = _random.Next(10, 20);
                     int cols = _random.Next(10, 15);
@@ -221,7 +223,7 @@ namespace ShowTick.Tests.DataGenerator
                 }
             }
 
-            if (seatMaps.Count == 0)
+            if (seatMaps.Count == 0 && venues.Any())
             {
                 seatMaps.Add(new SeatMap
                 {
@@ -251,9 +253,8 @@ namespace ShowTick.Tests.DataGenerator
 
             foreach (var seatMap in seatMaps)
             {
-                int sectionCount = _random.Next(3, 6);
+                int sectionCount = _random.Next(3, Math.Min(6, seatMap.RowCount / 2 + 1));
                 int rowsPerSection = seatMap.RowCount / sectionCount;
-                int colsPerSection = seatMap.ColCount / Math.Min(sectionCount, 3);
 
                 for (int i = 0; i < sectionCount && i < sectionConfigs.Length; i++)
                 {
@@ -262,25 +263,26 @@ namespace ShowTick.Tests.DataGenerator
                     int rowStart = (i * rowsPerSection) + 1;
                     int rowEnd = (i == sectionCount - 1) ? seatMap.RowCount : (i + 1) * rowsPerSection;
 
-                    int colStart = (i % 3) * colsPerSection + 1;
-                    int colEnd = (i % 3 == 2 || i == sectionCount - 1) ? seatMap.ColCount : (i % 3 + 1) * colsPerSection;
+                    int colStart = 1;
+                    int colEnd = seatMap.ColCount;
+
+                    if (rowStart > seatMap.RowCount) continue;
 
                     sections.Add(new SeatSection
                     {
                         SeatMapId = seatMap.SeatMapId,
                         SectionName = name,
                         SectionCode = $"{(char)('A' + i)}",
-                        RowStart = Math.Min(rowStart, seatMap.RowCount),
+                        RowStart = rowStart,
                         RowEnd = Math.Min(rowEnd, seatMap.RowCount),
-                        ColStart = Math.Min(colStart, seatMap.ColCount),
-                        ColEnd = Math.Min(colEnd, seatMap.ColCount),
+                        ColStart = colStart,
+                        ColEnd = colEnd,
                         Color = color,
-                        PriceFactor = factor + (decimal)(_random.NextDouble() * 0.2 - 0.1),
+                        PriceFactor = Math.Round(factor + (decimal)(_random.NextDouble() * 0.2 - 0.1), 2),
                         Status = "ENABLED"
                     });
                 }
 
-                // 确保每个座位图至少有一个区域
                 if (!sections.Any(s => s.SeatMapId == seatMap.SeatMapId))
                 {
                     sections.Add(new SeatSection
@@ -299,6 +301,39 @@ namespace ShowTick.Tests.DataGenerator
                 }
             }
             return sections;
+        }
+
+        private List<Seat> GenerateSeats(List<SeatSection> seatSections)
+        {
+            var seats = new List<Seat>();
+            int totalSeatsGenerated = 0;
+            int targetSeats = SHOW_COUNT * MAX_SESSIONS * SEATS_PER_SESSION;
+
+            foreach (var section in seatSections)
+            {
+                int totalRows = section.RowEnd - section.RowStart + 1;
+                int totalCols = section.ColEnd - section.ColStart + 1;
+
+                for (int row = section.RowStart; row <= section.RowEnd; row++)
+                {
+                    for (int col = section.ColStart; col <= section.ColEnd; col++)
+                    {
+                        string seatNumber = $"{(char)('A' + row - 1)}{col}";
+                        seats.Add(new Seat
+                        {
+                            SeatSectionId = section.SeatSectionId,
+                            SeatNumber = seatNumber,
+                            RowNumber = row,
+                            ColNumber = col,
+                            Status = _random.Next(0, 5) == 0 ? "DISABLED" : "ENABLED"
+                        });
+                        totalSeatsGenerated++;
+                    }
+                }
+            }
+
+            Console.WriteLine($"  Generated {totalSeatsGenerated} seats across all sections");
+            return seats;
         }
 
         private List<Show> GenerateShows(List<Category> categories)
@@ -327,7 +362,7 @@ namespace ShowTick.Tests.DataGenerator
                     ShowName = shuffledNames[i % shuffledNames.Count],
                     CategoryId = category.CategoryId,
                     Description = $"{shuffledNames[i % shuffledNames.Count]} - 精彩演出，不容错过！" +
-                                 $"这是一部{faker.Lorem.Sentence(10)}。",
+                                 $"{_faker.Lorem.Sentence(10)}",
                     DurationMinutes = new[] { 90, 120, 150, 180, 210 }[_random.Next(5)],
                     PosterUrl = $"https://posters.example.com/show_{i + 1}_{Guid.NewGuid():N}.jpg",
                     Status = statuses[_random.Next(statuses.Length)],
@@ -366,15 +401,16 @@ namespace ShowTick.Tests.DataGenerator
             return showTags;
         }
 
-        private List<Session> GenerateSessions(List<Show> shows, List<SeatMap> seatMaps)
+        private List<ShowSession> GenerateShowSessions(List<Show> shows, List<SeatMap> seatMaps)
         {
-            var sessions = new List<Session>();
+            var showSessions = new List<ShowSession>();
             var statuses = new[] { "UPCOMING", "PRESALE", "ONSALE", "ONSALE", "SOLD_OUT", "ENDED" };
 
             foreach (var show in shows)
             {
                 int sessionCount = _random.Next(MIN_SESSIONS, MAX_SESSIONS + 1);
-                var availableSeatMaps = seatMaps.OrderBy(x => Guid.NewGuid()).Take(Math.Min(2, seatMaps.Count)).ToList();
+                var availableSeatMaps = seatMaps.OrderBy(x => Guid.NewGuid())
+                    .Take(Math.Min(2, seatMaps.Count)).ToList();
 
                 if (!availableSeatMaps.Any()) continue;
 
@@ -384,12 +420,10 @@ namespace ShowTick.Tests.DataGenerator
 
                     if (_random.Next(0, 2) == 0)
                     {
-                        // 过去或现在的场次
                         baseDate = DateTime.Now.AddDays(_random.Next(-30, 10));
                     }
                     else
                     {
-                        // 未来的场次
                         baseDate = DateTime.Now.AddDays(_random.Next(10, 90));
                     }
 
@@ -402,7 +436,7 @@ namespace ShowTick.Tests.DataGenerator
 
                     var seatMap = availableSeatMaps[_random.Next(availableSeatMaps.Count)];
 
-                    sessions.Add(new Session
+                    showSessions.Add(new ShowSession
                     {
                         ShowId = show.ShowId,
                         SeatMapId = seatMap.SeatMapId,
@@ -414,10 +448,10 @@ namespace ShowTick.Tests.DataGenerator
                     });
                 }
             }
-            return sessions;
+            return showSessions;
         }
 
-        private List<PriceStrategy> GeneratePriceStrategies(List<Session> sessions, List<SeatSection> seatSections)
+        private List<PriceStrategy> GeneratePriceStrategies(List<ShowSession> showSessions, List<SeatSection> seatSections)
         {
             var strategies = new List<PriceStrategy>();
             var priceTypes = new[] { "EARLY_BIRD", "PRESALE", "STANDARD", "VIP", "MEMBER" };
@@ -430,7 +464,7 @@ namespace ShowTick.Tests.DataGenerator
                 { "MEMBER", "会员票" }
             };
 
-            foreach (var session in sessions)
+            foreach (var session in showSessions)
             {
                 var sections = seatSections.Where(s => s.SeatMapId == session.SeatMapId).ToList();
                 if (!sections.Any()) continue;
@@ -474,15 +508,14 @@ namespace ShowTick.Tests.DataGenerator
             return strategies;
         }
 
-        private List<PurchaseLimit> GeneratePurchaseLimits(List<Show> shows, List<Session> sessions)
+        private List<PurchaseLimit> GeneratePurchaseLimits(List<Show> shows, List<ShowSession> showSessions)
         {
             var limits = new List<PurchaseLimit>();
             var channels = new[] { "WEB", "APP", "MINI_PROGRAM", null };
             var userTypes = new[] { "NORMAL", "MEMBER", "VIP", null };
             var limitTypes = new[] { "TICKET", "ORDER" };
 
-            // 演出级别限购 (5个)
-            foreach (var show in shows.Take(5))
+            foreach (var show in shows.Take(Math.Min(5, shows.Count)))
             {
                 limits.Add(new PurchaseLimit
                 {
@@ -499,8 +532,7 @@ namespace ShowTick.Tests.DataGenerator
                 });
             }
 
-            // 场次级别限购 (10个)
-            foreach (var session in sessions.OrderBy(x => Guid.NewGuid()).Take(10))
+            foreach (var session in showSessions.OrderBy(x => Guid.NewGuid()).Take(Math.Min(10, showSessions.Count)))
             {
                 limits.Add(new PurchaseLimit
                 {
@@ -520,36 +552,6 @@ namespace ShowTick.Tests.DataGenerator
             return limits;
         }
 
-        private List<MarketingContent> GenerateMarketingContents(List<Show> shows)
-        {
-            var contents = new List<MarketingContent>();
-            var contentTypes = new[] { "NOTICE", "AD", "PROMOTION" };
-            var titles = new[] {
-                "火热开票", "限时优惠", "会员专享", "演出预告",
-                "精彩回顾", "加场通知", "票务提醒", "活动公告"
-            };
-
-            foreach (var show in shows.Take(_random.Next(5, 9)))
-            {
-                int contentCount = _random.Next(1, 4);
-                for (int i = 0; i < contentCount; i++)
-                {
-                    contents.Add(new MarketingContent
-                    {
-                        ShowId = show.ShowId,
-                        ContentType = contentTypes[_random.Next(contentTypes.Length)],
-                        Title = titles[_random.Next(titles.Length)] + $" - {show.ShowName}",
-                        ContentText = _faker.Lorem.Paragraphs(_random.Next(1, 3)),
-                        ImageUrl = _random.Next(0, 2) == 0 ? null : $"https://images.example.com/content_{Guid.NewGuid():N}.jpg",
-                        SortOrder = i,
-                        Status = _random.Next(0, 3) == 0 ? "DISABLED" : "ENABLED",
-                        PublishTime = _random.Next(0, 2) == 0 ? DateTime.Now.AddDays(-_random.Next(1, 30)) : (DateTime?)null
-                    });
-                }
-            }
-            return contents;
-        }
-
         #endregion
 
         #region Utility Methods
@@ -557,21 +559,20 @@ namespace ShowTick.Tests.DataGenerator
         private void PrintStatistics()
         {
             Console.WriteLine("\n=== Data Generation Statistics ===");
-            Console.WriteLine($"  CATEGORY:        {_context.Set<Category>().Count()}");
-            Console.WriteLine($"  TAG:             {_context.Set<Tag>().Count()}");
-            Console.WriteLine($"  VENUE:           {_context.Set<Venue>().Count()}");
-            Console.WriteLine($"  SEAT_MAP:        {_context.Set<SeatMap>().Count()}");
-            Console.WriteLine($"  SEAT_SECTION:    {_context.Set<SeatSection>().Count()}");
-            Console.WriteLine($"  SHOW:            {_context.Set<Show>().Count()}");
-            Console.WriteLine($"  SHOW_TAG:        {_context.Set<ShowTag>().Count()}");
-            Console.WriteLine($"  SESSION:         {_context.Set<Session>().Count()}");
-            Console.WriteLine($"  PRICE_STRATEGY:  {_context.Set<PriceStrategy>().Count()}");
-            Console.WriteLine($"  PURCHASE_LIMIT:  {_context.Set<PurchaseLimit>().Count()}");
-            Console.WriteLine($"  MARKETING_CONTENT: {_context.Set<MarketingContent>().Count()}");
-            Console.WriteLine("=====================================");
+            Console.WriteLine($"  CATEGORY:          {_context.Set<Category>().Count()}");
+            Console.WriteLine($"  TAG:               {_context.Set<Tag>().Count()}");
+            Console.WriteLine($"  VENUE:             {_context.Set<Venue>().Count()}");
+            Console.WriteLine($"  SEAT_MAP:          {_context.Set<SeatMap>().Count()}");
+            Console.WriteLine($"  SEAT_SECTION:      {_context.Set<SeatSection>().Count()}");
+            Console.WriteLine($"  SEAT:              {_context.Set<Seat>().Count()}");
+            Console.WriteLine($"  SHOW:              {_context.Set<Show>().Count()}");
+            Console.WriteLine($"  SHOW_TAG:          {_context.Set<ShowTag>().Count()}");
+            Console.WriteLine($"  SHOW_SESSION:      {_context.Set<ShowSession>().Count()}");
+            Console.WriteLine($"  PRICE_STRATEGY:    {_context.Set<PriceStrategy>().Count()}");
+            Console.WriteLine($"  PURCHASE_LIMIT:    {_context.Set<PurchaseLimit>().Count()}");
+            Console.WriteLine("================================================");
         }
 
         #endregion
     }
 }
-  
