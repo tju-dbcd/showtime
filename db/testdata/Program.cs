@@ -1,40 +1,3 @@
-# 测试数据生成工具
-
-## 1. 测试项目配置 TestDataGenerator.csproj
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Bogus" Version="35.6.1" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.9" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.9" />
-    <PackageReference Include="Oracle.EntityFrameworkCore" Version="10.23.26200" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\backend\ShowtimeBackend.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Update="appsettings.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
-</Project>
-
-```
-## 2. Program.cs运行入口示例
-```csharp
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using ShowtimeBackend.Data;
@@ -70,6 +33,9 @@ class Program
                 return;
             }
 
+            Console.WriteLine($"Database: {ExtractDbName(connectionString)}");
+            Console.WriteLine();
+
             var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
             optionsBuilder.UseOracle(connectionString);
 
@@ -101,6 +67,11 @@ class Program
             );
 
             generator.GenerateAllData();
+
+            Console.WriteLine();
+            Console.WriteLine("========================================");
+            Console.WriteLine("  Data generation completed!");
+            Console.WriteLine("========================================");
         }
         catch (Exception ex)
         {
@@ -127,20 +98,3 @@ class Program
         return "unknown";
     }
 }
-
-```
-## 3. appsettings.json 配置文件
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "User Id=your_user;Password=your_password;Data Source=//host:1521/XEPDB1"
-  },
-  "DataGeneration": {
-    "ShowCount": 10,
-    "MinSessionsPerShow": 3,
-    "MaxSessionsPerShow": 5,
-    "SeatsPerSession": 200,
-    "EnableDetailedLog": true
-  }
-}
-```
