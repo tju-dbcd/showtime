@@ -18,7 +18,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
+    <PackageReference Include="Oracle.EntityFrameworkCore" Version="10.23.26200" />
   </ItemGroup>
 
   <ItemGroup>
@@ -68,14 +68,14 @@ namespace ShowtimeBackend.TestDataRunner
                 {
                     Console.WriteLine("[ERROR] Connection string not found.");
                     Console.WriteLine("Usage: dotnet run [connection_string]");
-                    Console.WriteLine("Example: dotnet run \"Host=localhost;Database=showtime;Username=postgres;Password=123\"");
+                    Console.WriteLine("Example: dotnet run \"User Id=liborui;Password=liborui;Data Source=//120.27.157.163:1521/XEPDB1\"");
                     return;
                 }
 
                 Console.WriteLine($"Database: {ExtractDbName(connectionString)}");
 
                 var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
-                optionsBuilder.UseNpgsql(connectionString);
+                optionsBuilder.UseOracle(connectionString);
 
                 using var context = new AppDbContext(optionsBuilder.Options);
 
@@ -128,7 +128,7 @@ namespace ShowtimeBackend.TestDataRunner
             var parts = connectionString.Split(';');
             foreach (var part in parts)
             {
-                if (part.Trim().StartsWith("Database=", StringComparison.OrdinalIgnoreCase))
+                if (part.Trim().StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
                 {
                     return part.Split('=')[1].Trim();
                 }
@@ -143,7 +143,7 @@ namespace ShowtimeBackend.TestDataRunner
 ```json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Host=localhost;Database=showtime;Username=postgres;Password=yourpassword"
+    "DefaultConnection": "User Id=liborui;Password=liborui;Data Source=//120.27.157.163:1521/XEPDB1"
   },
   "DataGeneration": {
     "ShowCount": 10,
