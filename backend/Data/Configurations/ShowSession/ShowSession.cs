@@ -73,6 +73,14 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
 
             // 审计字段映射 (AuditableEntity)
             builder.ConfigureAuditableEntity();
+
+            // SHOW_ID, SESSION_STATUS, START_TIME 复合索引
+            builder.HasIndex(s => new { s.ShowId, s.SessionStatus, s.StartTime })
+                   .HasDatabaseName("IDX_SHOW_SESSION_SHOW_STATUS");
+
+            // 映射开售/停售状态扫描复合索引
+            builder.HasIndex(s => new { s.SaleStartTime, s.SaleEndTime, s.SessionStatus })
+                   .HasDatabaseName("IDX_SHOW_SESSION_SALE_TIME");
         }
     }
 }
