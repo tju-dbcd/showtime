@@ -1,4 +1,3 @@
-// src/pages/Search/index.tsx
 import { useState, useEffect } from 'react';
 import { Layout, Menu, Slider, Button, Input, Card, Row, Col, Typography, Checkbox, Divider } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';

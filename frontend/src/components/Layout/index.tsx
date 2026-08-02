@@ -1,10 +1,12 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Button } from 'antd';
+import { Button, Avatar } from 'antd';
+import { useUser } from '@/context/UserContext';
 import './Layout.css';
 
 const Layout = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useUser();
   const isLoggedIn = !!localStorage.getItem('token');
 
   return (
@@ -27,7 +29,7 @@ const Layout = () => {
             </span>
             <span
               className={location.pathname.startsWith('/performance/') ? 'active' : ''}
-              onClick={() => navigate('/search')}   // ← 点击跳转搜索页
+              onClick={() => navigate('/search')}
             >
               演出详情
             </span>
@@ -38,14 +40,18 @@ const Layout = () => {
               我的订单
             </span>
           </div>
-          {isLoggedIn ? (
-            <span style={{ color: 'white', cursor: 'pointer' }} onClick={() => {
-              localStorage.removeItem('token');
-              navigate('/login');
-            }}>退出</span>
-          ) : (
-            <Button type="primary" ghost onClick={() => navigate('/login')}>登录</Button>
-          )}
+          <div className="nav-right">
+            {isLoggedIn ? (
+              <div className="user-info" onClick={() => navigate('/usercenter')}>
+                <Avatar src={user.avatar} size={32} />
+                <span className="username">{user.nickname}</span>
+              </div>
+            ) : (
+              <Button type="primary" ghost onClick={() => navigate('/login')}>
+                登录
+              </Button>
+            )}
+          </div>
         </div>
       </header>
       <main className="layout-content">

@@ -8,6 +8,7 @@ import Order from '../pages/Order';
 import PerformanceDetail from '../pages/PerformanceDetail';
 import SeatSelection from '../pages/SeatSelection';
 import Search from '../pages/Search';
+import UserCenter from '../pages/UserCenter';
 // 管理端
 import AdminLayout from '../pages/admin/Layout';
 import Performance from '../pages/admin/Performance';
@@ -37,6 +38,10 @@ const router = createBrowserRouter([
   {
     path: '/register',
     element: <Register />,
+  },
+  {
+    path: '/usercenter',
+    element: <UserCenter />,
   },
 
   //管理端路由

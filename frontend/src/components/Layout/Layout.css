@@ -63,3 +63,28 @@
   margin-top: 64px;
   min-height: calc(100vh - 64px);
 }
+
+.nav-right {
+  display: flex;
+  align-items: center;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 4px 12px 4px 8px;
+  border-radius: 30px;
+  transition: background 0.3s;
+}
+
+.user-info:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.user-info .username {
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+}

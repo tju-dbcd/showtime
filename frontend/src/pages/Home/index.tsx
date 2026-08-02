@@ -1,4 +1,3 @@
-// src/pages/Home/index.tsx
 import { Card, Row, Col, Button, Input, Typography, Space } from 'antd';
 import { SearchOutlined, FireOutlined, CalendarOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
