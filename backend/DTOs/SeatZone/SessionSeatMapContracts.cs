@@ -1,4 +1,4 @@
-namespace ShowtimeBackend.Contracts.SeatZone;
+namespace ShowtimeBackend.DTOs.SeatZone;
 
 /// <summary>
 /// 用户端选座页使用的场次座位图快照，不包含审计、锁座和订单内部数据。

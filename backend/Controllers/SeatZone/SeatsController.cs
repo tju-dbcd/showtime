@@ -1,10 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
-using ShowtimeBackend.Contracts.Common;
-using ShowtimeBackend.Contracts.SeatZone;
+using ShowtimeBackend.DTOs;
+using ShowtimeBackend.DTOs.SeatZone;
 using ShowtimeBackend.Data;
-using ShowtimeBackend.Features.SeatZone.Services;
+using ShowtimeBackend.Services.SeatZone;
 
-namespace ShowtimeBackend.Controllers.Admin;
+namespace ShowtimeBackend.Controllers.SeatZone;
 
 /// <summary>
 /// 管理端单个座位维护接口；批量编辑留给后续座位图编辑器。

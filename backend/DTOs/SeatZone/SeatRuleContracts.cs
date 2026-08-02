@@ -1,4 +1,4 @@
-namespace ShowtimeBackend.Contracts.SeatZone;
+namespace ShowtimeBackend.DTOs.SeatZone;
 
 public sealed record SeatRuleRequest(
     string RuleCode,

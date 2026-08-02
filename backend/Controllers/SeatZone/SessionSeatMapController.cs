@@ -1,10 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
-using ShowtimeBackend.Contracts.Common;
-using ShowtimeBackend.Contracts.SeatZone;
+using ShowtimeBackend.DTOs;
+using ShowtimeBackend.DTOs.SeatZone;
 using ShowtimeBackend.Data;
-using ShowtimeBackend.Features.SeatZone.Services;
+using ShowtimeBackend.Services.SeatZone;
 
-namespace ShowtimeBackend.Controllers;
+namespace ShowtimeBackend.Controllers.SeatZone;
 
 /// <summary>
 /// 面向用户端选座页的只读座位图接口。

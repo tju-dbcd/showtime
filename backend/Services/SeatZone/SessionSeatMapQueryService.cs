@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
-using ShowtimeBackend.Contracts.SeatZone;
+using ShowtimeBackend.DTOs.SeatZone;
 using ShowtimeBackend.Data;
 
-namespace ShowtimeBackend.Features.SeatZone.Services;
+namespace ShowtimeBackend.Services.SeatZone;
 
 /// <summary>
 /// 组装用户端按场次读取的座位图快照；仅计算静态可售状态，不参与锁座。

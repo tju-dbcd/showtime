@@ -1,4 +1,4 @@
-namespace ShowtimeBackend.Contracts.Common;
+namespace ShowtimeBackend.DTOs;
 
 /// <summary>
 /// 单资源接口的统一成功响应外层，避免直接暴露实体对象。

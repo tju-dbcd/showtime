@@ -1,12 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Oracle.ManagedDataAccess.Client;
-using ShowtimeBackend.Contracts.Common;
-using ShowtimeBackend.Contracts.SeatZone;
+using ShowtimeBackend.DTOs;
+using ShowtimeBackend.DTOs.SeatZone;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 
-namespace ShowtimeBackend.Features.SeatZone.Services;
+namespace ShowtimeBackend.Services.SeatZone;
 
 public sealed record ServiceResult<T>(T? Data, int? StatusCode = null, string? Title = null, string? Detail = null)
 {
