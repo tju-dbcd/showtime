@@ -1,0 +1,181 @@
+/* ========== 首页容器 ========== */
+.home-container {
+  width: 100%;
+  min-height: 100vh;
+  background: #f5f5f5;
+}
+
+/* ========== 推荐海报区（全屏宽度） ========== */
+.hero-section {
+  margin-top: 64px;
+  width: 100%;
+  height: 400px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  background-size: cover;
+  background-blend-mode: overlay;
+  display: flex;
+  align-items: center;
+  padding-left: 10%;
+}
+
+.hero-content {
+  color: white;
+}
+
+.hero-content h1 {
+  font-size: 42px;
+  margin: 0 0 8px 0;
+  color: white;
+}
+
+.hero-content .hero-sub {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* ========== 自定义搜索框（完全控制高度，无多余边框） ========== */
+.search-wrapper {
+  display: flex;
+  justify-content: center;
+  transform: translateY(-28px);
+  padding: 0 20px;
+  z-index: 10;
+  position: relative;
+}
+
+.custom-search {
+  display: flex;
+  align-items: stretch;
+  width: 50%;
+  max-width: 600px;
+  min-width: 280px;
+  height: 48px;
+  border-radius: 30px;
+  overflow: hidden;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  background: #ffffff;
+  border: 1px solid #d9d9d9;
+  transition: border-color 0.3s;
+}
+
+.custom-search:hover,
+.custom-search:focus-within {
+  border-color: #ff4d4f;
+}
+
+.search-input-field {
+  flex: 1;
+  height: 100%;
+  padding: 0 16px 0 20px;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  background: transparent;
+  color: #333;
+  box-sizing: border-box;
+}
+
+.search-input-field::placeholder {
+  color: #bfbfbf;
+}
+
+.search-btn {
+  height: 100%;
+  width: 56px;
+  flex-shrink: 0;
+  border: none;
+  background: #ff4d4f;
+  color: white;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  padding: 0;
+}
+
+.search-btn:hover {
+  background: #ff7875;
+}
+
+/* ========== 内容区（左右带白边） ========== */
+.content-area {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 48px 48px;
+  box-sizing: border-box;
+}
+
+/* ========== 区域标题行 ========== */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 8px 0 20px;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.section-header .ant-btn-link {
+  font-size: 15px;
+  padding: 0;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #1890ff;
+  cursor: pointer;
+  font-size: 15px;
+  padding: 0;
+  transition: color 0.3s;
+}
+
+.link-btn:hover {
+  color: #40a9ff;
+}
+
+/* ========== 响应式适配 ========== */
+@media (max-width: 1024px) {
+  .hero-section {
+    height: 320px;
+    padding-left: 6%;
+  }
+  .hero-content h1 {
+    font-size: 28px;
+  }
+  .content-area {
+    padding: 0 24px 32px;
+  }
+  .search-input {
+    width: 70%;
+  }
+}
+
+@media (max-width: 768px) {
+  .hero-section {
+    height: 240px;
+    padding-left: 4%;
+  }
+  .hero-content h1 {
+    font-size: 20px;
+  }
+  .hero-content .hero-sub {
+    font-size: 14px;
+  }
+  .content-area {
+    padding: 0 16px 24px;
+  }
+  .search-input {
+    width: 90%;
+    min-width: unset;
+  }
+  .section-header h3 {
+    font-size: 18px;
+  }
+}

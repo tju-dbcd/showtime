@@ -52,7 +52,7 @@ const Register = () => {
             <Input prefix={<UserOutlined />} placeholder="用户名" />
           </Form.Item>
 
-          {/* 邮箱（可选，但加上显得更真实） */}
+          {/* 邮箱（可选） */}
           <Form.Item
             name="email"
             rules={[{ type: 'email', message: '请输入有效的邮箱地址' }]}
