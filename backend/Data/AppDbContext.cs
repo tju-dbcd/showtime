@@ -8,6 +8,10 @@ public class AppDbContext : DbContext
     {
     }
 
+    protected AppDbContext(DbContextOptions options) : base(options)
+    {
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("APP_OWNER");
