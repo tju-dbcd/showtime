@@ -1,5 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom'
 import Home from '../pages/Home'
+import Login from '../pages/Login'        // 新增
+import Register from '../pages/Register'  // 新增
 import Order from '../pages/Order'
 import PerformanceDetail from '../pages/PerformanceDetail'
 // 下面这几行是新增的
@@ -15,6 +17,16 @@ const router = createBrowserRouter([
     path: '/',
     element: <Home />,
   },
+  //用户端新增
+    {
+    path: '/login',
+    element: <Login />,
+  },
+  {
+    path: '/register',
+    element: <Register />,
+  },
+  //用户端新增结束
   {
     path: '/order',
     element: <Order />,
