@@ -1,12 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using ShowtimeBackend.Entities.ShowSessions;
+using ShowtimeBackend.Entities.ShowSession;
 
-namespace ShowtimeBackend.Data.Configurations.ShowSessions
+namespace ShowtimeBackend.Data.Configurations.ShowSession
 {
-    public class ShowSessionConfiguration : IEntityTypeConfiguration<Entities.ShowSessions.ShowSession>
+    public class ShowSessionConfiguration : IEntityTypeConfiguration<Entities.ShowSession.ShowSession>
     {
-        public void Configure(EntityTypeBuilder<Entities.ShowSessions.ShowSession> builder)
+        public void Configure(EntityTypeBuilder<Entities.ShowSession.ShowSession> builder)
         {
             //  表名与 2 项 CHECK 约束（状态与时间区间校验）
             builder.ToTable("SHOW_SESSION", t =>
@@ -66,10 +66,29 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .HasForeignKey(x => x.ShowId)
                    .HasConstraintName("FK_SHOW_SESSION_SHOW");
 
+            // TODO(PR #5 依赖): SeatMap 实体目前位于 Feature/SeatZoneMapping 分支，合并入 Develop 后启用：
+            //   builder.HasOne<SeatMap>()
+            //          .WithMany()
+            //          .HasForeignKey(x => x.SeatMapId)
+            //          .HasConstraintName("FK_SHOW_SESSION_SEAT_MAP")
+            //          .OnDelete(DeleteBehavior.Restrict);
+            // 当前 SeatMap 类型在本分支不可见，保持注释以避免编译错误；索引见下方已就绪。
             //builder.HasOne(x => x.SeatMap)
             //       .WithMany()
             //       .HasForeignKey(x => x.SeatMapId)
             //       .HasConstraintName("FK_SHOW_SESSION_SEAT_MAP");
+
+            // 查询索引 (与 DDL 命名 100% 对齐)
+            // IDX_SHOW_SESSION_SHOW / IDX_SHOW_SESSION_SEAT_MAP / IDX_SHOW_SESSION_STATUS / IDX_SHOW_SESSION_START
+            // 显式声明 FK 列索引名，抑制 EF 默认 IX_SHOW_SESSION_SHOW_ID 自动索引
+            builder.HasIndex(x => x.ShowId)
+                   .HasDatabaseName("IDX_SHOW_SESSION_SHOW");
+            builder.HasIndex(x => x.SeatMapId)
+                   .HasDatabaseName("IDX_SHOW_SESSION_SEAT_MAP");
+            builder.HasIndex(x => x.SessionStatus)
+                   .HasDatabaseName("IDX_SHOW_SESSION_STATUS");
+            builder.HasIndex(x => x.StartTime)
+                   .HasDatabaseName("IDX_SHOW_SESSION_START");
 
             // 审计字段映射 (AuditableEntity)
             builder.ConfigureAuditableEntity();

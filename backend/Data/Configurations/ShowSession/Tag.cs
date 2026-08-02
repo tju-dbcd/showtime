@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using ShowtimeBackend.Entities.ShowSessions;
+using ShowtimeBackend.Entities.ShowSession;
 
-namespace ShowtimeBackend.Data.Configurations.ShowSessions
+namespace ShowtimeBackend.Data.Configurations.ShowSession
 {
     public class TagConfiguration : IEntityTypeConfiguration<Tag>
     {

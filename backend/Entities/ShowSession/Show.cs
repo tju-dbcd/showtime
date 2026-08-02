@@ -1,7 +1,7 @@
 using System;
 using ShowtimeBackend.Entities.Base;
 
-namespace ShowtimeBackend.Entities.ShowSessions
+namespace ShowtimeBackend.Entities.ShowSession
 {
     /// <summary>
     /// 演出主体实体

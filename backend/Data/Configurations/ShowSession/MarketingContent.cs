@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using ShowtimeBackend.Entities.ShowSessions;
+using ShowtimeBackend.Entities.ShowSession;
 
-namespace ShowtimeBackend.Data.Configurations.ShowSessions
+namespace ShowtimeBackend.Data.Configurations.ShowSession
 {
     public class MarketingContentConfiguration : IEntityTypeConfiguration<MarketingContent>
     {
@@ -76,6 +76,13 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .WithMany()
                    .HasForeignKey(x => x.ShowId)
                    .HasConstraintName("FK_MARKETING_SHOW");
+
+            // 查询索引 (与 DDL 命名对齐, 同时显式抑制 EF 默认 IX 自动索引)
+            // IDX_MARKETING_SHOW / IDX_MARKETING_STATUS
+            builder.HasIndex(x => x.ShowId)
+                   .HasDatabaseName("IDX_MARKETING_SHOW");
+            builder.HasIndex(x => x.Status)
+                   .HasDatabaseName("IDX_MARKETING_STATUS");
 
             // 审计字段映射 (AuditableEntity)
             builder.ConfigureAuditableEntity();

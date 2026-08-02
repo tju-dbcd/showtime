@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using ShowtimeBackend.Entities.ShowSessions;
+using ShowtimeBackend.Entities.ShowSession;
 
-namespace ShowtimeBackend.Data.Configurations.ShowSessions
+namespace ShowtimeBackend.Data.Configurations.ShowSession
 {
     public class PriceStrategyConfiguration : IEntityTypeConfiguration<PriceStrategy>
     {
@@ -87,10 +87,25 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .HasForeignKey(x => x.SessionId)
                    .HasConstraintName("FK_PRICE_SESSION");
 
+            // TODO(PR #5 依赖): SeatSection 实体当前位于 Feature/SeatZoneMapping 分支，合并入 Develop 后启用：
+            //   builder.HasOne<SeatSection>()
+            //          .WithMany()
+            //          .HasForeignKey(x => x.SeatSectionId)
+            //          .HasConstraintName("FK_PRICE_SEAT_SECTION")
+            //          .OnDelete(DeleteBehavior.Restrict);
+            // 当前 SeatSection 类型在本分支不可见，保持注释以避免编译错误；索引见下方已就绪。
             //builder.HasOne(x => x.SeatSection)
             //       .WithMany()
             //       .HasForeignKey(x => x.SeatSectionId)
             //       .HasConstraintName("FK_PRICE_SEAT_SECTION");
+
+            // 查询索引 (与 DDL 命名 100% 对齐)
+            // IDX_PRICE_SESSION / IDX_PRICE_SECTION
+            // 显式声明 FK 列索引名，抑制 EF 默认 IX_PRICE_STRATEGY_SESSION_ID 自动索引
+            builder.HasIndex(x => x.SessionId)
+                   .HasDatabaseName("IDX_PRICE_SESSION");
+            builder.HasIndex(x => x.SeatSectionId)
+                   .HasDatabaseName("IDX_PRICE_SECTION");
 
             // 审计字段映射 (AuditableEntity)
             builder.ConfigureAuditableEntity();

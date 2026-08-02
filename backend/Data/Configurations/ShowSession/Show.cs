@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using ShowtimeBackend.Entities.ShowSessions;
+using ShowtimeBackend.Entities.ShowSession;
 
-namespace ShowtimeBackend.Data.Configurations.ShowSessions
+namespace ShowtimeBackend.Data.Configurations.ShowSession
 {
     public class ShowConfiguration : IEntityTypeConfiguration<Show>
     {
@@ -82,6 +82,16 @@ namespace ShowtimeBackend.Data.Configurations.ShowSessions
                    .WithMany()
                    .HasForeignKey(x => x.CategoryId)
                    .HasConstraintName("FK_SHOW_CATEGORY");
+
+            // 查询索引 (与 DDL 命名 100% 对齐)
+            // IDX_SHOW_CATEGORY / IDX_SHOW_STATUS / IDX_SHOW_AUDIT
+            // 显式声明 FK 列索引名，抑制 EF 默认 IX_SHOW_CATEGORY_ID 自动索引
+            builder.HasIndex(x => x.CategoryId)
+                   .HasDatabaseName("IDX_SHOW_CATEGORY");
+            builder.HasIndex(x => x.Status)
+                   .HasDatabaseName("IDX_SHOW_STATUS");
+            builder.HasIndex(x => x.AuditStatus)
+                   .HasDatabaseName("IDX_SHOW_AUDIT");
 
             // 复用 4 个标准审计字段（CREATE_TIME, UPDATE_TIME, CREATE_BY, UPDATE_BY）
             builder.ConfigureAuditableEntity();
