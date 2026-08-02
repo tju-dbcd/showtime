@@ -10,10 +10,8 @@ using ShowtimeBackend.Common.Jwt;
 using ShowtimeBackend.Common.OpenApi;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
-using ShowtimeBackend.OpenApi;
 using ShowtimeBackend.Services.Auth;
 using ShowtimeBackend.Services.OrderTicket;
-using ShowtimeBackend.Services.SeatZone;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -100,16 +98,11 @@ builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
-builder.Services.AddScoped<SeatMapAdminService>();
-builder.Services.AddScoped<SeatAdminService>();
-builder.Services.AddScoped<SeatRuleAdminService>();
-builder.Services.AddScoped<SessionSeatMapQueryService>();
 
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
-    options.AddDocumentTransformer<SeatZoneLockReservationOpenApi>();
 });
 
 var app = builder.Build();
