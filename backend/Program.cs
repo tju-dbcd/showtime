@@ -12,6 +12,8 @@ using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.Auth;
 using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.ShowSession;
+using ShowtimeBackend.Services.Impl;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -43,6 +45,7 @@ builder.Services
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer();
+
 builder.Services
     .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
     .Configure<Microsoft.Extensions.Options.IOptions<JwtOptions>>(
@@ -65,6 +68,7 @@ builder.Services
                 RoleClaimType = "role",
             };
         });
+
 builder.Services.AddAuthorization();
 
 builder.Services
@@ -84,10 +88,12 @@ builder.Services
             {
                 message = "The request is invalid.";
             }
+            return new BadRequestObjectResult(new { message });
+        };
+    });
 
-//builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
-
-//builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
+builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
+builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
 
 builder.Services.AddOpenApi();
 

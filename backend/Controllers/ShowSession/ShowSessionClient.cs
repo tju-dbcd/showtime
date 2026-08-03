@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using ShowtimeBackend.Dtos.Client;
-using ShowtimeBackend.Services.Interfaces;
+using ShowtimeBackend.Services.ShowSession;
 
 namespace ShowtimeBackend.Controllers.Client;
 

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 
 namespace ShowtimeBackend.Data;
@@ -9,15 +10,20 @@ public class AppDbContext : DbContext
     {
     }
 
-    /// <summary>
-    /// 演出场次表 (SHOW_SESSION)
-    /// </summary>
-    public DbSet<ShowSession> ShowSessions { get; set; } = null!;
+    protected AppDbContext(DbContextOptions options) : base(options)
+    {
+    }
 
-    /// <summary>
-    /// 票价策略表 (PRICE_STRATEGY)
-    /// </summary>
-    public DbSet<PriceStrategy> PriceStrategies { get; set; } = null!;
+    public DbSet<SeatMap> SeatMaps => Set<SeatMap>();
+    public DbSet<SeatSection> SeatSections => Set<SeatSection>();
+    public DbSet<Seat> Seats => Set<Seat>();
+    public DbSet<SeatRule> SeatRules => Set<SeatRule>();
+    public DbSet<SeatRuleScope> SeatRuleScopes => Set<SeatRuleScope>();
+    public DbSet<SeatLock> SeatLocks => Set<SeatLock>();
+    public DbSet<SeatReservation> SeatReservations => Set<SeatReservation>();
+    public DbSet<ShowSession> ShowSessions => Set<ShowSession>();
+    public DbSet<Venue> Venues => Set<Venue>();
+    public DbSet<PriceStrategy> PriceStrategy => Set<PriceStrategy>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

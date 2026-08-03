@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using ShowtimeBackend.Data;
-using ShowtimeBackend.Entities.ShowSession; 
-using ShowtimeBackend.Dtos.Client;
 using ShowtimeBackend.Dtos.Admin;
-using ShowtimeBackend.Services.Interfaces;
+using ShowtimeBackend.Dtos.Client;
+using ShowtimeBackend.Entities.ShowSession;
+using ShowtimeBackend.Services.ShowSession;
 
 namespace ShowtimeBackend.Services.Impl;
 
@@ -20,19 +20,17 @@ public class ShowSessionService : IClientShowSessionService
         long showId,
         CancellationToken cancellationToken = default)
     {
-        // LINQ 条件顺序严格匹配 DDL 索引 IDX_SHOW_SESSION_SHOW_STATUS (SHOW_ID, SESSION_STATUS, START_TIME)
         return await _context.ShowSessions
-            .AsNoTracking() // 禁用状态追踪，提升高并发读取性能
-            .Where(s => s.ShowId == showId && s.SessionStatus == "ONSALE") // 最左前缀匹配
-            .OrderBy(s => s.StartTime)                                      // 利用索引自带的排序特征
-            .Select(s => new ShowSessionDto(                             // DTO 投影，精前 SQL 选取列
+            .AsNoTracking()
+            .Where(s => s.ShowId == showId && s.SessionStatus == "ONSALE")
+            .OrderBy(s => s.StartTime)
+            .Select(s => new ShowSessionDto(
                 s.ShowId,
                 s.SessionId,
                 s.StartTime,
                 s.EndTime,
                 s.SaleStartTime,
                 s.SessionStatus
-                //s.MinPrice TODO：在原有设计中没有定义该内容，需要后续设定修改
             ))
             .ToListAsync(cancellationToken);
     }
@@ -41,8 +39,7 @@ public class ShowSessionService : IClientShowSessionService
         long sessionId,
         CancellationToken cancellationToken = default)
     {
-        // 匹配 DDL 索引 IDX_PRICE_STRATEGY_SESS_SEC (SESSION_ID, SEAT_SECTION_ID, STATUS)
-        return await _context.PriceStrategies
+        return await _context.PriceStrategy
             .AsNoTracking()
             .Where(p => p.SessionId == sessionId && p.Status == "ENABLED")
             .OrderBy(p => p.SeatSectionId)
@@ -61,6 +58,16 @@ public class AdminShowSessionService : IAdminShowSessionService
 {
     private readonly AppDbContext _context;
 
+    private static readonly HashSet<string> ValidPriceTypes = new()
+    {
+        "EARLY_BIRD", "PRESALE", "STANDARD", "VIP", "MEMBER"
+    };
+
+    private static readonly HashSet<string> ValidSessionStatuses = new()
+    {
+        "UPCOMING", "PRESALE", "ONSALE", "SOLD_OUT", "ENDED"
+    };
+
     public AdminShowSessionService(AppDbContext context)
     {
         _context = context;
@@ -71,36 +78,31 @@ public class AdminShowSessionService : IAdminShowSessionService
         CreateShowSessionRequest request,
         CancellationToken cancellationToken = default)
     {
-        // 基础时间校验
         if (request.StartTime >= request.EndTime)
             throw new ArgumentException("演出结束时间必须晚于开始时间");
 
         if (request.SaleStartTime >= request.SaleEndTime)
             throw new ArgumentException("预售结束时间必须晚于预售开始时间");
 
-        // 防重排期校验：同影厅/场馆在相同时间段内不能有重叠场次
+        // 区间重叠防排期冲突算法
         bool hasConflict = await _context.ShowSessions.AnyAsync(s =>
             s.SeatMapId == request.SeatMapId &&
-            s.SessionStatus != "CLOSED" &&
-            ((request.StartTime >= s.StartTime && request.StartTime < s.EndTime) ||
-             (request.EndTime > s.StartTime && request.EndTime <= s.EndTime)),
+            s.SessionStatus != "ENDED" &&
+            request.StartTime < s.EndTime && request.EndTime > s.StartTime,
             cancellationToken);
 
         if (hasConflict)
             throw new InvalidOperationException("该场地在指定时间段内已存在其他场次排期");
 
-        // 构建实体并保存
-        var sessionEntity = new ShowSession
+        var sessionEntity = new ShowtimeBackend.Entities.ShowSession.ShowSession
         {
             ShowId = showId,
-            SessionId = request.SessionId,
             StartTime = request.StartTime,
             EndTime = request.EndTime,
             SaleStartTime = request.SaleStartTime,
             SaleEndTime = request.SaleEndTime,
             SeatMapId = request.SeatMapId,
-            SessionStatus = "PRE_SALE", // 默认新场次为预售状态
-            //MinPrice = 0m,             
+            SessionStatus = "PRESALE", // 严格与 DDL CK_SESSION_STATUS 对齐
             CreateTime = DateTime.UtcNow
         };
 
@@ -114,7 +116,6 @@ public class AdminShowSessionService : IAdminShowSessionService
             sessionEntity.EndTime,
             sessionEntity.SaleStartTime,
             sessionEntity.SessionStatus
-            //sessionEntity.MinPrice
         );
     }
 
@@ -131,29 +132,44 @@ public class AdminShowSessionService : IAdminShowSessionService
         if (!requestList.Any())
             throw new ArgumentException("票价策略不能为空");
 
-        // 开启显式事务，确保清空旧策略与插入新策略原子生效
+        // 校验 PriceType 是否满足 DDL CHECK 约束
+        foreach (var req in requestList)
+        {
+            if (!ValidPriceTypes.Contains(req.PriceType))
+            {
+                throw new ArgumentException($"无效的票价类型: {req.PriceType}。合法值必须为: EARLY_BIRD, PRESALE, STANDARD, VIP, MEMBER");
+            }
+        }
+
         using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            // 删除该场次旧的策略（覆盖更新）
-            var oldStrategies = await _context.PriceStrategies
+            // 清理旧策略
+            var oldStrategies = await _context.PriceStrategy
                 .Where(p => p.SessionId == sessionId)
                 .ToListAsync(cancellationToken);
-            _context.PriceStrategies.RemoveRange(oldStrategies);
+            _context.PriceStrategy.RemoveRange(oldStrategies);
 
-            // 批量构建新策略实体
+            // 构建新策略实体，补齐所有 NOT NULL 字段
             var newEntities = requestList.Select(r => new PriceStrategy
             {
                 SessionId = sessionId,
                 SeatSectionId = r.SeatSectionId,
+                StrategyName = string.IsNullOrWhiteSpace(r.StrategyName)
+                    ? $"{r.PriceType}_STRATEGY"
+                    : r.StrategyName,
                 PriceType = r.PriceType,
                 Price = r.Price,
+                SaleStartTime = r.SaleStartTime ?? session.SaleStartTime,
+                SaleEndTime = r.SaleEndTime ?? session.SaleEndTime,
+                Priority = r.Priority,
+                Quota = r.Quota,
                 Status = "ENABLED",
                 CreateTime = DateTime.UtcNow
             }).ToList();
 
-            _context.PriceStrategies.AddRange(newEntities);
-            _context.ShowSessions.Update(session);
+            _context.PriceStrategy.AddRange(newEntities);
+            session.UpdateTime = DateTime.UtcNow;
 
             await _context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -176,10 +192,8 @@ public class AdminShowSessionService : IAdminShowSessionService
         if (session == null)
             throw new KeyNotFoundException($"未找到 ID 为 {sessionId} 的场次");
 
-        // 状态校验
-        var validStatuses = new[] { "PRE_SALE", "ONSALE", "SUSPENDED", "CLOSED" };
-        if (!validStatuses.Contains(newStatus))
-            throw new ArgumentException("不合法的场次状态");
+        if (!ValidSessionStatuses.Contains(newStatus))
+            throw new ArgumentException($"不合法的场次状态: {newStatus}。");
 
         session.SessionStatus = newStatus;
         session.UpdateTime = DateTime.UtcNow;

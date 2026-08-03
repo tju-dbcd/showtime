@@ -1,7 +1,7 @@
 using ShowtimeBackend.Dtos.Client;
 using ShowtimeBackend.Dtos.Admin;
 
-namespace ShowtimeBackend.Services.Interfaces;
+namespace ShowtimeBackend.Services.ShowSession;
 
 public interface IClientShowSessionService
 {
