@@ -16,4 +16,4 @@ namespace ShowtimeBackend.DTOs.ShowSessionDto
     public record PricingStrategyDto(long PriceStrategyId, long SeatSectionId, string PriceType, decimal Price, string Status);
 }
 
-    
+

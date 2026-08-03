@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using ShowtimeBackend.Common; 
+using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.ShowSessionDto;
 using ShowtimeBackend.Services.ShowSession;
 
