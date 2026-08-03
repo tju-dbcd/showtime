@@ -1,12 +1,15 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShowtimeBackend.Common; 
 using ShowtimeBackend.DTOs.ShowSessionChange;
+using ShowtimeBackend.DTOs.ShowSessionDto;
 using ShowtimeBackend.Services.ShowSession;
 
-namespace ShowtimeBackend.Controllers.Admin;
+namespace ShowtimeBackend.Controllers.ShowSession.Admin;
 
 [ApiController]
-[Route("api/v1/admin")]
-[Produces("application/json")]
+[Route("api/admin")]
+[Authorize(Roles = "Admin")]
 public class AdminShowSessionController : ControllerBase
 {
     private readonly IAdminShowSessionService _adminService;
@@ -20,9 +23,12 @@ public class AdminShowSessionController : ControllerBase
     /// 为指定演出创建/排布场次
     /// </summary>
     [HttpPost("shows/{showId:long}/sessions")]
-    [ProducesResponseType(typeof(ShowtimeBackend.DTOs.ShowSessionDto.ShowSessionDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ShowtimeBackend.DTOs.ShowSessionDto.ShowSessionDto>> CreateSession(
+    [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<ApiResponse<ShowSessionDto>>> CreateSession(
         [FromRoute] long showId,
         [FromBody] CreateShowSessionRequest request,
         CancellationToken cancellationToken)
@@ -30,19 +36,23 @@ public class AdminShowSessionController : ControllerBase
         try
         {
             var createdSession = await _adminService.CreateSessionAsync(showId, request, cancellationToken);
+
+            // 包装成功响应
+            var response = ApiResponse<ShowSessionDto>.Ok(createdSession, "场次排布成功");
+
             return CreatedAtAction(
-                "GetOnSaleSessions",
-                "ShowSession",
-                new { showId = showId },
-                createdSession);
+                "GetSessionById",
+                "ShowSessionClient",
+                new { sessionId = createdSession.SessionId },
+                response);
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(ApiResponse<ShowSessionDto>.Fail("INVALID_ARGUMENT", ex.Message));
         }
         catch (InvalidOperationException ex)
         {
-            return Conflict(new { message = ex.Message });
+            return Conflict(ApiResponse<ShowSessionDto>.Fail("OPERATION_CONFLICT", ex.Message));
         }
     }
 
@@ -50,10 +60,12 @@ public class AdminShowSessionController : ControllerBase
     /// 配置或覆盖更新场次票价策略
     /// </summary>
     [HttpPost("sessions/{sessionId:long}/pricing-strategies")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ConfigurePriceStrategies(
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<ApiResponse<object>>> ConfigurePriceStrategies(
         [FromRoute] long sessionId,
         [FromBody] IEnumerable<CreatePriceStrategyRequest> requests,
         CancellationToken cancellationToken)
@@ -61,27 +73,28 @@ public class AdminShowSessionController : ControllerBase
         try
         {
             await _adminService.ConfigurePriceStrategiesAsync(sessionId, requests, cancellationToken);
-            return Ok(new { message = "票价策略配置成功" });
+            return Ok(ApiResponse<object>.Ok(null!, "票价策略配置成功"));
         }
         catch (KeyNotFoundException ex)
         {
-            return NotFound(new { message = ex.Message });
+            return NotFound(ApiResponse<object>.Fail("NOT_FOUND", ex.Message));
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", ex.Message));
         }
     }
 
     /// <summary>
     /// 变更场次状态（如手动停售、恢复或下架）
     /// </summary>
-
     [HttpPut("sessions/{sessionId:long}/status")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> UpdateSessionStatus(
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<ApiResponse<object>>> UpdateSessionStatus(
         [FromRoute] long sessionId,
         [FromBody] UpdateSessionStatusRequest request,
         CancellationToken cancellationToken)
@@ -89,15 +102,15 @@ public class AdminShowSessionController : ControllerBase
         try
         {
             await _adminService.UpdateSessionStatusAsync(sessionId, request.Status, cancellationToken);
-            return Ok(new { message = $"场次状态已更新为 {request.Status}" });
+            return Ok(ApiResponse<object>.Ok(null!, $"场次状态已成功更新为 {request.Status}"));
         }
         catch (KeyNotFoundException ex)
         {
-            return NotFound(new { message = ex.Message });
+            return NotFound(ApiResponse<object>.Fail("NOT_FOUND", ex.Message));
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", ex.Message));
         }
     }
 }

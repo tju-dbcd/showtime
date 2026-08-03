@@ -1,18 +1,20 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShowtimeBackend.Common; 
 using ShowtimeBackend.DTOs.ShowSessionDto;
 using ShowtimeBackend.Services.ShowSession;
 
-namespace ShowtimeBackend.Controllers.Client;
+namespace ShowtimeBackend.Controllers.ShowSession.Client;
 
 [ApiController]
-[Route("api/v1")]
+[Route("api/client")]
 [Produces("application/json")]
-public class ShowSessionController : ControllerBase
+[AllowAnonymous]
+public class ShowSessionClientController : ControllerBase
 {
     private readonly IClientShowSessionService _sessionService;
 
-    //获取一个具体的操控对象用于执行后续操作
-    public ShowSessionController(IClientShowSessionService sessionService)
+    public ShowSessionClientController(IClientShowSessionService sessionService)
     {
         _sessionService = sessionService;
     }
@@ -20,48 +22,54 @@ public class ShowSessionController : ControllerBase
     /// <summary>
     /// 获取指定演出的有效可售场次列表
     /// </summary>
-    /// <remarks>
-    /// 用于C端演出详情页
-    /// </remarks>
-    /// <param name="showId">演出主键 ID</param>
-    /// <param name="cancellationToken">异步取消令牌</param>
     [HttpGet("shows/{showId:long}/sessions")]
-    [ProducesResponseType(typeof(IEnumerable<ShowSessionDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<IEnumerable<ShowSessionDto>>> GetOnSaleSessions(
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<ShowSessionDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<ShowSessionDto>>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<ShowSessionDto>>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<IEnumerable<ShowSessionDto>>>> GetOnSaleSessions(
         [FromRoute] long showId,
         CancellationToken cancellationToken)
     {
         if (showId <= 0)
         {
-            return BadRequest(new { message = "无效的演出 ID" });
+            return BadRequest(ApiResponse<IEnumerable<ShowSessionDto>>.Fail("INVALID_PARAM", "无效的演出 ID"));
         }
 
-        var sessions = await _sessionService.GetOnSaleSessionsAsync(showId, cancellationToken);
-        return Ok(sessions);
+        try
+        {
+            var sessions = await _sessionService.GetOnSaleSessionsAsync(showId, cancellationToken);
+            return Ok(ApiResponse<IEnumerable<ShowSessionDto>>.Ok(sessions, "获取场次列表成功"));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ApiResponse<IEnumerable<ShowSessionDto>>.Fail("NOT_FOUND", ex.Message));
+        }
     }
 
     /// <summary>
     /// 获取指定场次的区域票价策略列表
     /// </summary>
-    /// <remarks>
-    /// 用于 C 端选座/选票页面加载价格面板。
-    /// </remarks>
-    /// <param name="sessionId">场次主键 ID</param>
-    /// <param name="cancellationToken">异步取消令牌</param>
     [HttpGet("sessions/{sessionId:long}/pricing-strategies")]
-    [ProducesResponseType(typeof(IEnumerable<PricingStrategyDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<IEnumerable<PricingStrategyDto>>> GetPricingStrategies(
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<PricingStrategyDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<PricingStrategyDto>>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<PricingStrategyDto>>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<IEnumerable<PricingStrategyDto>>>> GetPricingStrategies(
         [FromRoute] long sessionId,
         CancellationToken cancellationToken)
     {
         if (sessionId <= 0)
         {
-            return BadRequest(new { message = "无效的场次 ID" });
+            return BadRequest(ApiResponse<IEnumerable<PricingStrategyDto>>.Fail("INVALID_PARAM", "无效的场次 ID"));
         }
 
-        var strategies = await _sessionService.GetPricingStrategiesAsync(sessionId, cancellationToken);
-        return Ok(strategies);
+        try
+        {
+            var strategies = await _sessionService.GetPricingStrategiesAsync(sessionId, cancellationToken);
+            return Ok(ApiResponse<IEnumerable<PricingStrategyDto>>.Ok(strategies, "获取票价策略成功"));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ApiResponse<IEnumerable<PricingStrategyDto>>.Fail("NOT_FOUND", ex.Message));
+        }
     }
 }
