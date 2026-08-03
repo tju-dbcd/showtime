@@ -1,0 +1,84 @@
+/* 搜索页整体布局 */
+.search-layout {
+  width: 100%;
+  min-height: 100vh;
+  background: #f0f2f5;
+}
+
+/* 左侧黑条 — 固定高度，贴左边 */
+.search-sider {
+  height: 100vh;
+  position: sticky !important;
+  top: 0;
+  left: 0;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+/* 右侧内容 — 撑满剩余宽度 */
+.search-content {
+  flex: 1;
+  background: #f5f5f5;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* ========== 搜索页自定义搜索框 ========== */
+.search-input-wrapper {
+  display: flex;
+  align-items: stretch;
+  height: 40px;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid #d9d9d9;
+  background: #fff;
+  transition: border-color 0.3s;
+  width: 280px;
+}
+
+.search-input-wrapper:hover,
+.search-input-wrapper:focus-within {
+  border-color: #ff4d4f;
+}
+
+.search-input-wrapper .search-input-field {
+  flex: 1;
+  height: 100%;
+  padding: 0 12px;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  background: transparent;
+}
+
+.search-input-wrapper .search-btn {
+  height: 100%;
+  width: 40px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: #888;
+  transition: color 0.3s;
+}
+
+.search-input-wrapper .search-btn:hover {
+  color: #ff4d4f;
+}
+
+@media (max-width: 768px) {
+  .search-input-wrapper {
+    width: 100%;
+    max-width: 280px;
+  }
+  .search-result-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+}

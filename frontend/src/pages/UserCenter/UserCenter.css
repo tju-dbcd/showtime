@@ -1,0 +1,297 @@
+/* ========== 用户中心容器 ========== */
+.uc-container {
+  width: 100%;
+  min-height: 100vh;
+  background: #f5f5f5;
+}
+
+/* ========== 顶部返回栏 ========== */
+.uc-topbar {
+  width: 100%;
+  height: 56px;
+  background: #141414;
+  display: flex;
+  align-items: center;
+  padding: 0 32px;
+  box-sizing: border-box;
+}
+
+.uc-topbar-content {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.uc-logo {
+  color: #ff4d4f;
+  font-size: 20px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.uc-back {
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  font-size: 14px;
+  transition: color 0.3s;
+}
+
+.uc-back:hover {
+  color: white;
+}
+
+/* ========== 主体布局 ========== */
+.uc-layout {
+  height: calc(100vh - 56px);
+  background: #f5f5f5;
+}
+
+/* ========== 左侧菜单栏 ========== */
+.uc-sider {
+  background: #1a1a2e !important;
+  overflow-y: auto;
+  height: 100%;
+  padding-top: 20px;
+}
+
+.uc-user-info {
+  text-align: center;
+  padding: 0 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.uc-user-info .ant-avatar {
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.uc-user-name {
+  color: white;
+  font-size: 16px;
+  font-weight: 500;
+  margin-top: 10px;
+}
+
+.uc-user-id {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.uc-menu {
+  margin-top: 8px;
+  background: transparent !important;
+  border: none !important;
+}
+
+.uc-menu .ant-menu-item {
+  padding-left: 24px !important;
+  height: 44px !important;
+  line-height: 44px !important;
+  margin: 4px 8px !important;
+  border-radius: 8px !important;
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+.uc-menu .ant-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: white !important;
+}
+
+.uc-menu .ant-menu-item-selected {
+  background: rgba(255, 77, 79, 0.2) !important;
+  color: #ff4d4f !important;
+}
+
+.uc-menu .ant-menu-item-selected .anticon {
+  color: #ff4d4f !important;
+}
+
+.uc-menu .ant-menu-item-danger {
+  color: rgba(255, 77, 79, 0.65) !important;
+}
+
+.uc-menu .ant-menu-item-danger:hover {
+  color: #ff4d4f !important;
+}
+
+/* ========== 右侧内容区 ========== */
+.uc-content-area {
+  padding: 24px 32px;
+  overflow-y: auto;
+  background: #f5f5f5;
+  height: 100%;
+}
+
+.uc-content {
+  background: white;
+  border-radius: 16px;
+  padding: 24px 28px;
+  min-height: 400px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+/* ========== 个人资料 ========== */
+.profile-info {
+  display: flex;
+  gap: 40px;
+  align-items: flex-start;
+}
+
+.profile-avatar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.profile-details {
+  flex: 1;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-row .label {
+  width: 80px;
+  color: #888;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.detail-row .value {
+  flex: 1;
+  font-size: 15px;
+  color: #333;
+}
+
+/* ========== 账号安全 ========== */
+.security-card {
+  margin-bottom: 16px;
+  border-radius: 12px;
+}
+
+.security-card .ant-card-head {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.bind-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ========== 实名认证 ========== */
+.verify-card {
+  border-radius: 12px;
+}
+
+.verify-status {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 0;
+}
+
+.verify-info {
+  margin-top: 8px;
+}
+
+/* ========== 订单 ========== */
+.orders-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ========== 收货地址 ========== */
+.address-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.address-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.address-card {
+  border-radius: 12px;
+  border: 1px solid #f0f0f0;
+}
+
+.address-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.addr-info {
+  flex: 1;
+}
+
+.addr-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* ========== 响应式适配 ========== */
+@media (max-width: 1024px) {
+  .uc-sider {
+    width: 200px !important;
+    flex: 0 0 200px !important;
+    max-width: 200px !important;
+    min-width: 200px !important;
+  }
+  .address-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .uc-topbar {
+    padding: 0 16px;
+  }
+  .uc-sider {
+    width: 180px !important;
+    flex: 0 0 180px !important;
+    max-width: 180px !important;
+    min-width: 180px !important;
+  }
+  .uc-content-area {
+    padding: 16px 12px;
+  }
+  .uc-content {
+    padding: 16px;
+  }
+  .profile-info {
+    flex-direction: column;
+    align-items: center;
+  }
+  .profile-details {
+    width: 100%;
+  }
+  .detail-row {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .detail-row .label {
+    width: 60px;
+    font-size: 13px;
+  }
+  .address-list {
+    grid-template-columns: 1fr;
+  }
+}

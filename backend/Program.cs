@@ -45,7 +45,6 @@ builder.Services
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer();
-
 builder.Services
     .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
     .Configure<Microsoft.Extensions.Options.IOptions<JwtOptions>>(
@@ -68,7 +67,6 @@ builder.Services
                 RoleClaimType = "role",
             };
         });
-
 builder.Services.AddAuthorization();
 
 builder.Services
@@ -88,14 +86,28 @@ builder.Services
             {
                 message = "The request is invalid.";
             }
-            return new BadRequestObjectResult(new { message });
+
+            return new BadRequestObjectResult(
+                ApiResponse<object>.Fail(
+                    "AUTH_VALIDATION_FAILED",
+                    message));
         };
     });
 
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<IPasswordHasher<SysUser>, PasswordHasher<SysUser>>();
+builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IOrderService, OrderService>();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
 
-builder.Services.AddOpenApi();
+builder.Services.AddProblemDetails();
+builder.Services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+});
 
 var app = builder.Build();
 
