@@ -11,7 +11,7 @@ const Register = () => {
 
     // 2. 假装注册成功
     localStorage.setItem('token', 'fake-token-456');
-    message.success('注册成功！请登录 🎉');
+    message.success('注册成功！请登录');
 
     // 3. 延迟 0.5 秒后跳转到登录页
     setTimeout(() => {
@@ -33,7 +33,7 @@ const Register = () => {
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
     }}>
       <Card
-        title="🎫 用户注册"
+        title="用户注册"
         style={{ width: 420, boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }}
         styles={{ header: { textAlign: 'center', fontSize: '20px' } }}
       >

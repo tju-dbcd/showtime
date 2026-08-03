@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, message, Tag, Divider, Carousel, Empty } from 'antd';
-import { CalendarOutlined, EnvironmentOutlined, DollarOutlined, ClockCircleOutlined, LeftOutlined } from '@ant-design/icons';
+import { Button, Tag, Divider, Carousel, Empty } from 'antd';
+import { CalendarOutlined, EnvironmentOutlined, DollarOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { mockEvents } from '@/mock/events';
 import './PerformanceDetail.css';
 
@@ -90,7 +90,7 @@ const PerformanceDetail = () => {
           <h2>🎬 精彩瞬间</h2>
           <Divider />
           <div className="detail-gallery">
-            <Carousel autoplay arrows dotPosition="bottom">
+            <Carousel autoplay arrows dotPlacement="bottom">
               {event.images.map((img, index) => (
                 <div key={index}>
                   <img src={img} alt={`${event.name} 宣传图 ${index + 1}`} />

@@ -15,8 +15,7 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
 } from '@ant-design/icons';
-import { mockUser } from '@/mock/user';
-import type { User, Address } from '@/mock/user';
+import type { Address } from '@/mock/user';
 import { mockOrders } from '@/mock/orders';
 import './UserCenter.css';
 

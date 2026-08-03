@@ -19,9 +19,7 @@ interface Order {
 }
 
 // 模拟生成二维码图片（实际项目用真实的二维码库）
-const generateQRCode = (orderId: string) => {
-  // 这里用 canvas 画一个模拟二维码，或者直接用第三方库
-  // 为了演示，返回一个带样式的占位图
+const generateQRCode = () => {
   return `data:image/svg+xml,${encodeURIComponent(`
     <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
       <rect width="200" height="200" fill="white"/>
@@ -41,9 +39,7 @@ const generateQRCode = (orderId: string) => {
       <rect x="50" y="170" width="30" height="20" fill="black"/>
       <rect x="90" y="170" width="20" height="10" fill="black"/>
       <rect x="120" y="170" width="60" height="20" fill="black"/>
-      <!-- 中间小方块 -->
       <rect x="90" y="90" width="20" height="20" fill="black"/>
-      <!-- 一些随机点 -->
       <rect x="140" y="20" width="10" height="10" fill="black"/>
       <rect x="160" y="40" width="10" height="10" fill="black"/>
       <rect x="40" y="160" width="10" height="10" fill="black"/>
@@ -60,17 +56,14 @@ const Order = () => {
 
   const state = location.state as { selectedSeats?: string[]; eventId?: string } | null;
 
-  // 暂时用假数据，后续替换为 API 请求
   const orders: Order[] = mockOrders as Order[];
 
-  // 状态对应的颜色和文本
   const statusMap = {
     paid: { color: 'green', text: '已支付' },
     pending: { color: 'orange', text: '待支付' },
     cancelled: { color: 'red', text: '已取消' },
   };
 
-  // 表格列定义
   const columns: ColumnsType<Order> = [
     {
       title: '订单号',
@@ -143,23 +136,19 @@ const Order = () => {
     },
   ];
 
-  // 处理支付
   const handlePay = () => {
     if (!selectedOrder) {
       message.warning('请选择要支付的订单');
       return;
     }
-    // 打开弹窗
     setIsModalOpen(true);
   };
 
-  // 关闭弹窗
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedOrder(null);
   };
 
-  // 模拟支付成功
   const handleConfirmPay = () => {
     message.success('支付成功！');
     setIsModalOpen(false);
@@ -168,7 +157,6 @@ const Order = () => {
 
   const showSelectedInfo = state?.selectedSeats && state.selectedSeats.length > 0;
 
-  // 获取当前选中的待支付订单数量
   const pendingOrders = orders.filter(o => o.status === 'pending');
   const totalPendingAmount = pendingOrders.reduce((sum, o) => sum + o.amount, 0);
 
@@ -176,12 +164,12 @@ const Order = () => {
     <>
       <div className="order-container">
         <div className="order-content">
-          <Title level={2} style={{ marginBottom: 8 }}>📋 我的订单</Title>
+          <Title level={2} style={{ marginBottom: 8 }}>我的订单</Title>
           <p style={{ color: '#888', marginBottom: 24 }}>
             共 {orders.length} 笔订单
             {showSelectedInfo && (
               <span style={{ marginLeft: 16, color: '#1890ff' }}>
-                🎯 刚刚选择了 {state.selectedSeats?.length} 个座位，待支付
+                刚刚选择了 {state.selectedSeats?.length} 个座位，待支付
               </span>
             )}
           </p>
@@ -199,7 +187,6 @@ const Order = () => {
           />
         </div>
 
-        {/* 底部固定黑条 */}
         <div className="order-footer">
           <div className="footer-info">
             <span className="footer-label">待支付：</span>
@@ -218,9 +205,8 @@ const Order = () => {
         </div>
       </div>
 
-      {/* 付款弹窗（带灰色蒙版） */}
       <Modal
-        title="💳 扫码支付"
+        title="扫码支付"
         open={isModalOpen}
         onCancel={handleCloseModal}
         footer={[
@@ -232,14 +218,14 @@ const Order = () => {
           </Button>,
         ]}
         centered
-        maskClosable={true}
+        mask={{ closable: true }}
         className="payment-modal"
         width={420}
       >
         <div className="payment-content">
           <div className="qr-code-wrapper">
             <img
-              src={selectedOrder ? generateQRCode(selectedOrder.id) : ''}
+              src={selectedOrder ? generateQRCode() : ''}
               alt="付款二维码"
               className="qr-code"
             />
@@ -252,7 +238,7 @@ const Order = () => {
               订单号：<span className="order-id">{selectedOrder?.id || ''}</span>
             </p>
             <p className="payment-tip">
-              ⚠️ 请使用微信 / 支付宝扫码支付，付款后点击“我已支付”
+              请使用微信 / 支付宝扫码支付，付款后点击"我已支付"
             </p>
           </div>
         </div>

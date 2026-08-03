@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Layout, Menu, Slider, Button, Input, Card, Row, Col, Typography, Checkbox, Divider } from 'antd';
+import { Layout, Menu, Slider, Button, Card, Row, Col, Typography, Checkbox, Divider } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { mockEvents } from '@/mock/events';
 import type { Event } from '@/mock/events';
@@ -7,7 +7,6 @@ import './Search.css';
 
 const { Sider, Content } = Layout;
 const { Title } = Typography;
-const { SubMenu } = Menu;
 
 const categories = ['全部', '演唱会', '话剧', '音乐剧', '体育'];
 const cities = ['全部', '北京', '上海', '广州', '成都', '杭州'];
@@ -80,10 +79,7 @@ const Search = () => {
             <div className="filter-label">地点</div>
             <Checkbox.Group
               className="city-checkbox"
-              onChange={(values) => {
-                // 这里简单处理，实际项目中一般只选一个或者多个，我们改为单选逻辑配合 Menu 风格，但为了演示，这里用简单的单选逻辑
-                // 为了符合直觉，我们用 Menu 组件替代。为了演示，修改：使用下面的 Menu 代替上面的 Menu，但菜单已经用了分类。
-                // 紧急修正：我们用一行按钮选择城市
+              onChange={() => {
               }}
             />
             {/* 因为上面用了 Menu 占位，这里快速改为按钮组 */}

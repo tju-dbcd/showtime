@@ -1,36 +1,59 @@
+import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
-// 客户端页面
 import Layout from '../components/Layout';
-import Home from '../pages/Home';
 import Login from '../pages/Login';
 import Register from '../pages/Register';
-import Order from '../pages/Order';
-import PerformanceDetail from '../pages/PerformanceDetail';
-import SeatSelection from '../pages/SeatSelection';
-import Search from '../pages/Search';
-import UserCenter from '../pages/UserCenter';
-// 管理端
+
 import AdminLayout from '../pages/admin/Layout';
 import Performance from '../pages/admin/Performance';
 import Session from '../pages/admin/Session';
 import AdminOrder from '../pages/admin/Order';
 import Publish from '../pages/admin/Publish';
 
+// ========== 客户端页面懒加载 ==========
+const Home = lazy(() => import('../pages/Home'));
+const Search = lazy(() => import('../pages/Search'));
+const Order = lazy(() => import('../pages/Order'));
+const PerformanceDetail = lazy(() => import('../pages/PerformanceDetail'));
+const SeatSelection = lazy(() => import('../pages/SeatSelection'));
+const UserCenter = lazy(() => import('../pages/UserCenter'));
+
+// 加载中占位组件
+const PageLoading = () => (
+  <div style={{
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100vh',
+    fontSize: 16,
+    color: '#999'
+  }}>
+    加载中...
+  </div>
+);
+
+// 用 Suspense 包裹组件
+const withSuspense = (Component: React.ComponentType) => (
+  <Suspense fallback={<PageLoading />}>
+    <Component />
+  </Suspense>
+);
+
 const router = createBrowserRouter([
-  //客户端路由:带顶部导航栏
+  // ========== 客户端路由：带顶部导航栏 ==========
   {
     path: '/',
     element: <Layout />,
     children: [
-      { index: true, element: <Home /> },
-      { path: 'search', element: <Search /> },
-      { path: 'order', element: <Order /> },
-      { path: 'performance/:id', element: <PerformanceDetail /> },
-      { path: 'seat-selection/:eventId', element: <SeatSelection /> },
+      { index: true, element: withSuspense(Home) },
+      { path: 'search', element: withSuspense(Search) },
+      { path: 'order', element: withSuspense(Order) },
+      { path: 'performance/:id', element: withSuspense(PerformanceDetail) },
+      { path: 'seat-selection/:eventId', element: withSuspense(SeatSelection) },
     ],
   },
 
-  //客户端路由:无导航栏
+  // ========== 客户端路由：无导航栏 ==========
   {
     path: '/login',
     element: <Login />,
@@ -41,10 +64,10 @@ const router = createBrowserRouter([
   },
   {
     path: '/usercenter',
-    element: <UserCenter />,
+    element: withSuspense(UserCenter),
   },
 
-  //管理端路由
+  // ========== 管理端路由 ==========
   {
     path: '/admin',
     element: <AdminLayout />,

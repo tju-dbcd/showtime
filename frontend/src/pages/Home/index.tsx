@@ -1,5 +1,5 @@
-import { Card, Row, Col, Button, Input, Typography, Space } from 'antd';
-import { SearchOutlined, FireOutlined, CalendarOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Button, Typography } from 'antd';
+import { FireOutlined, CalendarOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { mockEvents } from '@/mock/events';
 import './Home.css';
@@ -15,13 +15,13 @@ const Home = () => {
   const upcomingEvents = mockEvents.slice(2, 8);
 
   // 搜索处理
-  const handleSearch = (value: string) => {
-    if (value.trim()) {
-      navigate(`/search?q=${encodeURIComponent(value.trim())}`);
-    } else {
-      navigate('/search');
-    }
-  };
+  // const handleSearch = (value: string) => {
+  //   if (value.trim()) {
+  //     navigate(`/search?q=${encodeURIComponent(value.trim())}`);
+  //   } else {
+  //     navigate('/search');
+  //   }
+  // };
 
   return (
     <div className="home-container">
