@@ -13,7 +13,7 @@ public record CreateShowSessionRequest(
 );
 
 /// <summary>
-/// 设置票价策略请求参数 (已向 DDL NOT NULL 字段补充完备)
+/// 设置票价策略请求参数 (已向 DDL NOT NULL 字段补充完备) 
 /// </summary>
 public record CreatePriceStrategyRequest(
     long SeatSectionId,
