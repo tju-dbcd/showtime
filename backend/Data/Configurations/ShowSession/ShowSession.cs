@@ -1,15 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 
-namespace ShowtimeBackend.Data.Configurations.ShowSession;
-
-public class ShowSessionConfiguration : IEntityTypeConfiguration<Entities.ShowSession.ShowSession>
+namespace ShowtimeBackend.Data.Configurations.ShowSession
 {
-    public void Configure(EntityTypeBuilder<Entities.ShowSession.ShowSession> builder)
+    public class ShowSessionConfiguration : IEntityTypeConfiguration<Entities.ShowSession.ShowSession>
     {
-        builder.ToTable("SHOW_SESSION", table =>
+        public void Configure(EntityTypeBuilder<Entities.ShowSession.ShowSession> builder)
         {
             //  表名与 2 项 CHECK 约束（状态与时间区间校验）
             builder.ToTable("SHOW_SESSION", t =>
