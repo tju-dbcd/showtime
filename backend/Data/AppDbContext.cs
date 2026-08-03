@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using ShowtimeBackend.Entities.ShowSessions;
+using ShowtimeBackend.Entities.ShowSession;
 
 namespace ShowtimeBackend.Data;
 

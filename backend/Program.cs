@@ -14,6 +14,10 @@ var connectionString = $"User Id={userId};Password={password};Data Source=120.27
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseOracle(connectionString));
 
+//builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
+
+//builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
+
 builder.Services.AddOpenApi();
 
 var app = builder.Build();

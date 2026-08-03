@@ -9,10 +9,10 @@ namespace ShowtimeBackend.Controllers.Client;
 [Produces("application/json")]
 public class ShowSessionController : ControllerBase
 {
-    private readonly IShowSessionService _sessionService;
+    private readonly IClientShowSessionService _sessionService;
 
     //获取一个具体的操控对象用于执行后续操作
-    public ShowSessionController(IShowSessionService sessionService)
+    public ShowSessionController(IClientShowSessionService sessionService)
     {
         _sessionService = sessionService;
     }
