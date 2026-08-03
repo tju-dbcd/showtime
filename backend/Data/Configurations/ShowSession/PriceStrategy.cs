@@ -109,6 +109,15 @@ namespace ShowtimeBackend.Data.Configurations.ShowSession
 
             // 审计字段映射 (AuditableEntity)
             builder.ConfigureAuditableEntity();
+
+            // 映射选座实时计价复合索引
+            builder.HasIndex(p => new { p.SessionId, p.SeatSectionId, p.Status })
+                   .HasDatabaseName("IDX_PRICE_STRATEGY_SESS_SEC");
+
+            // 映射场次 + 区域 + 票价类型
+            builder.HasIndex(p => new { p.SessionId, p.SeatSectionId, p.PriceType })
+                   .IsUnique()
+                   .HasDatabaseName("UK_PRICE_STRATEGY_BIZ");
         }
     }
 }

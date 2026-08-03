@@ -85,25 +85,11 @@ builder.Services
                 message = "The request is invalid.";
             }
 
-            return new BadRequestObjectResult(
-                ApiResponse<object>.Fail(
-                    "AUTH_VALIDATION_FAILED",
-                    message));
-        };
-    });
+//builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 
-builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddScoped<IPasswordHasher<SysUser>, PasswordHasher<SysUser>>();
-builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IOrderService, OrderService>();
-builder.Services.AddScoped<IPaymentService, PaymentService>();
+//builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
 
-builder.Services.AddProblemDetails();
-builder.Services.AddOpenApi(options =>
-{
-    options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
-});
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
