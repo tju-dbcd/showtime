@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using ShowtimeBackend.DTOs;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.SeatZone;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Services.SeatZone;
@@ -23,7 +23,7 @@ public sealed class SeatMapsController : ControllerBase
     public async Task<ActionResult<ApiResponse<PagedResponse<SeatMapResponse>>>> List([FromQuery] SeatMapListQuery query, CancellationToken cancellationToken)
     {
         var result = await _service.ListMapsAsync(query, cancellationToken);
-        return result.IsSuccess ? Ok(new ApiResponse<PagedResponse<SeatMapResponse>>(result.Data!)) : ToProblem(result);
+        return result.IsSuccess ? Ok(ApiResponse<PagedResponse<SeatMapResponse>>.Ok(result.Data!, "Seat maps retrieved.")) : ToFailure(result);
     }
 
     [HttpGet("{seatMapId:long}")]
@@ -31,7 +31,7 @@ public sealed class SeatMapsController : ControllerBase
     public async Task<ActionResult<ApiResponse<SeatMapResponse>>> Get(long seatMapId, CancellationToken cancellationToken)
     {
         var result = await _service.GetMapAsync(seatMapId, cancellationToken);
-        return result.IsSuccess ? Ok(new ApiResponse<SeatMapResponse>(result.Data!)) : ToProblem(result);
+        return result.IsSuccess ? Ok(ApiResponse<SeatMapResponse>.Ok(result.Data!, "Seat map retrieved.")) : ToFailure(result);
     }
 
     [HttpPost]
@@ -39,8 +39,8 @@ public sealed class SeatMapsController : ControllerBase
     public async Task<ActionResult<ApiResponse<SeatMapResponse>>> Create([FromBody] SeatMapRequest request, CancellationToken cancellationToken)
     {
         var result = await _service.CreateMapAsync(request, cancellationToken);
-        if (!result.IsSuccess) return ToProblem(result);
-        return CreatedAtAction(nameof(Get), new { seatMapId = result.Data!.SeatMapId }, new ApiResponse<SeatMapResponse>(result.Data));
+        if (!result.IsSuccess) return ToFailure(result);
+        return CreatedAtAction(nameof(Get), new { seatMapId = result.Data!.SeatMapId }, ApiResponse<SeatMapResponse>.Ok(result.Data, "Seat map created."));
     }
 
     [HttpPut("{seatMapId:long}")]
@@ -48,7 +48,7 @@ public sealed class SeatMapsController : ControllerBase
     public async Task<ActionResult<ApiResponse<SeatMapResponse>>> Update(long seatMapId, [FromBody] SeatMapRequest request, CancellationToken cancellationToken)
     {
         var result = await _service.UpdateMapAsync(seatMapId, request, cancellationToken);
-        return result.IsSuccess ? Ok(new ApiResponse<SeatMapResponse>(result.Data!)) : ToProblem(result);
+        return result.IsSuccess ? Ok(ApiResponse<SeatMapResponse>.Ok(result.Data!, "Seat map updated.")) : ToFailure(result);
     }
 
     [HttpDelete("{seatMapId:long}")]
@@ -56,8 +56,10 @@ public sealed class SeatMapsController : ControllerBase
     public async Task<IActionResult> Delete(long seatMapId, CancellationToken cancellationToken)
     {
         var result = await _service.DeleteMapAsync(seatMapId, cancellationToken);
-        return result.IsSuccess ? NoContent() : ToProblem(result);
+        return result.IsSuccess ? NoContent() : ToFailure(result);
     }
 
-    private ActionResult ToProblem<T>(ServiceResult<T> result) => Problem(statusCode: result.StatusCode, title: result.Title, detail: result.Detail);
+    private ActionResult ToFailure<T>(ServiceResult<T> result) => StatusCode(
+        result.StatusCode ?? StatusCodes.Status500InternalServerError,
+        ApiResponse<T>.Fail(result.Title!, result.Detail ?? result.Title!));
 }

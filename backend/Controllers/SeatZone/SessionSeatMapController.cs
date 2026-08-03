@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using ShowtimeBackend.DTOs;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.SeatZone;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Services.SeatZone;
@@ -20,12 +20,14 @@ public sealed class SessionSeatMapController : ControllerBase
 
     [HttpGet("{sessionId:long}/seat-map")]
     [ProducesResponseType(typeof(ApiResponse<SessionSeatMapDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SessionSeatMapDto>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<SessionSeatMapDto>>> Get(long sessionId, CancellationToken cancellationToken)
     {
         var result = await _service.GetAsync(sessionId, cancellationToken);
         return result.IsSuccess
-            ? Ok(new ApiResponse<SessionSeatMapDto>(result.Data!))
-            : Problem(statusCode: result.StatusCode, title: result.Title, detail: result.Detail);
+            ? Ok(ApiResponse<SessionSeatMapDto>.Ok(result.Data!, "Session seat map retrieved."))
+            : StatusCode(
+                result.StatusCode ?? StatusCodes.Status500InternalServerError,
+                ApiResponse<SessionSeatMapDto>.Fail(result.Title!, result.Detail ?? result.Title!));
     }
 }

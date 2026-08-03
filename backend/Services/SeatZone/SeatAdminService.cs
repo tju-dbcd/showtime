@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Oracle.ManagedDataAccess.Client;
-using ShowtimeBackend.DTOs;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.SeatZone;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.SeatZone;
