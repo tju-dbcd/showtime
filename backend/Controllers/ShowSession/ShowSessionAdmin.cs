@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using ShowtimeBackend.Dtos.Admin;
-using ShowtimeBackend.Dtos.Client;
+using ShowtimeBackend.DTOs.ShowSessionChange;
 using ShowtimeBackend.Services.ShowSession;
 
 namespace ShowtimeBackend.Controllers.Admin;
@@ -21,9 +20,9 @@ public class AdminShowSessionController : ControllerBase
     /// 为指定演出创建/排布场次
     /// </summary>
     [HttpPost("shows/{showId:long}/sessions")]
-    [ProducesResponseType(typeof(ShowSessionDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ShowtimeBackend.DTOs.ShowSessionDto.ShowSessionDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ShowSessionDto>> CreateSession(
+    public async Task<ActionResult<ShowtimeBackend.DTOs.ShowSessionDto.ShowSessionDto>> CreateSession(
         [FromRoute] long showId,
         [FromBody] CreateShowSessionRequest request,
         CancellationToken cancellationToken)

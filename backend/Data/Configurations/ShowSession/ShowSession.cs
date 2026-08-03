@@ -67,11 +67,11 @@ public class ShowSessionConfiguration : IEntityTypeConfiguration<Entities.ShowSe
                .HasConstraintName("FK_SHOW_SESSION_SHOW");
 
         // TODO(PR #5 依赖): SeatMap 实体目前位于 Feature/SeatZoneMapping 分支，合并入 Develop 后启用：
-        //   builder.HasOne<SeatMap>()
-        //          .WithMany()
-        //          .HasForeignKey(x => x.SeatMapId)
-        //          .HasConstraintName("FK_SHOW_SESSION_SEAT_MAP")
-        //          .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<SeatMap>()
+               .WithMany()
+               .HasForeignKey(x => x.SeatMapId)
+               .HasConstraintName("FK_SHOW_SESSION_SEAT_MAP")
+               .OnDelete(DeleteBehavior.Restrict);
 
         // 单列索引配置 
         builder.HasIndex(x => x.ShowId)

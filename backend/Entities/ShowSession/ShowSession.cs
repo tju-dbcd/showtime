@@ -1,5 +1,6 @@
 using System;
 using ShowtimeBackend.Entities.Base;
+using ShowtimeBackend.Entities.SeatZone;
 
 namespace ShowtimeBackend.Entities.ShowSession
 {
@@ -55,9 +56,7 @@ namespace ShowtimeBackend.Entities.ShowSession
         /// </summary>
         public virtual Show Show { get; set; } = null!;
 
-        /// <summary>
-        /// TODO:关联的座位图实体等待关联
-        /// </summary>
-        //public virtual SeatMap SeatMap { get; set; } = null!;
+        // SeatMap 导航属性
+        public virtual SeatMap SeatMap { get; set; } = null!;
     }
 }

@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using ShowtimeBackend.Dtos.Client;
+using ShowtimeBackend.DTOs.ShowSessionDto;
 using ShowtimeBackend.Services.ShowSession;
 
 namespace ShowtimeBackend.Controllers.Client;
@@ -21,7 +21,7 @@ public class ShowSessionController : ControllerBase
     /// 获取指定演出的有效可售场次列表
     /// </summary>
     /// <remarks>
-    /// 用于 C 端演出详情页。底层基于 (ShowId, SessionStatus, StartTime) 复合索引进行性能优化。
+    /// 用于C端演出详情页
     /// </remarks>
     /// <param name="showId">演出主键 ID</param>
     /// <param name="cancellationToken">异步取消令牌</param>

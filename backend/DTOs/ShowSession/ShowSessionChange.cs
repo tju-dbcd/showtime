@@ -1,4 +1,4 @@
-namespace ShowtimeBackend.Dtos.Admin;
+namespace ShowtimeBackend.DTOs.ShowSessionChange;
 
 /// <summary>
 /// 创建演出场次请求参数

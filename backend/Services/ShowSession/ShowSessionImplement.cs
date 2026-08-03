@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ShowtimeBackend.Data;
-using ShowtimeBackend.Dtos.Admin;
-using ShowtimeBackend.Dtos.Client;
+using ShowtimeBackend.DTOs.ShowSessionChange;
+using ShowtimeBackend.DTOs.ShowSessionDto;
 using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Services.ShowSession;
 
@@ -30,7 +30,8 @@ public class ShowSessionService : IClientShowSessionService
                 s.StartTime,
                 s.EndTime,
                 s.SaleStartTime,
-                s.SessionStatus
+                s.SessionStatus,
+                s.SeatMapId
             ))
             .ToListAsync(cancellationToken);
     }
@@ -115,7 +116,8 @@ public class AdminShowSessionService : IAdminShowSessionService
             sessionEntity.StartTime,
             sessionEntity.EndTime,
             sessionEntity.SaleStartTime,
-            sessionEntity.SessionStatus
+            sessionEntity.SessionStatus,
+            sessionEntity.SeatMapId
         );
     }
 

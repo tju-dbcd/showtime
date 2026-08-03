@@ -1,5 +1,5 @@
-using ShowtimeBackend.Dtos.Client;
-using ShowtimeBackend.Dtos.Admin;
+using ShowtimeBackend.DTOs.ShowSessionChange;
+using ShowtimeBackend.DTOs.ShowSessionDto;
 
 namespace ShowtimeBackend.Services.ShowSession;
 
