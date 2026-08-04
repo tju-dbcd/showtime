@@ -63,10 +63,10 @@ public sealed class SeatMapAdminService
     {
         var validation = ValidateMap(request);
         if (validation is not null) return ServiceResult<SeatMapResponse>.Failure(400, "Invalid seat map", validation);
-        if (!await _db.Venues.AnyAsync(venue => venue.VenueId == request.VenueId, cancellationToken))
+        if (await _db.Venues.CountAsync(venue => venue.VenueId == request.VenueId, cancellationToken) == 0)
             return ServiceResult<SeatMapResponse>.Failure(404, "Venue not found", $"Venue {request.VenueId} does not exist.");
         var mapCode = request.MapCode.Trim();
-        if (await _db.SeatMaps.AnyAsync(map => map.VenueId == request.VenueId && map.MapCode == mapCode, cancellationToken))
+        if (await _db.SeatMaps.CountAsync(map => map.VenueId == request.VenueId && map.MapCode == mapCode, cancellationToken) > 0)
             return ServiceResult<SeatMapResponse>.Failure(409, "Duplicate seat map", "A seat map with the same venueId and mapCode already exists.");
 
         await using var transaction = _db.Database.IsRelational() ? await _db.Database.BeginTransactionAsync(cancellationToken) : null;
@@ -97,10 +97,10 @@ public sealed class SeatMapAdminService
         if (validation is not null) return ServiceResult<SeatMapResponse>.Failure(400, "Invalid seat map", validation);
         var map = await _db.SeatMaps.SingleOrDefaultAsync(item => item.SeatMapId == seatMapId, cancellationToken);
         if (map is null) return ServiceResult<SeatMapResponse>.Failure(404, "Seat map not found", $"Seat map {seatMapId} does not exist.");
-        if (!await _db.Venues.AnyAsync(venue => venue.VenueId == request.VenueId, cancellationToken))
+        if (await _db.Venues.CountAsync(venue => venue.VenueId == request.VenueId, cancellationToken) == 0)
             return ServiceResult<SeatMapResponse>.Failure(404, "Venue not found", $"Venue {request.VenueId} does not exist.");
         var mapCode = request.MapCode.Trim();
-        if (await _db.SeatMaps.AnyAsync(item => item.SeatMapId != seatMapId && item.VenueId == request.VenueId && item.MapCode == mapCode, cancellationToken))
+        if (await _db.SeatMaps.CountAsync(item => item.SeatMapId != seatMapId && item.VenueId == request.VenueId && item.MapCode == mapCode, cancellationToken) > 0)
             return ServiceResult<SeatMapResponse>.Failure(409, "Duplicate seat map", "A seat map with the same venueId and mapCode already exists.");
 
         await using var transaction = _db.Database.IsRelational() ? await _db.Database.BeginTransactionAsync(cancellationToken) : null;
@@ -127,9 +127,9 @@ public sealed class SeatMapAdminService
     {
         var map = await _db.SeatMaps.SingleOrDefaultAsync(item => item.SeatMapId == seatMapId, cancellationToken);
         if (map is null) return ServiceResult<bool>.Failure(404, "Seat map not found", $"Seat map {seatMapId} does not exist.");
-        if (await _db.SeatSections.AnyAsync(item => item.SeatMapId == seatMapId, cancellationToken) ||
-            await _db.ShowSessions.AnyAsync(item => item.SeatMapId == seatMapId, cancellationToken) ||
-            await _db.SeatRuleScopes.AnyAsync(item => item.SeatMapId == seatMapId, cancellationToken))
+        if (await _db.SeatSections.CountAsync(item => item.SeatMapId == seatMapId, cancellationToken) > 0 ||
+            await _db.ShowSessions.CountAsync(item => item.SeatMapId == seatMapId, cancellationToken) > 0 ||
+            await _db.SeatRuleScopes.CountAsync(item => item.SeatMapId == seatMapId, cancellationToken) > 0)
             return ServiceResult<bool>.Failure(409, "Seat map is in use", "Remove dependent sections, show sessions, and rule scopes before deleting this seat map.");
         _db.SeatMaps.Remove(map);
         try
@@ -145,7 +145,7 @@ public sealed class SeatMapAdminService
 
     public async Task<ServiceResult<PagedResponse<SeatSectionResponse>>> ListSectionsAsync(long seatMapId, SeatSectionListQuery query, CancellationToken cancellationToken)
     {
-        if (!await _db.SeatMaps.AnyAsync(item => item.SeatMapId == seatMapId, cancellationToken))
+        if (await _db.SeatMaps.CountAsync(item => item.SeatMapId == seatMapId, cancellationToken) == 0)
             return ServiceResult<PagedResponse<SeatSectionResponse>>.Failure(404, "Seat map not found", $"Seat map {seatMapId} does not exist.");
         var pagingError = ValidatePaging(query.Page, query.PageSize);
         if (pagingError is not null) return ServiceResult<PagedResponse<SeatSectionResponse>>.Failure(400, "Invalid paging", pagingError);
@@ -176,10 +176,10 @@ public sealed class SeatMapAdminService
     {
         var validation = ValidateSection(request);
         if (validation is not null) return ServiceResult<SeatSectionResponse>.Failure(400, "Invalid seat section", validation);
-        if (!await _db.SeatMaps.AnyAsync(item => item.SeatMapId == seatMapId, cancellationToken))
+        if (await _db.SeatMaps.CountAsync(item => item.SeatMapId == seatMapId, cancellationToken) == 0)
             return ServiceResult<SeatSectionResponse>.Failure(404, "Seat map not found", $"Seat map {seatMapId} does not exist.");
         var sectionCode = request.SectionCode.Trim();
-        if (await _db.SeatSections.AnyAsync(item => item.SeatMapId == seatMapId && item.SectionCode == sectionCode, cancellationToken))
+        if (await _db.SeatSections.CountAsync(item => item.SeatMapId == seatMapId && item.SectionCode == sectionCode, cancellationToken) > 0)
             return ServiceResult<SeatSectionResponse>.Failure(409, "Duplicate seat section", "A seat section with the same seatMapId and sectionCode already exists.");
         var section = new SeatSection { SeatMapId = seatMapId };
         Apply(request, section);
@@ -202,7 +202,7 @@ public sealed class SeatMapAdminService
         var section = await _db.SeatSections.SingleOrDefaultAsync(item => item.SeatSectionId == seatSectionId, cancellationToken);
         if (section is null) return ServiceResult<SeatSectionResponse>.Failure(404, "Seat section not found", $"Seat section {seatSectionId} does not exist.");
         var sectionCode = request.SectionCode.Trim();
-        if (await _db.SeatSections.AnyAsync(item => item.SeatSectionId != seatSectionId && item.SeatMapId == section.SeatMapId && item.SectionCode == sectionCode, cancellationToken))
+        if (await _db.SeatSections.CountAsync(item => item.SeatSectionId != seatSectionId && item.SeatMapId == section.SeatMapId && item.SectionCode == sectionCode, cancellationToken) > 0)
             return ServiceResult<SeatSectionResponse>.Failure(409, "Duplicate seat section", "A seat section with the same seatMapId and sectionCode already exists.");
         Apply(request, section);
         try
@@ -220,9 +220,9 @@ public sealed class SeatMapAdminService
     {
         var section = await _db.SeatSections.SingleOrDefaultAsync(item => item.SeatSectionId == seatSectionId, cancellationToken);
         if (section is null) return ServiceResult<bool>.Failure(404, "Seat section not found", $"Seat section {seatSectionId} does not exist.");
-        if (await _db.Seats.AnyAsync(item => item.SeatSectionId == seatSectionId, cancellationToken) ||
-            await _db.SeatRuleScopes.AnyAsync(item => item.SeatSectionId == seatSectionId, cancellationToken) ||
-            await _db.Set<PriceStrategy>().AnyAsync(item => item.SeatSectionId == seatSectionId, cancellationToken))
+        if (await _db.Seats.CountAsync(item => item.SeatSectionId == seatSectionId, cancellationToken) > 0 ||
+            await _db.SeatRuleScopes.CountAsync(item => item.SeatSectionId == seatSectionId, cancellationToken) > 0 ||
+            await _db.Set<PriceStrategy>().CountAsync(item => item.SeatSectionId == seatSectionId, cancellationToken) > 0)
             return ServiceResult<bool>.Failure(409, "Seat section is in use", "Remove dependent seats, rule scopes, and price strategies before deleting this seat section.");
         _db.SeatSections.Remove(section);
         try

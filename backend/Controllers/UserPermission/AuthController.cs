@@ -1,10 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShowtimeBackend.Common;
-using ShowtimeBackend.DTOs.Auth;
-using ShowtimeBackend.Services.Auth;
+using ShowtimeBackend.DTOs.UserPermission;
+using ShowtimeBackend.Services.UserPermission;
 
-namespace ShowtimeBackend.Controllers.Auth;
+namespace ShowtimeBackend.Controllers.UserPermission;
 
 [ApiController]
 [Route("api/auth")]

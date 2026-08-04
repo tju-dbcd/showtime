@@ -40,10 +40,11 @@ public class AdminShowSessionController : ControllerBase
             // 包装成功响应
             var response = ApiResponse<ShowSessionDto>.Ok(createdSession, "场次排布成功");
 
-            return CreatedAtAction(
-                "GetSessionById",
-                "ShowSessionClient",
-                new { sessionId = createdSession.SessionId },
+            // 修复（P0）：原 CreatedAtAction("GetSessionById", ...) 引用了不存在的 action，
+            // 导致场次已 INSERT 但响应生成时抛 No route matches（HTTP 500 且客户端无法感知数据已落库）。
+            // Location 指向真实存在的客户端场次列表资源；响应体已包含完整场次信息。
+            return Created(
+                $"/api/client/shows/{showId}/sessions",
                 response);
         }
         catch (ArgumentException ex)

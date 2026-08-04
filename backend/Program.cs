@@ -10,7 +10,7 @@ using ShowtimeBackend.Common.Jwt;
 using ShowtimeBackend.Common.OpenApi;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
-using ShowtimeBackend.Services.Auth;
+using ShowtimeBackend.Services.UserPermission;
 using ShowtimeBackend.Services.OrderTicket;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;

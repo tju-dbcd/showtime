@@ -19,7 +19,7 @@ public sealed class SeatAdminService
 
     public async Task<ServiceResult<PagedResponse<SeatResponse>>> ListSeatsAsync(long seatSectionId, SeatListQuery query, CancellationToken cancellationToken)
     {
-        if (!await _db.SeatSections.AnyAsync(section => section.SeatSectionId == seatSectionId, cancellationToken))
+        if (await _db.SeatSections.CountAsync(section => section.SeatSectionId == seatSectionId, cancellationToken) == 0)
             return ServiceResult<PagedResponse<SeatResponse>>.Failure(404, "Seat section not found", $"Seat section {seatSectionId} does not exist.");
         var pagingError = ValidatePaging(query.Page, query.PageSize);
         if (pagingError is not null)
@@ -54,7 +54,7 @@ public sealed class SeatAdminService
     {
         var validation = Validate(request);
         if (validation is not null) return ServiceResult<SeatResponse>.Failure(400, "Invalid seat", validation);
-        if (!await _db.SeatSections.AnyAsync(section => section.SeatSectionId == seatSectionId, cancellationToken))
+        if (await _db.SeatSections.CountAsync(section => section.SeatSectionId == seatSectionId, cancellationToken) == 0)
             return ServiceResult<SeatResponse>.Failure(404, "Seat section not found", $"Seat section {seatSectionId} does not exist.");
         var uniquenessError = await FindUniquenessConflictAsync(seatSectionId, request, null, cancellationToken);
         if (uniquenessError is not null) return ServiceResult<SeatResponse>.Failure(409, "Duplicate seat", uniquenessError);
@@ -98,8 +98,8 @@ public sealed class SeatAdminService
     {
         var seat = await _db.Seats.SingleOrDefaultAsync(item => item.SeatId == seatId, cancellationToken);
         if (seat is null) return ServiceResult<bool>.Failure(404, "Seat not found", $"Seat {seatId} does not exist.");
-        if (await _db.SeatLocks.AnyAsync(item => item.SeatId == seatId, cancellationToken) ||
-            await _db.SeatReservations.AnyAsync(item => item.SeatId == seatId, cancellationToken))
+        if (await _db.SeatLocks.CountAsync(item => item.SeatId == seatId, cancellationToken) > 0 ||
+            await _db.SeatReservations.CountAsync(item => item.SeatId == seatId, cancellationToken) > 0)
             return ServiceResult<bool>.Failure(409, "Seat has history", SeatHistoryConflictDetail);
         _db.Seats.Remove(seat);
         try
@@ -117,9 +117,9 @@ public sealed class SeatAdminService
     {
         var rowCode = request.RowCode.Trim();
         var seatNo = request.SeatNo.Trim();
-        if (await _db.Seats.AnyAsync(seat => seat.SeatSectionId == seatSectionId && seat.RowCode == rowCode && seat.SeatNo == seatNo && seat.SeatId != excludedSeatId, cancellationToken))
+        if (await _db.Seats.CountAsync(seat => seat.SeatSectionId == seatSectionId && seat.RowCode == rowCode && seat.SeatNo == seatNo && seat.SeatId != excludedSeatId, cancellationToken) > 0)
             return "A seat with the same seatSectionId, rowCode, and seatNo already exists.";
-        if (await _db.Seats.AnyAsync(seat => seat.SeatSectionId == seatSectionId && seat.RowIndex == request.RowIndex && seat.ColIndex == request.ColIndex && seat.SeatId != excludedSeatId, cancellationToken))
+        if (await _db.Seats.CountAsync(seat => seat.SeatSectionId == seatSectionId && seat.RowIndex == request.RowIndex && seat.ColIndex == request.ColIndex && seat.SeatId != excludedSeatId, cancellationToken) > 0)
             return "A seat with the same seatSectionId, rowIndex, and colIndex already exists.";
         return null;
     }

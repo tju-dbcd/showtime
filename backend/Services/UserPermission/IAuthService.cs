@@ -1,6 +1,6 @@
-using ShowtimeBackend.DTOs.Auth;
+using ShowtimeBackend.DTOs.UserPermission;
 
-namespace ShowtimeBackend.Services.Auth;
+namespace ShowtimeBackend.Services.UserPermission;
 
 public interface IAuthService
 {

@@ -1,4 +1,4 @@
-namespace ShowtimeBackend.Services.Auth;
+namespace ShowtimeBackend.Services.UserPermission;
 
 public enum AuthFailure
 {

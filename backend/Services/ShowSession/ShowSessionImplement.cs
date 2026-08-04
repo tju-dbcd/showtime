@@ -86,11 +86,11 @@ public class AdminShowSessionService : IAdminShowSessionService
             throw new ArgumentException("预售结束时间必须晚于预售开始时间");
 
         // 区间重叠防排期冲突算法
-        bool hasConflict = await _context.ShowSessions.AnyAsync(s =>
+        bool hasConflict = await _context.ShowSessions.CountAsync(s =>
             s.SeatMapId == request.SeatMapId &&
             s.SessionStatus != "ENDED" &&
             request.StartTime < s.EndTime && request.EndTime > s.StartTime,
-            cancellationToken);
+            cancellationToken) > 0;
 
         if (hasConflict)
             throw new InvalidOperationException("该场地在指定时间段内已存在其他场次排期");

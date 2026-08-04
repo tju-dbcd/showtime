@@ -66,8 +66,10 @@ public class ShowSessionConfiguration : IEntityTypeConfiguration<Entities.ShowSe
                .HasForeignKey(x => x.ShowId)
                .HasConstraintName("FK_SHOW_SESSION_SHOW");
 
-        // TODO(PR #5 依赖): SeatMap 实体目前位于 Feature/SeatZoneMapping 分支，合并入 Develop 后启用：
-        builder.HasOne<SeatMap>()
+        // 绑定导航属性的关系配置：若不使用 x => x.SeatMap 导航，
+        // EF 会按约定为未配置的 SeatMap 导航再建一条关系，
+        // 生成无对应列的影子外键 "SeatMapId1"，真实 Oracle 库上 INSERT 直接 ORA-00904
+        builder.HasOne(x => x.SeatMap)
                .WithMany()
                .HasForeignKey(x => x.SeatMapId)
                .HasConstraintName("FK_SHOW_SESSION_SEAT_MAP")

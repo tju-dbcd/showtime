@@ -46,7 +46,9 @@ namespace ShowtimeBackend.Data.Configurations.ShowSession
 
             builder.Property(x => x.Status)
                    .HasColumnName("STATUS")
-                   .HasColumnType("NUMBER(1,0)")
+                   // NUMBER(3,0)：Oracle 提供器把 NUMBER(1) 保留为 bool 默认存储类型，
+                   // int 属性声明 NUMBER(1) 会在快照构造时触发 Int32→Boolean 强转崩溃（ORA 环境实测）
+                   .HasColumnType("NUMBER(3,0)")
                    .HasDefaultValue(1)
                    .IsRequired();
 

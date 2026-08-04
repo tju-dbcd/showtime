@@ -49,7 +49,7 @@ public sealed class SeatRuleAdminService
         var validation = ValidateRule(request);
         if (validation is not null) return ServiceResult<SeatRuleResponse>.Failure(400, "Invalid seat rule", validation);
         var ruleCode = request.RuleCode.Trim();
-        if (await _db.SeatRules.AnyAsync(item => item.RuleCode == ruleCode, cancellationToken))
+        if (await _db.SeatRules.CountAsync(item => item.RuleCode == ruleCode, cancellationToken) > 0)
             return ServiceResult<SeatRuleResponse>.Failure(409, "Duplicate seat rule", "A seat rule with the same ruleCode already exists.");
 
         var rule = new SeatRule();
@@ -73,7 +73,7 @@ public sealed class SeatRuleAdminService
         var rule = await _db.SeatRules.SingleOrDefaultAsync(item => item.SeatRuleId == seatRuleId, cancellationToken);
         if (rule is null) return ServiceResult<SeatRuleResponse>.Failure(404, "Seat rule not found", $"Seat rule {seatRuleId} does not exist.");
         var ruleCode = request.RuleCode.Trim();
-        if (await _db.SeatRules.AnyAsync(item => item.SeatRuleId != seatRuleId && item.RuleCode == ruleCode, cancellationToken))
+        if (await _db.SeatRules.CountAsync(item => item.SeatRuleId != seatRuleId && item.RuleCode == ruleCode, cancellationToken) > 0)
             return ServiceResult<SeatRuleResponse>.Failure(409, "Duplicate seat rule", "A seat rule with the same ruleCode already exists.");
 
         Apply(request, rule);
@@ -92,7 +92,7 @@ public sealed class SeatRuleAdminService
     {
         var rule = await _db.SeatRules.SingleOrDefaultAsync(item => item.SeatRuleId == seatRuleId, cancellationToken);
         if (rule is null) return ServiceResult<bool>.Failure(404, "Seat rule not found", $"Seat rule {seatRuleId} does not exist.");
-        if (await _db.SeatRuleScopes.AnyAsync(item => item.SeatRuleId == seatRuleId, cancellationToken))
+        if (await _db.SeatRuleScopes.CountAsync(item => item.SeatRuleId == seatRuleId, cancellationToken) > 0)
             return ServiceResult<bool>.Failure(409, "Seat rule is in use", "Remove rule scopes before deleting this seat rule.");
         _db.SeatRules.Remove(rule);
         try
@@ -108,7 +108,7 @@ public sealed class SeatRuleAdminService
 
     public async Task<ServiceResult<IReadOnlyList<SeatRuleScopeResponse>>> ListScopesAsync(long seatRuleId, CancellationToken cancellationToken)
     {
-        if (!await _db.SeatRules.AnyAsync(item => item.SeatRuleId == seatRuleId, cancellationToken))
+        if (await _db.SeatRules.CountAsync(item => item.SeatRuleId == seatRuleId, cancellationToken) == 0)
             return ServiceResult<IReadOnlyList<SeatRuleScopeResponse>>.Failure(404, "Seat rule not found", $"Seat rule {seatRuleId} does not exist.");
         var scopes = await _db.SeatRuleScopes.AsNoTracking().Where(item => item.SeatRuleId == seatRuleId)
             .OrderBy(item => item.RuleScopeId).Select(item => ToResponse(item)).ToListAsync(cancellationToken);
@@ -117,17 +117,17 @@ public sealed class SeatRuleAdminService
 
     public async Task<ServiceResult<SeatRuleScopeResponse>> CreateScopeAsync(long seatRuleId, SeatRuleScopeRequest request, CancellationToken cancellationToken)
     {
-        if (!await _db.SeatRules.AnyAsync(item => item.SeatRuleId == seatRuleId, cancellationToken))
+        if (await _db.SeatRules.CountAsync(item => item.SeatRuleId == seatRuleId, cancellationToken) == 0)
             return ServiceResult<SeatRuleScopeResponse>.Failure(404, "Seat rule not found", $"Seat rule {seatRuleId} does not exist.");
         var validation = ValidateScope(request);
         if (validation is not null) return ServiceResult<SeatRuleScopeResponse>.Failure(400, "Invalid rule scope", validation);
-        if (request.ScopeType == "MAP" && !await _db.SeatMaps.AnyAsync(item => item.SeatMapId == request.SeatMapId, cancellationToken))
+        if (request.ScopeType == "MAP" && await _db.SeatMaps.CountAsync(item => item.SeatMapId == request.SeatMapId, cancellationToken) == 0)
             return ServiceResult<SeatRuleScopeResponse>.Failure(404, "Seat map not found", $"Seat map {request.SeatMapId} does not exist.");
-        if (request.ScopeType == "SECTION" && !await _db.SeatSections.AnyAsync(item => item.SeatSectionId == request.SeatSectionId, cancellationToken))
+        if (request.ScopeType == "SECTION" && await _db.SeatSections.CountAsync(item => item.SeatSectionId == request.SeatSectionId, cancellationToken) == 0)
             return ServiceResult<SeatRuleScopeResponse>.Failure(404, "Seat section not found", $"Seat section {request.SeatSectionId} does not exist.");
-        if (await _db.SeatRuleScopes.AnyAsync(item => item.SeatRuleId == seatRuleId &&
+        if (await _db.SeatRuleScopes.CountAsync(item => item.SeatRuleId == seatRuleId &&
             ((request.ScopeType == "MAP" && item.ScopeType == "MAP" && item.SeatMapId == request.SeatMapId) ||
-             (request.ScopeType == "SECTION" && item.ScopeType == "SECTION" && item.SeatSectionId == request.SeatSectionId)), cancellationToken))
+             (request.ScopeType == "SECTION" && item.ScopeType == "SECTION" && item.SeatSectionId == request.SeatSectionId)), cancellationToken) > 0)
             return ServiceResult<SeatRuleScopeResponse>.Failure(409, "Duplicate rule scope", "A rule scope with the same target already exists.");
 
         var scope = new SeatRuleScope { SeatRuleId = seatRuleId };

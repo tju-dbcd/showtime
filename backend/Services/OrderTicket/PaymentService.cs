@@ -19,7 +19,7 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
     {
         var orderExists = await dbContext.Set<Order>()
             .AsNoTracking()
-            .AnyAsync(item => item.OrderId == orderId && item.UserId == userId, cancellationToken);
+            .CountAsync(item => item.OrderId == orderId && item.UserId == userId, cancellationToken) > 0;
         if (!orderExists)
         {
             return OrderTicketResult<IReadOnlyList<PaymentResponse>>.Fail(

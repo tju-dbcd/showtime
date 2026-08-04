@@ -58,7 +58,9 @@ public class ExchangePolicyConfiguration : IEntityTypeConfiguration<ExchangePoli
 
         builder.Property(entity => entity.AllowCrossSession)
             .HasColumnName("ALLOW_CROSS_SESSION")
-            .HasColumnType("NUMBER(1)")
+            // NUMBER(3)：Oracle 提供器把 NUMBER(1) 保留为 bool 的默认存储类型，
+            // byte 属性若声明 NUMBER(1) 会在原始值快照构造时触发 Byte→Boolean 强转崩溃（ORA 环境实测）
+            .HasColumnType("NUMBER(3)")
             .HasDefaultValue((byte)1)
             .HasSentinel(byte.MaxValue)
             .IsRequired();
@@ -71,7 +73,8 @@ public class ExchangePolicyConfiguration : IEntityTypeConfiguration<ExchangePoli
 
         builder.Property(entity => entity.Status)
             .HasColumnName("STATUS")
-            .HasColumnType("NUMBER(1)")
+            // NUMBER(3)：同 AllowCrossSession，避免 NUMBER(1) bool 映射冲突
+            .HasColumnType("NUMBER(3)")
             .HasDefaultValue((byte)1)
             .HasSentinel(byte.MaxValue)
             .IsRequired();

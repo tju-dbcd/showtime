@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
-using ShowtimeBackend.DTOs.Auth;
+using ShowtimeBackend.DTOs.UserPermission;
 using ShowtimeBackend.Entities.UserPermission;
 
 namespace ShowtimeBackend.Tests;

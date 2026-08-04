@@ -3,10 +3,10 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using ShowtimeBackend.Common.Jwt;
 using ShowtimeBackend.Data;
-using ShowtimeBackend.DTOs.Auth;
+using ShowtimeBackend.DTOs.UserPermission;
 using ShowtimeBackend.Entities.UserPermission;
 
-namespace ShowtimeBackend.Services.Auth;
+namespace ShowtimeBackend.Services.UserPermission;
 
 public sealed partial class AuthService(
     AppDbContext dbContext,
@@ -88,9 +88,9 @@ public sealed partial class AuthService(
 
             var defaultRoleStillAvailable = await dbContext.Set<Role>()
                 .AsNoTracking()
-                .AnyAsync(
+                .CountAsync(
                     role => role.RoleCode == DefaultRoleCode && role.Status,
-                    cancellationToken);
+                    cancellationToken) > 0;
             if (!defaultRoleStillAvailable)
             {
                 return AuthServiceResult<RegisterResponse>.Failed(
@@ -203,23 +203,23 @@ public sealed partial class AuthService(
     {
         if (await dbContext.Set<SysUser>()
             .AsNoTracking()
-            .AnyAsync(user => user.UserName == userName, cancellationToken))
+            .CountAsync(user => user.UserName == userName, cancellationToken) > 0)
         {
             return AuthFailure.UserNameTaken;
         }
 
         if (await dbContext.Set<SysUser>()
             .AsNoTracking()
-            .AnyAsync(user => user.Phone == phone, cancellationToken))
+            .CountAsync(user => user.Phone == phone, cancellationToken) > 0)
         {
             return AuthFailure.PhoneTaken;
         }
 
         if (email is not null && await dbContext.Set<SysUser>()
             .AsNoTracking()
-            .AnyAsync(
+            .CountAsync(
                 user => user.Email != null && user.Email.ToLower() == email,
-                cancellationToken))
+                cancellationToken) > 0)
         {
             return AuthFailure.EmailTaken;
         }

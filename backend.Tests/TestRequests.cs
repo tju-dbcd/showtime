@@ -1,4 +1,4 @@
-using ShowtimeBackend.DTOs.Auth;
+using ShowtimeBackend.DTOs.UserPermission;
 
 namespace ShowtimeBackend.Tests;
 

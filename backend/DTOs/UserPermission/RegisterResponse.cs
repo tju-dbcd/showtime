@@ -1,3 +1,3 @@
-namespace ShowtimeBackend.DTOs.Auth;
+namespace ShowtimeBackend.DTOs.UserPermission;
 
 public sealed record RegisterResponse(UserResponse User);
