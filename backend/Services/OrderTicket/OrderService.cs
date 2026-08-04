@@ -99,7 +99,7 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             return Invalid("ORDER_INVALID_ITEMS", "Order items must contain valid, distinct seats.");
         }
 
-        if (!await dbContext.Set<ShowSession>()
+        if (!await dbContext.Set<ShowtimeBackend.Entities.ShowSession.ShowSession>()
                 .AsNoTracking()
                 .AnyAsync(item => item.SessionId == request.SessionId, cancellationToken))
         {
