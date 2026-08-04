@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.SeatZone;
@@ -7,9 +8,10 @@ using ShowtimeBackend.Services.SeatZone;
 namespace ShowtimeBackend.Controllers.SeatZone;
 
 /// <summary>
-/// 管理端票区维护接口，票区从属于一张座位图。
+/// 管理端票区维护接口（仅 Admin 角色），票区从属于一张座位图。
 /// </summary>
 [ApiController]
+[Authorize(Roles = "Admin")]
 [Route("api/admin")]
 [Tags("Seat Zone Administration - Seat Sections")]
 public sealed class SeatSectionsController : ControllerBase

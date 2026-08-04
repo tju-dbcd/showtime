@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.SeatZone;
@@ -7,9 +8,10 @@ using ShowtimeBackend.Services.SeatZone;
 namespace ShowtimeBackend.Controllers.SeatZone;
 
 /// <summary>
-/// 面向用户端选座页的只读座位图接口。
+/// 面向用户端选座页的只读座位图接口（游客可浏览场次与座位布局）。
 /// </summary>
 [ApiController]
+[AllowAnonymous]
 [Route("api/sessions")]
 [Tags("Sessions")]
 public sealed class SessionSeatMapController : ControllerBase

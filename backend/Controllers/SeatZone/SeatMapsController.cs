@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.SeatZone;
@@ -7,9 +8,10 @@ using ShowtimeBackend.Services.SeatZone;
 namespace ShowtimeBackend.Controllers.SeatZone;
 
 /// <summary>
-/// 管理端座位图维护接口；实际权限拦截由后续统一 JWT 模块接入。
+/// 管理端座位图维护接口（仅 Admin 角色）。
 /// </summary>
 [ApiController]
+[Authorize(Roles = "Admin")]
 [Route("api/admin/seat-maps")]
 [Tags("Seat Zone Administration - Seat Maps")]
 public sealed class SeatMapsController : ControllerBase
