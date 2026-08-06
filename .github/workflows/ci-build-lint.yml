@@ -1,0 +1,232 @@
+name: CI Pipeline
+
+on:
+  push: 
+    branches: [ main, Develop ]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build project
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: ./**/bin/Release/
+          retention-days: 7
+          if-no-files-found: warn
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Run linter
+        run: dotnet format --verify-no-changes --verbosity diagnostic
+
+  frontend:
+    name: Frontend Build + Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload frontend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 7
+          if-no-files-found: warn
+
+  test:
+    name: dotnet test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build project
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Run tests
+        run: dotnet test --no-build --configuration Release --verbosity normal --collect:"XPlat Code Coverage"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ./**/TestResults/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: ./**/coverage.cobertura.xml
+          retention-days: 7
+          if-no-files-found: warn
+
+  openapi-check:
+    name: OpenAPI Snapshot Freshness Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build project
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Generate OpenAPI document
+        run: dotnet run --project ./backend/ShowtimeBackend/ShowtimeBackend.csproj -- --openapi generate --output ./openapi-snapshot.json
+
+      - name: Check OpenAPI snapshot freshness
+        id: openapi_check
+        run: |
+          PASS="pass"
+          if [ ! -f ./openapi-snapshot.json ]; then
+            echo "::error::Failed to generate OpenAPI document."
+            PASS="fail"
+          elif [ ! -f ./docs/openapi.json ]; then
+            echo "::warning::docs/openapi.json not found. Run generation script to create it."
+            PASS="warning"
+          elif ! cmp -s ./openapi-snapshot.json ./docs/openapi.json; then
+            echo "::error::OpenAPI snapshot is outdated. Please update docs/openapi.json"
+            PASS="fail"
+          else
+            echo "OpenAPI snapshot is up to date."
+            PASS="pass"
+          fi
+
+          echo "status=$PASS" >> $GITHUB_OUTPUT
+          if [ "$PASS" = "fail" ]; then
+            exit 1
+          fi
+
+      - name: Upload generated OpenAPI document
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-generated
+          path: ./openapi-snapshot.json
+          retention-days: 3
+          if-no-files-found: warn
+
+      - name: OpenAPI Check Result
+        if: always()
+        run: |
+          echo "OpenAPI Check Completed"
+          echo "Status: ${{ steps.openapi_check.outputs.status }}"
+          if [ "${{ steps.openapi_check.outputs.status }}" == "fail" ]; then
+            echo "Please run the OpenAPI generation script locally and commit the updated snapshot."
+          fi
