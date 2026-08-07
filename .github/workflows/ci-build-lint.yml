@@ -1,7 +1,7 @@
 name: CI Pipeline
 
 on:
-  push: 
+  push:
     branches: [ main, Develop ]
   pull_request:
     branches: [ main, Develop ]
@@ -12,7 +12,7 @@ env:
 
 jobs:
   build:
-    name: Build
+    name: Backend Build
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -48,7 +48,7 @@ jobs:
           if-no-files-found: warn
 
   lint:
-    name: Lint
+    name: Backend Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -113,7 +113,7 @@ jobs:
           if-no-files-found: warn
 
   test:
-    name: dotnet test
+    name: Backend Unit Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build
@@ -161,7 +161,7 @@ jobs:
           if-no-files-found: warn
 
   openapi-check:
-    name: OpenAPI Snapshot Freshness Check
+    name: OpenAPI Snapshot Check
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: build
@@ -189,31 +189,45 @@ jobs:
       - name: Build project
         run: dotnet build --no-restore --configuration Release
 
-      - name: Generate OpenAPI document
-        run: dotnet run --project ./backend/ShowtimeBackend.csproj -- --openapi generate --output ./openapi-snapshot.json
+      # 后端暂无非 web 启动的 OpenAPI 导出命令，这里以 Development 环境启动应用，
+      # 通过 HTTP 拉取 /openapi/v1.json 生成快照，随后立即关闭进程。
+      - name: Start backend and export OpenAPI document
+        working-directory: backend
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ASPNETCORE_URLS: http://127.0.0.1:5000
+        run: |
+          dotnet ./bin/Release/net10.0/ShowtimeBackend.dll &
+          APP_PID=$!
+          GENERATED=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5000/openapi/v1.json -o "$GITHUB_WORKSPACE/openapi-snapshot.json"; then
+              GENERATED=1
+              break
+            fi
+            sleep 2
+          done
+          kill "$APP_PID" 2>/dev/null || true
+          wait "$APP_PID" 2>/dev/null || true
+          if [ "$GENERATED" != "1" ] || [ ! -s "$GITHUB_WORKSPACE/openapi-snapshot.json" ]; then
+            echo "::error::Failed to generate OpenAPI document from /openapi/v1.json."
+            exit 1
+          fi
 
+      # 生成文档中的 servers[0].url 随启动端口变化，属于环境相关字段，
+      # 比较前先移除，只校验 API 契约（paths/components/security 等）是否过期。
       - name: Check OpenAPI snapshot freshness
         id: openapi_check
         run: |
-          PASS="pass"
-          if [ ! -f ./openapi-snapshot.json ]; then
-            echo "::error::Failed to generate OpenAPI document."
-            PASS="fail"
-          elif [ ! -f ./docs/openapi.json ]; then
-            echo "::warning::docs/openapi.json not found. Run generation script to create it."
-            PASS="warning"
-          elif ! cmp -s ./openapi-snapshot.json ./docs/openapi.json; then
-            echo "::error::OpenAPI snapshot is outdated. Please update docs/openapi.json"
-            PASS="fail"
-          else
-            echo "OpenAPI snapshot is up to date."
-            PASS="pass"
-          fi
-
-          echo "status=$PASS" >> $GITHUB_OUTPUT
-          if [ "$PASS" = "fail" ]; then
+          jq 'del(.servers)' ./openapi-snapshot.json > /tmp/openapi-snapshot.norm.json
+          jq 'del(.servers)' ./frontend/src/api/openapi.json > /tmp/openapi-committed.norm.json
+          if ! cmp -s /tmp/openapi-snapshot.norm.json /tmp/openapi-committed.norm.json; then
+            echo "::error::OpenAPI snapshot is outdated. Regenerate and commit ./frontend/src/api/openapi.json"
+            echo "status=fail" >> "$GITHUB_OUTPUT"
             exit 1
           fi
+          echo "OpenAPI snapshot is up to date."
+          echo "status=pass" >> "$GITHUB_OUTPUT"
 
       - name: Upload generated OpenAPI document
         uses: actions/upload-artifact@v4
@@ -229,5 +243,5 @@ jobs:
           echo "OpenAPI Check Completed"
           echo "Status: ${{ steps.openapi_check.outputs.status }}"
           if [ "${{ steps.openapi_check.outputs.status }}" == "fail" ]; then
-            echo "Please run the OpenAPI generation script locally and commit the updated snapshot."
+            echo "Please regenerate the OpenAPI snapshot locally and commit it to frontend/src/api/openapi.json."
           fi
