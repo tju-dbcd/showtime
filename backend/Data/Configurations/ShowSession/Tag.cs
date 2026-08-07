@@ -41,7 +41,8 @@ namespace ShowtimeBackend.Data.Configurations.ShowSession
 
             builder.Property(x => x.Status)
                    .HasColumnName("STATUS")
-                   .HasColumnType("NUMBER(1,0)")
+                   // NUMBER(3,0)：同 Category.Status，避免 NUMBER(1) bool 映射冲突
+                   .HasColumnType("NUMBER(3,0)")
                    .HasDefaultValue(1)
                    .IsRequired();
 

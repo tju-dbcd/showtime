@@ -2,6 +2,7 @@ name: CI Pipeline
 
 on:
   push: 
+  push:
     branches: [ main, Develop ]
   pull_request:
   workflow_dispatch:
@@ -230,3 +231,4 @@ jobs:
           if [ "${{ steps.openapi_check.outputs.status }}" == "fail" ]; then
             echo "Please run the OpenAPI generation script locally and commit the updated snapshot."
           fi
+          if-no-files-found: warn

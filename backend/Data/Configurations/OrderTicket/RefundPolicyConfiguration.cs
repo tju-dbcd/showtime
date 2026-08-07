@@ -72,7 +72,9 @@ public class RefundPolicyConfiguration : IEntityTypeConfiguration<RefundPolicy>
 
         builder.Property(entity => entity.Status)
             .HasColumnName("STATUS")
-            .HasColumnType("NUMBER(1)")
+            // NUMBER(3)：Oracle 提供器把 NUMBER(1) 保留为 bool 的默认存储类型，
+            // byte 属性声明 NUMBER(1) 会在快照构造时触发 Byte→Boolean 强转崩溃（ORA 环境实测）
+            .HasColumnType("NUMBER(3)")
             .HasDefaultValue((byte)1)
             .HasSentinel(byte.MaxValue)
             .IsRequired();
