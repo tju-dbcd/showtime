@@ -190,7 +190,7 @@ jobs:
         run: dotnet build --no-restore --configuration Release
 
       - name: Generate OpenAPI document
-        run: dotnet run --project ./backend/ShowtimeBackend/ShowtimeBackend.csproj -- --openapi generate --output ./openapi-snapshot.json
+        run: dotnet run --project ./backend/ShowtimeBackend.csproj -- --openapi generate --output ./openapi-snapshot.json
 
       - name: Check OpenAPI snapshot freshness
         id: openapi_check
