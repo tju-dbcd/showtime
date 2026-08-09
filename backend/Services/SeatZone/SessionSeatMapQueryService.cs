@@ -10,8 +10,13 @@ namespace ShowtimeBackend.Services.SeatZone;
 public sealed class SessionSeatMapQueryService
 {
     private readonly AppDbContext _db;
+    private readonly TimeProvider _timeProvider;
 
-    public SessionSeatMapQueryService(AppDbContext db) => _db = db;
+    public SessionSeatMapQueryService(AppDbContext db, TimeProvider timeProvider)
+    {
+        _db = db;
+        _timeProvider = timeProvider;
+    }
 
     /// <summary>
     /// 以场次为入口加载座位图、票区和座位，避免向客户端暴露管理端备注及审计字段。
@@ -73,8 +78,23 @@ public sealed class SessionSeatMapQueryService
             })
             .ToListAsync(cancellationToken);
 
-        // 当前阶段不查询锁座/预留记录；座位可售性只由场次、票区和座位自身状态决定。
-        var sessionIsOnSale = session.SessionStatus == "ONSALE";
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+
+        // 只把尚未过期的 ACTIVE 锁显示为 LOCKED，过期记录无需等待后台清理。
+        var lockedSeatIds = await _db.SeatLocks.AsNoTracking()
+            .Where(item => item.SessionId == sessionId &&
+                           item.LockStatus == "ACTIVE" &&
+                           item.ExpireTime > now)
+            .Select(item => item.SeatId)
+            .ToHashSetAsync(cancellationToken);
+        var reservedSeatIds = await _db.SeatReservations.AsNoTracking()
+            .Where(item => item.SessionId == sessionId &&
+                           item.ReservationStatus == "ACTIVE")
+            .Select(item => item.SeatId)
+            .ToHashSetAsync(cancellationToken);
+        var sessionIsOnSale = session.SessionStatus == "ONSALE" &&
+                              session.SaleStartTime <= now &&
+                              session.SaleEndTime >= now;
         var seats = await (
                 from seat in _db.Seats.AsNoTracking()
                 join section in _db.SeatSections.AsNoTracking() on seat.SeatSectionId equals section.SeatSectionId
@@ -112,9 +132,13 @@ public sealed class SessionSeatMapQueryService
                 seat.SeatStatus,
                 seat.IsAisleSide,
                 seat.IsSellable,
-                sessionIsOnSale && seat.SectionIsSellable && seat.IsSellable && seat.SeatStatus == "ENABLED"
-                    ? "AVAILABLE"
-                    : "UNAVAILABLE")).ToList());
+                GetAvailabilityStatus(
+                    sessionIsOnSale,
+                    seat.SectionIsSellable,
+                    seat.IsSellable,
+                    seat.SeatStatus,
+                    lockedSeatIds.Contains(seat.SeatId),
+                    reservedSeatIds.Contains(seat.SeatId)))).ToList());
         var sectionDtos = sections.Select(item => new SessionSeatMapSectionDto(
             item.SeatSectionId,
             item.SeatMapId,
@@ -153,4 +177,27 @@ public sealed class SessionSeatMapQueryService
 
     private static ServiceResult<SessionSeatMapDto> NotFound(long sessionId) =>
         ServiceResult<SessionSeatMapDto>.Failure(404, "Session seat map not found", $"Session {sessionId} or its seat map does not exist.");
+
+    private static string GetAvailabilityStatus(
+        bool sessionIsOnSale,
+        bool sectionIsSellable,
+        bool seatIsSellable,
+        string seatStatus,
+        bool isLocked,
+        bool isReserved)
+    {
+        // 静态不可售条件优先级最高，其次是正式预留，最后才是临时锁。
+        if (!sessionIsOnSale || !sectionIsSellable ||
+            !seatIsSellable || seatStatus != "ENABLED")
+        {
+            return "UNAVAILABLE";
+        }
+
+        if (isReserved)
+        {
+            return "RESERVED";
+        }
+
+        return isLocked ? "LOCKED" : "AVAILABLE";
+    }
 }

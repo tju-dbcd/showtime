@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:5146/"
+      "url": "http://127.0.0.1:5000/"
     }
   ],
   "paths": {
@@ -784,6 +784,238 @@
               "text/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
+      }
+    },
+    "/api/sessions/{sessionId}/seat-locks": {
+      "post": {
+        "tags": [
+          "Seat Locks"
+        ],
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatLockBatchRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatLockBatchRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatLockBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockBatchResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
+      }
+    },
+    "/api/sessions/{sessionId}/seat-locks/release": {
+      "post": {
+        "tags": [
+          "Seat Locks"
+        ],
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatLockReleaseRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatLockReleaseRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatLockReleaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockReleaseResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockReleaseResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockReleaseResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockReleaseResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockReleaseResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockReleaseResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockReleaseResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockReleaseResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatLockReleaseResponse"
                 }
               }
             }
@@ -2893,6 +3125,72 @@
           }
         }
       },
+      "ApiResponseOfSeatLockBatchResponse": {
+        "required": [
+          "success",
+          "data",
+          "code",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SeatLockBatchResponse"
+              }
+            ]
+          },
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseOfSeatLockReleaseResponse": {
+        "required": [
+          "success",
+          "data",
+          "code",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SeatLockReleaseResponse"
+              }
+            ]
+          },
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "ApiResponseOfSeatMapResponse": {
         "required": [
           "success",
@@ -3128,7 +3426,8 @@
         "required": [
           "seatId",
           "priceStrategyId",
-          "realNameId"
+          "realNameId",
+          "lockToken"
         ],
         "type": "object",
         "properties": {
@@ -3156,6 +3455,9 @@
               "string"
             ],
             "format": "int64"
+          },
+          "lockToken": {
+            "type": "string"
           }
         }
       },
@@ -4050,6 +4352,117 @@
         "properties": {
           "user": {
             "$ref": "#/components/schemas/UserResponse"
+          }
+        }
+      },
+      "SeatLockBatchRequest": {
+        "required": [
+          "seatIds"
+        ],
+        "type": "object",
+        "properties": {
+          "seatIds": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          }
+        }
+      },
+      "SeatLockBatchResponse": {
+        "required": [
+          "sessionId",
+          "expireTime",
+          "locks"
+        ],
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "expireTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "locks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeatLockItemResponse"
+            }
+          }
+        }
+      },
+      "SeatLockItemResponse": {
+        "required": [
+          "seatId",
+          "lockToken",
+          "expireTime"
+        ],
+        "type": "object",
+        "properties": {
+          "seatId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "lockToken": {
+            "type": "string"
+          },
+          "expireTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SeatLockReleaseRequest": {
+        "required": [
+          "lockTokens"
+        ],
+        "type": "object",
+        "properties": {
+          "lockTokens": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SeatLockReleaseResponse": {
+        "required": [
+          "sessionId",
+          "releasedCount"
+        ],
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "releasedCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -5130,6 +5543,9 @@
     },
     {
       "name": "AdminShowSession"
+    },
+    {
+      "name": "Seat Locks"
     },
     {
       "name": "Seat Zone Administration - Seat Maps"
