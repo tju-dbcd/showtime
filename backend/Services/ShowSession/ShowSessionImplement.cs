@@ -128,7 +128,7 @@ public class AdminShowSessionService : IAdminShowSessionService
     {
         var session = await _context.ShowSessions.FindAsync(new object[] { sessionId }, cancellationToken);
         if (session == null)
-            throw new KeyNotFoundException($"未找到 ID 为 {sessionId} 的场次");
+            throw new KeyNotFoundException($"未找到ID为 {sessionId} 的场次");
 
         var requestList = requests.ToList();
         if (!requestList.Any())
