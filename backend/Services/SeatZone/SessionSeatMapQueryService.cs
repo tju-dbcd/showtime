@@ -79,6 +79,8 @@ public sealed class SessionSeatMapQueryService
             .ToListAsync(cancellationToken);
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
+
+        // 只把尚未过期的 ACTIVE 锁显示为 LOCKED，过期记录无需等待后台清理。
         var lockedSeatIds = await _db.SeatLocks.AsNoTracking()
             .Where(item => item.SessionId == sessionId &&
                            item.LockStatus == "ACTIVE" &&
@@ -184,6 +186,7 @@ public sealed class SessionSeatMapQueryService
         bool isLocked,
         bool isReserved)
     {
+        // 静态不可售条件优先级最高，其次是正式预留，最后才是临时锁。
         if (!sessionIsOnSale || !sectionIsSellable ||
             !seatIsSellable || seatStatus != "ENABLED")
         {

@@ -11,6 +11,7 @@ namespace ShowtimeBackend.Services.OrderTicket;
 
 public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvider) : IOrderService
 {
+    // 与座位规则 NUMBER(3) 的取值范围保持一致，并避免生成过大的 Oracle IN 查询。
     private const int MaxSeatsPerOrder = 999;
     private static readonly HashSet<string> OrderStatuses =
     [
@@ -179,6 +180,8 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         }
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        // 下单人、场次、座位和令牌必须同时匹配，不能使用其他用户或旧页面留下的锁。
         var locks = await dbContext.SeatLocks
             .Where(item => item.SessionId == request.SessionId &&
                            item.UserId == userId &&
@@ -224,6 +227,7 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         {
             if (dbContext.Database.IsRelational())
             {
+                // 在数据库中以条件更新消费锁，确保释放和重复下单只有一个操作能够成功。
                 var lockIds = locks.Values.Select(item => item.SeatLockId).ToArray();
                 var convertedCount = await dbContext.SeatLocks
                     .Where(item => lockIds.Contains(item.SeatLockId) &&
@@ -255,6 +259,7 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             dbContext.Add(order);
             await dbContext.SaveChangesAsync(cancellationToken);
 
+            // 首次保存后订单明细获得主键，才能建立订单明细与正式占座记录的对应关系。
             for (var index = 0; index < orderItems.Count; index++)
             {
                 var orderItem = orderItems[index];
@@ -282,6 +287,7 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         }
         catch (DbUpdateException exception) when (ContainsOracleError(exception, 1))
         {
+            // 活动预留唯一索引是防止同一场次、同一座位重复下单的最后一道保护。
             return OrderTicketResult<OrderResponse>.Fail(
                 OrderTicketFailure.Conflict,
                 "ORDER_SEAT_UNAVAILABLE",
@@ -323,6 +329,8 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         order.OrderStatus = "CANCELLED";
         order.CancelTime = now;
         order.UpdateBy = actor;
+
+        // 订单取消后同步取消正式占座，座位才能再次参与锁座。
         foreach (var reservation in reservations)
         {
             reservation.ReservationStatus = "CANCELLED";

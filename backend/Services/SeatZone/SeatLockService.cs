@@ -6,13 +6,22 @@ using ShowtimeBackend.Entities.SeatZone;
 
 namespace ShowtimeBackend.Services.SeatZone;
 
+/// <summary>
+/// 使用 Oracle 锁座表完成临时占座和释放；数据库活动锁唯一索引负责处理并发竞争。
+/// </summary>
 public sealed class SeatLockService(
     AppDbContext dbContext,
     TimeProvider timeProvider) : ISeatLockService
 {
+    // NUMBER(3) 的选座规则最多允许 999 个座位，同时避免超过 Oracle IN 条件数量限制。
     private const int MaxSeatsPerRequest = 999;
+
+    // 锁座时间统一由服务端计算，防止客户端自行延长有效期。
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(10);
 
+    /// <summary>
+    /// 批量锁定同一场次的座位；任一座位冲突时整个批次失败。
+    /// </summary>
     public async Task<SeatZoneResult<SeatLockBatchResponse>> LockAsync(
         long userId,
         string actor,
@@ -99,6 +108,8 @@ public sealed class SeatLockService(
                            seatIds.Contains(item.SeatId) &&
                            item.LockStatus == "ACTIVE")
             .ToListAsync(cancellationToken);
+
+        // 活动预留表示座位已经进入订单流程，不能再生成新的临时锁。
         var hasActiveReservation = await dbContext.SeatReservations
             .AnyAsync(
                 item => item.SessionId == sessionId &&
@@ -135,6 +146,7 @@ public sealed class SeatLockService(
             : null;
         try
         {
+            // 先把过期记录移出 ACTIVE 状态，再插入新锁，避免命中活动锁唯一索引。
             foreach (var expiredLock in expiredLocks)
             {
                 expiredLock.LockStatus = "EXPIRED";
@@ -156,6 +168,7 @@ public sealed class SeatLockService(
         }
         catch (DbUpdateException exception) when (ContainsOracleError(exception, 1))
         {
+            // 两个请求同时通过前置查询时，最终由 Oracle 唯一索引决定谁获得座位。
             return SeatZoneResult<SeatLockBatchResponse>.Fail(
                 SeatZoneFailure.Conflict,
                 "SEAT_LOCK_CONFLICT",
@@ -172,6 +185,9 @@ public sealed class SeatLockService(
                     item.ExpireTime)).ToList()));
     }
 
+    /// <summary>
+    /// 批量释放当前用户持有的有效锁；令牌不完整时不释放其中任何一条。
+    /// </summary>
     public async Task<SeatZoneResult<SeatLockReleaseResponse>> ReleaseAsync(
         long userId,
         string actor,
@@ -214,6 +230,7 @@ public sealed class SeatLockService(
             : null;
         if (dbContext.Database.IsRelational())
         {
+            // 条件更新会在数据库中再次检查 ACTIVE 和过期时间，防止与下单转换锁互相覆盖。
             var lockIds = locks.Select(item => item.SeatLockId).ToArray();
             var updatedCount = await dbContext.SeatLocks
                 .Where(item => lockIds.Contains(item.SeatLockId) &&
@@ -235,6 +252,7 @@ public sealed class SeatLockService(
         }
         else
         {
+            // InMemory 测试提供程序不支持 ExecuteUpdate，测试时使用等价的实体状态更新。
             foreach (var seatLock in locks)
             {
                 seatLock.LockStatus = "RELEASED";
