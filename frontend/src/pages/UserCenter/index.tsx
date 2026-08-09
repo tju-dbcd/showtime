@@ -45,7 +45,7 @@ const UserCenter = () => {
 
   // 检查登录状态
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('accessToken');
     if (!token) {
       navigate('/login');
     }
@@ -100,7 +100,7 @@ const UserCenter = () => {
         <div className="profile-details">
           <div className="detail-row">
             <span className="label">昵称</span>
-            <span className="value">{user.nickname}</span>
+            <span className="value">{user.nickname || user.username || '用户'}</span>
             <Button type="link" size="small" onClick={() => setIsEditModalOpen(true)}>
               编辑
             </Button>
@@ -389,7 +389,7 @@ const UserCenter = () => {
         <Sider theme="dark" width={240} className="uc-sider">
           <div className="uc-user-info">
             <Avatar src={user.avatar} size={56} />
-            <div className="uc-user-name">{user.nickname}</div>
+            <div className="uc-user-name">{user.nickname || user.username || '用户'}</div>
             <div className="uc-user-id">ID: {user.username}</div>
           </div>
           <Menu

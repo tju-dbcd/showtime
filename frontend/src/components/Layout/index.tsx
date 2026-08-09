@@ -7,7 +7,7 @@ const Layout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useUser();
-  const isLoggedIn = !!localStorage.getItem('token');
+  const isLoggedIn = !!localStorage.getItem('accessToken');
 
   return (
     <div className="layout-container">
@@ -44,7 +44,7 @@ const Layout = () => {
             {isLoggedIn ? (
               <div className="user-info" onClick={() => navigate('/usercenter')}>
                 <Avatar src={user.avatar} size={32} />
-                <span className="username">{user.nickname}</span>
+                <span className="username">{user.nickname || user.username || '用户'}</span>
               </div>
             ) : (
               <Button type="primary" ghost onClick={() => navigate('/login')}>
