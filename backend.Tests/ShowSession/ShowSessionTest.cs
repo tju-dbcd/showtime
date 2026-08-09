@@ -12,7 +12,7 @@ using ShowtimeBackend.DTOs.ShowSessionDto;
 using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Services.Impl;
 
-namespace ShowtimeBackend.Tests.ShowSession;
+namespace ShowtimeBackend.Tests.ShowSessionTest;
 
 public sealed class ShowSessionControllersTests
 {
