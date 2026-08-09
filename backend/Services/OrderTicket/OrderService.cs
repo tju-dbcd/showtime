@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Oracle.ManagedDataAccess.Client;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
@@ -10,6 +11,8 @@ namespace ShowtimeBackend.Services.OrderTicket;
 
 public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvider) : IOrderService
 {
+    // 与座位规则 NUMBER(3) 的取值范围保持一致，并避免生成过大的 Oracle IN 查询。
+    private const int MaxSeatsPerOrder = 999;
     private static readonly HashSet<string> OrderStatuses =
     [
         "PENDING_PAY", "PAID", "ISSUED", "PART_REFUND", "REFUNDED", "CANCELLED"
@@ -92,9 +95,14 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         CreateOrderRequest request,
         CancellationToken cancellationToken)
     {
-        if (request.SessionId <= 0 || request.Items.Count == 0 ||
-            request.Items.Any(item => item.SeatId <= 0 || item.PriceStrategyId <= 0) ||
-            request.Items.Select(item => item.SeatId).Distinct().Count() != request.Items.Count)
+        if (request.SessionId <= 0 || request.Items.Count is 0 or > MaxSeatsPerOrder ||
+            request.Items.Any(item => item.SeatId <= 0 ||
+                                      item.PriceStrategyId <= 0 ||
+                                      string.IsNullOrWhiteSpace(item.LockToken) ||
+                                      item.LockToken.Length > 64) ||
+            request.Items.Select(item => item.SeatId).Distinct().Count() != request.Items.Count ||
+            request.Items.Select(item => item.LockToken)
+                .Distinct(StringComparer.Ordinal).Count() != request.Items.Count)
         {
             return Invalid("ORDER_INVALID_ITEMS", "Order items must contain valid, distinct seats.");
         }
@@ -172,6 +180,28 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         }
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        // 下单人、场次、座位和令牌必须同时匹配，不能使用其他用户或旧页面留下的锁。
+        var locks = await dbContext.SeatLocks
+            .Where(item => item.SessionId == request.SessionId &&
+                           item.UserId == userId &&
+                           seatIds.Contains(item.SeatId) &&
+                           item.LockStatus == "ACTIVE" &&
+                           item.ExpireTime > now)
+            .ToDictionaryAsync(item => item.SeatId, cancellationToken);
+        if (locks.Count != request.Items.Count || request.Items.Any(item =>
+                !locks.TryGetValue(item.SeatId, out var seatLock) ||
+                !string.Equals(
+                    seatLock.LockToken,
+                    item.LockToken,
+                    StringComparison.Ordinal)))
+        {
+            return OrderTicketResult<OrderResponse>.Fail(
+                OrderTicketFailure.Conflict,
+                "ORDER_SEAT_LOCK_INVALID",
+                "Every order item requires an active seat lock owned by the current user.");
+        }
+
         var order = new Order
         {
             OrderNo = CreateBusinessNumber("ORD", now),
@@ -190,8 +220,79 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             Items = orderItems
         };
 
-        dbContext.Add(order);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        await using var transaction = dbContext.Database.IsRelational()
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        try
+        {
+            if (dbContext.Database.IsRelational())
+            {
+                // 在数据库中以条件更新消费锁，确保释放和重复下单只有一个操作能够成功。
+                var lockIds = locks.Values.Select(item => item.SeatLockId).ToArray();
+                var convertedCount = await dbContext.SeatLocks
+                    .Where(item => lockIds.Contains(item.SeatLockId) &&
+                                   item.UserId == userId &&
+                                   item.LockStatus == "ACTIVE" &&
+                                   item.ExpireTime > now)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(item => item.LockStatus, "CONVERTED")
+                        .SetProperty(item => item.UpdateBy, actor),
+                        cancellationToken);
+                if (convertedCount != request.Items.Count)
+                {
+                    await transaction!.RollbackAsync(cancellationToken);
+                    return OrderTicketResult<OrderResponse>.Fail(
+                        OrderTicketFailure.Conflict,
+                        "ORDER_SEAT_LOCK_INVALID",
+                        "One or more seat locks are no longer active.");
+                }
+            }
+            else
+            {
+                foreach (var seatLock in locks.Values)
+                {
+                    seatLock.LockStatus = "CONVERTED";
+                    seatLock.UpdateBy = actor;
+                }
+            }
+
+            dbContext.Add(order);
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            // 首次保存后订单明细获得主键，才能建立订单明细与正式占座记录的对应关系。
+            for (var index = 0; index < orderItems.Count; index++)
+            {
+                var orderItem = orderItems[index];
+                var requestedItem = request.Items[index];
+                var seatLock = locks[requestedItem.SeatId];
+                dbContext.SeatReservations.Add(new SeatReservation
+                {
+                    SessionId = request.SessionId,
+                    SeatId = requestedItem.SeatId,
+                    OrderItemId = orderItem.OrderItemId,
+                    SeatLockId = seatLock.SeatLockId,
+                    ReservationType = "ORDER",
+                    ReservationStatus = "ACTIVE",
+                    ReserveTime = now,
+                    CreateBy = actor,
+                    UpdateBy = actor
+                });
+            }
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+        }
+        catch (DbUpdateException exception) when (ContainsOracleError(exception, 1))
+        {
+            // 活动预留唯一索引是防止同一场次、同一座位重复下单的最后一道保护。
+            return OrderTicketResult<OrderResponse>.Fail(
+                OrderTicketFailure.Conflict,
+                "ORDER_SEAT_UNAVAILABLE",
+                "One or more seats have already been reserved.");
+        }
 
         return OrderTicketResult<OrderResponse>.Success(ToResponse(order));
     }
@@ -218,9 +319,25 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                 "Only pending-payment orders can be cancelled.");
         }
 
+        var orderItemIds = order.Items.Select(item => item.OrderItemId).ToArray();
+        var reservations = await dbContext.SeatReservations
+            .Where(item => item.OrderItemId.HasValue &&
+                           orderItemIds.Contains(item.OrderItemId.Value) &&
+                           item.ReservationStatus == "ACTIVE")
+            .ToListAsync(cancellationToken);
+        var now = timeProvider.GetUtcNow().UtcDateTime;
         order.OrderStatus = "CANCELLED";
-        order.CancelTime = timeProvider.GetUtcNow().UtcDateTime;
+        order.CancelTime = now;
         order.UpdateBy = actor;
+
+        // 订单取消后同步取消正式占座，座位才能再次参与锁座。
+        foreach (var reservation in reservations)
+        {
+            reservation.ReservationStatus = "CANCELLED";
+            reservation.CancelTime = now;
+            reservation.UpdateBy = actor;
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return OrderTicketResult<OrderResponse>.Success(ToResponse(order));
@@ -273,4 +390,17 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
 
     private static OrderTicketResult<OrderResponse> NotFound(string code, string message) =>
         OrderTicketResult<OrderResponse>.Fail(OrderTicketFailure.NotFound, code, message);
+
+    private static bool ContainsOracleError(Exception exception, int number)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is OracleException oracleException && oracleException.Number == number)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

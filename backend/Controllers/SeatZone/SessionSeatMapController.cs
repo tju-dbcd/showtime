@@ -18,7 +18,8 @@ public sealed class SessionSeatMapController : ControllerBase
 {
     private readonly SessionSeatMapQueryService _service;
 
-    public SessionSeatMapController(AppDbContext db) => _service = new SessionSeatMapQueryService(db);
+    public SessionSeatMapController(AppDbContext db, TimeProvider timeProvider) =>
+        _service = new SessionSeatMapQueryService(db, timeProvider);
 
     [HttpGet("{sessionId:long}/seat-map")]
     [ProducesResponseType(typeof(ApiResponse<SessionSeatMapDto>), StatusCodes.Status200OK)]
