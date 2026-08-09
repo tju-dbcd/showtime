@@ -1,3 +1,4 @@
+import { addSession, addPricingStrategy, updateSessionStatus } from '../../../api/admin'
 import { Form, Input, Select, DatePicker, Upload, Button, Card, message } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
 
@@ -8,13 +9,52 @@ const Publish = () => {
   const [form] = Form.useForm()
 
   // 点击发布按钮
-  const handleSubmit = () => {
-    form.validateFields().then(values => {
-      console.log('发布信息：', values)
-      message.success('发布成功（演示）')
-      form.resetFields()
+ const handleSubmit = async () => {
+  try {
+    const values = await form.validateFields()
+
+    const startTime = values.time?.[0]?.toISOString()
+    const endTime = values.time?.[1]?.toISOString()
+
+    console.log('=== 开始测试接口 ===')
+
+    // 1. 测试加场次
+    console.log('1. 测试加场次...')
+    const sessionRes = await addSession(1, {
+      startTime,
+      endTime,
+      saleStartTime: startTime,
+      saleEndTime: endTime,
+      seatMapId: 1,
     })
+    console.log('加场次返回：', sessionRes)
+    const sessionId = sessionRes?.data?.sessionId || 1 // 拿返回的场次ID，没有就先用1
+
+    // 2. 测试加定价策略
+    console.log('2. 测试加定价策略...')
+    const priceRes = await addPricingStrategy(sessionId, {
+      seatSectionId: null,
+      strategyName: '默认票价',
+      priceType: 'NORMAL',
+      saleStartTime: startTime,
+      saleEndTime: endTime,
+      priority: 1,
+      quota: null,
+    })
+    console.log('加定价返回：', priceRes)
+
+    // 3. 测试更新状态
+    console.log('3. 测试更新状态...')
+    const statusRes = await updateSessionStatus(sessionId, 'ON_SALE')
+    console.log('更新状态返回：', statusRes)
+
+    console.log('=== 所有接口测试完成 ===')
+    message.success('所有接口测试完成，看控制台')
+    form.resetFields()
+  } catch (error) {
+    console.error('测试失败：', error)
   }
+}
 
   return (
     <div>
