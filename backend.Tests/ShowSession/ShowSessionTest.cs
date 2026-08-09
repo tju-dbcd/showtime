@@ -62,7 +62,7 @@ public sealed class ShowSessionControllersTests
     {
         await using var db = CreateDbContext();
         var baseTime = DateTime.UtcNow.AddDays(5);
-        
+
         // 在数据库中插入已有排期场次
         db.ShowSessions.Add(new Entities.ShowSession.ShowSession
         {
@@ -133,7 +133,7 @@ public sealed class ShowSessionControllersTests
     {
         await using var db = CreateDbContext();
         var session = SeedShowSession(db, 1, 10);
-        
+
         // 添加一条旧策略
         db.PriceStrategy.Add(new PriceStrategy
         {
@@ -174,8 +174,8 @@ public sealed class ShowSessionControllersTests
         var controller = CreateAdminController(db);
 
         var actionResult = await controller.UpdateSessionStatus(
-            session.SessionId, 
-            new UpdateSessionStatusRequest("ONSALE"), 
+            session.SessionId,
+            new UpdateSessionStatusRequest("ONSALE"),
             CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
@@ -194,8 +194,8 @@ public sealed class ShowSessionControllersTests
         var controller = CreateAdminController(db);
 
         var actionResult = await controller.UpdateSessionStatus(
-            session.SessionId, 
-            new UpdateSessionStatusRequest("UNKNOWN_STATUS"), 
+            session.SessionId,
+            new UpdateSessionStatusRequest("UNKNOWN_STATUS"),
             CancellationToken.None);
 
         var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
@@ -244,7 +244,7 @@ public sealed class ShowSessionControllersTests
         var apiResponse = Assert.IsType<ApiResponse<IEnumerable<ShowSessionDto>>>(okResult.Value);
         Assert.True(apiResponse.Success);
         Assert.NotNull(apiResponse.Data);
-        
+
         var sessions = apiResponse.Data.ToList();
         Assert.Single(sessions); // 只能查到 targetShowId 且状态为 ONSALE 的 1 条记录
         Assert.Equal("ONSALE", sessions[0].SessionStatus);
@@ -287,7 +287,7 @@ public sealed class ShowSessionControllersTests
         var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
         var apiResponse = Assert.IsType<ApiResponse<IEnumerable<PricingStrategyDto>>>(okResult.Value);
         Assert.True(apiResponse.Success);
-        
+
         var strategies = apiResponse.Data!.ToList();
         Assert.Equal(2, strategies.Count);
         Assert.All(strategies, s => Assert.Equal("ENABLED", s.Status));
@@ -349,8 +349,8 @@ public sealed class ShowSessionControllersTests
     }
 
     private static CreateShowSessionRequest CreateValidSessionRequest(
-        DateTime startTime, 
-        DateTime endTime, 
+        DateTime startTime,
+        DateTime endTime,
         long seatMapId = 10)
     {
         return new CreateShowSessionRequest(
@@ -364,9 +364,9 @@ public sealed class ShowSessionControllersTests
     }
 
     private static Entities.ShowSession.ShowSession SeedShowSession(
-        AppDbContext db, 
-        long showId, 
-        long seatMapId, 
+        AppDbContext db,
+        long showId,
+        long seatMapId,
         string initialStatus = "UPCOMING")
     {
         var session = new Entities.ShowSession.ShowSession
