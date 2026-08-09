@@ -364,16 +364,16 @@ public sealed class SeatLockServiceTests
         long seatId,
         long userId,
         string token) => new()
-    {
-        SeatLockId = id,
-        SessionId = 10,
-        SeatId = seatId,
-        UserId = userId,
-        LockToken = token,
-        LockStatus = "ACTIVE",
-        LockTime = Now.UtcDateTime.AddMinutes(-1),
-        ExpireTime = Now.UtcDateTime.AddMinutes(9)
-    };
+        {
+            SeatLockId = id,
+            SessionId = 10,
+            SeatId = seatId,
+            UserId = userId,
+            LockToken = token,
+            LockStatus = "ACTIVE",
+            LockTime = Now.UtcDateTime.AddMinutes(-1),
+            ExpireTime = Now.UtcDateTime.AddMinutes(9)
+        };
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
