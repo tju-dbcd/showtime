@@ -40,6 +40,65 @@ public sealed class SeatMapAdminServiceTests
         AssertVenueName(result.Data!, "天津音乐厅");
     }
 
+    [Fact]
+    public async Task CreateMapAsync_ReturnsVenueName()
+    {
+        await using var db = CreateDbContext();
+        db.Venues.Add(new Venue
+        {
+            VenueId = 21,
+            VenueName = "天津体育馆",
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+        var service = new SeatMapAdminService(db);
+
+        var result = await service.CreateMapAsync(
+            CreateRequest(21, "NEW-MAP", "比赛座位图"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("天津体育馆", result.Data!.VenueName);
+    }
+
+    [Fact]
+    public async Task UpdateMapAsync_WhenVenueChanges_ReturnsNewVenueName()
+    {
+        await using var db = CreateDbContext();
+        var seatMap = await SeedSeatMapAsync(db, 31, "原场馆", 301, "原座位图");
+        db.Venues.Add(new Venue
+        {
+            VenueId = 32,
+            VenueName = "新场馆",
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+        var service = new SeatMapAdminService(db);
+
+        var result = await service.UpdateMapAsync(
+            seatMap.SeatMapId,
+            CreateRequest(32, "UPDATED-MAP", "更新后的座位图"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(32, result.Data!.VenueId);
+        Assert.Equal("新场馆", result.Data.VenueName);
+    }
+
+    [Fact]
+    public async Task CreateMapAsync_WhenVenueDoesNotExist_ReturnsNotFound()
+    {
+        await using var db = CreateDbContext();
+        var service = new SeatMapAdminService(db);
+
+        var result = await service.CreateMapAsync(
+            CreateRequest(999, "MISSING-VENUE", "无场馆座位图"),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(404, result.StatusCode);
+    }
+
     private static AppDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -58,6 +117,20 @@ public sealed class SeatMapAdminServiceTests
         Assert.True(document.RootElement.TryGetProperty("venueName", out var venueName));
         Assert.Equal(expected, venueName.GetString());
     }
+
+    private static SeatMapRequest CreateRequest(
+        long venueId,
+        string mapCode,
+        string mapName) => new(
+            venueId,
+            mapCode,
+            mapName,
+            "V1",
+            true,
+            1200m,
+            800m,
+            "ENABLED",
+            null);
 
     private static async Task<SeatMap> SeedSeatMapAsync(
         AppDbContext db,
