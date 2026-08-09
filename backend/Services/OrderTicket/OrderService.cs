@@ -11,6 +11,7 @@ namespace ShowtimeBackend.Services.OrderTicket;
 
 public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvider) : IOrderService
 {
+    private const int MaxSeatsPerOrder = 999;
     private static readonly HashSet<string> OrderStatuses =
     [
         "PENDING_PAY", "PAID", "ISSUED", "PART_REFUND", "REFUNDED", "CANCELLED"
@@ -93,10 +94,11 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         CreateOrderRequest request,
         CancellationToken cancellationToken)
     {
-        if (request.SessionId <= 0 || request.Items.Count == 0 ||
+        if (request.SessionId <= 0 || request.Items.Count is 0 or > MaxSeatsPerOrder ||
             request.Items.Any(item => item.SeatId <= 0 ||
                                       item.PriceStrategyId <= 0 ||
-                                      string.IsNullOrWhiteSpace(item.LockToken)) ||
+                                      string.IsNullOrWhiteSpace(item.LockToken) ||
+                                      item.LockToken.Length > 64) ||
             request.Items.Select(item => item.SeatId).Distinct().Count() != request.Items.Count ||
             request.Items.Select(item => item.LockToken)
                 .Distinct(StringComparer.Ordinal).Count() != request.Items.Count)

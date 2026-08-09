@@ -10,6 +10,7 @@ public sealed class SeatLockService(
     AppDbContext dbContext,
     TimeProvider timeProvider) : ISeatLockService
 {
+    private const int MaxSeatsPerRequest = 999;
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(10);
 
     public async Task<SeatZoneResult<SeatLockBatchResponse>> LockAsync(
@@ -19,7 +20,8 @@ public sealed class SeatLockService(
         SeatLockBatchRequest request,
         CancellationToken cancellationToken)
     {
-        if (sessionId <= 0 || request.SeatIds is null || request.SeatIds.Count == 0 ||
+        if (sessionId <= 0 || request.SeatIds is null ||
+            request.SeatIds.Count is 0 or > MaxSeatsPerRequest ||
             request.SeatIds.Any(seatId => seatId <= 0) ||
             request.SeatIds.Distinct().Count() != request.SeatIds.Count)
         {
@@ -178,7 +180,7 @@ public sealed class SeatLockService(
         CancellationToken cancellationToken)
     {
         if (sessionId <= 0 || request.LockTokens is null ||
-            request.LockTokens.Count == 0 ||
+            request.LockTokens.Count is 0 or > MaxSeatsPerRequest ||
             request.LockTokens.Any(string.IsNullOrWhiteSpace) ||
             request.LockTokens.Any(token => token is null || token.Length > 64) ||
             request.LockTokens.Distinct(StringComparer.Ordinal).Count() !=

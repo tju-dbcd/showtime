@@ -83,6 +83,51 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_RejectsLockTokenLongerThanDatabaseColumn()
+    {
+        await using var db = CreateDbContext();
+        await SeedCatalogAsync(db);
+        var service = new OrderService(db, TimeProvider.System);
+
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            new CreateOrderRequest(
+                10,
+                [new CreateOrderItemRequest(50, 60, null, new string('a', 65))],
+                null),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.InvalidRequest, result.Failure);
+        Assert.Equal("ORDER_INVALID_ITEMS", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_RejectsMoreThanNineHundredNinetyNineSeats()
+    {
+        await using var db = CreateDbContext();
+        var service = new OrderService(db, TimeProvider.System);
+        var items = Enumerable.Range(1, 1_000)
+            .Select(value => new CreateOrderItemRequest(
+                value,
+                value,
+                null,
+                $"lock-{value}"))
+            .ToArray();
+
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            new CreateOrderRequest(10, items, null),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.InvalidRequest, result.Failure);
+        Assert.Equal("ORDER_INVALID_ITEMS", result.ErrorCode);
+    }
+
+    [Fact]
     public async Task CreateAsync_RejectsWrongSeatLockToken()
     {
         await using var db = CreateDbContext();

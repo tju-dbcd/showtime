@@ -58,6 +58,26 @@ public sealed class SeatLockServiceTests
     }
 
     [Fact]
+    public async Task LockAsync_RejectsMoreThanNineHundredNinetyNineSeats()
+    {
+        await using var db = CreateDbContext();
+        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var seatIds = Enumerable.Range(1, 1_000)
+            .Select(value => (long)value)
+            .ToArray();
+
+        var result = await service.LockAsync(
+            7,
+            "alice",
+            10,
+            new SeatLockBatchRequest(seatIds),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("SEAT_LOCK_INVALID_REQUEST", result.ErrorCode);
+    }
+
+    [Fact]
     public async Task LockAsync_RejectsMissingSession()
     {
         await using var db = CreateDbContext();
@@ -288,6 +308,26 @@ public sealed class SeatLockServiceTests
         Assert.False(result.IsSuccess);
         Assert.Equal("SEAT_LOCK_NOT_FOUND", result.ErrorCode);
         Assert.Equal("ACTIVE", (await db.SeatLocks.FindAsync(70L))!.LockStatus);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_RejectsMoreThanNineHundredNinetyNineTokens()
+    {
+        await using var db = CreateDbContext();
+        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var tokens = Enumerable.Range(1, 1_000)
+            .Select(value => $"token-{value}")
+            .ToArray();
+
+        var result = await service.ReleaseAsync(
+            7,
+            "alice",
+            10,
+            new SeatLockReleaseRequest(tokens),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("SEAT_LOCK_INVALID_REQUEST", result.ErrorCode);
     }
 
     [Fact]
