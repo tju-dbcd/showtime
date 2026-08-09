@@ -14,6 +14,7 @@ using ShowtimeBackend.Services.UserPermission;
 using ShowtimeBackend.Services.OrderTicket;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
+using ShowtimeBackend.Services.SeatZone;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -102,6 +103,7 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
+builder.Services.AddScoped<ISeatLockService, SeatLockService>();
 
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi(options =>
