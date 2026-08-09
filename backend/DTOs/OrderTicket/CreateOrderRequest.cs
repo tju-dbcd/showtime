@@ -8,4 +8,5 @@ public sealed record CreateOrderRequest(
 public sealed record CreateOrderItemRequest(
     long SeatId,
     long PriceStrategyId,
-    long? RealNameId);
+    long? RealNameId,
+    string LockToken);

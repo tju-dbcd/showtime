@@ -22,10 +22,16 @@ public sealed class OrderServiceTests
             new Seat { SeatId = 51, SeatSectionId = 40, RowCode = "1", SeatNo = "2", IsSellable = true, SeatStatus = "ENABLED" },
             new PriceStrategy { PriceStrategyId = 60, SessionId = 10, SeatSectionId = 40, Price = 188m, Status = "ENABLED" });
         await db.SaveChangesAsync();
-        var service = new OrderService(db, new FixedTimeProvider(new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero)));
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
+        await AddActiveLockAsync(db, 50, "lock-50", now.UtcDateTime);
+        await AddActiveLockAsync(db, 51, "lock-51", now.UtcDateTime);
+        var service = new OrderService(db, new FixedTimeProvider(now));
         var request = new CreateOrderRequest(
             10,
-            [new CreateOrderItemRequest(50, 60, null), new CreateOrderItemRequest(51, 60, null)],
+            [
+                new CreateOrderItemRequest(50, 60, null, "lock-50"),
+                new CreateOrderItemRequest(51, 60, null, "lock-51")
+            ],
             "靠近过道");
 
         var result = await service.CreateAsync(7, "alice", request, CancellationToken.None);
@@ -37,6 +43,103 @@ public sealed class OrderServiceTests
         Assert.Equal("PENDING_PAY", result.Value.OrderStatus);
         Assert.Equal(new DateTime(2026, 8, 2, 12, 15, 0), result.Value.ExpireTime);
         Assert.Equal([188m, 188m], result.Value.Items.Select(item => item.UnitPrice));
+        Assert.All(await db.SeatLocks.ToListAsync(), item =>
+            Assert.Equal("CONVERTED", item.LockStatus));
+        var reservations = await db.SeatReservations
+            .OrderBy(item => item.SeatId)
+            .ToListAsync();
+        Assert.Equal(2, reservations.Count);
+        Assert.All(reservations, item =>
+        {
+            Assert.Equal("ORDER", item.ReservationType);
+            Assert.Equal("ACTIVE", item.ReservationStatus);
+            Assert.NotNull(item.OrderItemId);
+            Assert.NotNull(item.SeatLockId);
+        });
+    }
+
+    [Fact]
+    public async Task CreateAsync_RejectsOrderWithoutSeatLock()
+    {
+        await using var db = CreateDbContext();
+        await SeedCatalogAsync(db);
+        var now = new DateTimeOffset(2026, 8, 9, 12, 0, 0, TimeSpan.Zero);
+        var service = new OrderService(db, new FixedTimeProvider(now));
+
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            new CreateOrderRequest(
+                10,
+                [new CreateOrderItemRequest(50, 60, null, "missing-lock")],
+                null),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("ORDER_SEAT_LOCK_INVALID", result.ErrorCode);
+        Assert.Empty(await db.Set<Order>().ToListAsync());
+        Assert.Empty(await db.SeatReservations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CreateAsync_RejectsWrongSeatLockToken()
+    {
+        await using var db = CreateDbContext();
+        await SeedCatalogAsync(db);
+        var now = new DateTimeOffset(2026, 8, 9, 12, 0, 0, TimeSpan.Zero);
+        await AddActiveLockAsync(db, 50, "server-token", now.UtcDateTime);
+        var service = new OrderService(db, new FixedTimeProvider(now));
+
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            new CreateOrderRequest(
+                10,
+                [new CreateOrderItemRequest(50, 60, null, "wrong-token")],
+                null),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("ORDER_SEAT_LOCK_INVALID", result.ErrorCode);
+        Assert.Empty(await db.Set<Order>().ToListAsync());
+        Assert.Empty(await db.SeatReservations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CreateAsync_RejectsExpiredSeatLock()
+    {
+        await using var db = CreateDbContext();
+        await SeedCatalogAsync(db);
+        var now = new DateTimeOffset(2026, 8, 9, 12, 0, 0, TimeSpan.Zero);
+        db.Add(new SeatLock
+        {
+            SessionId = 10,
+            SeatId = 50,
+            UserId = 7,
+            LockToken = "expired-token",
+            LockStatus = "ACTIVE",
+            LockTime = now.UtcDateTime.AddMinutes(-10),
+            ExpireTime = now.UtcDateTime
+        });
+        await db.SaveChangesAsync();
+        var service = new OrderService(db, new FixedTimeProvider(now));
+
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            new CreateOrderRequest(
+                10,
+                [new CreateOrderItemRequest(50, 60, null, "expired-token")],
+                null),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("ORDER_SEAT_LOCK_INVALID", result.ErrorCode);
+        Assert.Empty(await db.Set<Order>().ToListAsync());
+        Assert.Empty(await db.SeatReservations.ToListAsync());
     }
 
     [Fact]
@@ -47,7 +150,10 @@ public sealed class OrderServiceTests
         var service = new OrderService(db, TimeProvider.System);
         var request = new CreateOrderRequest(
             10,
-            [new CreateOrderItemRequest(50, 60, null), new CreateOrderItemRequest(50, 60, null)],
+            [
+                new CreateOrderItemRequest(50, 60, null, "test-lock-1"),
+                new CreateOrderItemRequest(50, 60, null, "test-lock-2")
+            ],
             null);
 
         var result = await service.CreateAsync(7, "alice", request, CancellationToken.None);
@@ -66,7 +172,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
-            new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null)], null),
+            new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null, "test-lock")], null),
             CancellationToken.None);
 
         Assert.False(result.IsSuccess);
@@ -83,7 +189,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
-            new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null)], null),
+            new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null, "test-lock")], null),
             CancellationToken.None);
 
         Assert.False(result.IsSuccess);
@@ -109,7 +215,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
-            new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, 70)], null),
+            new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, 70, "test-lock")], null),
             CancellationToken.None);
 
         Assert.False(result.IsSuccess);
@@ -130,7 +236,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
-            new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null)], null),
+            new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null, "test-lock")], null),
             CancellationToken.None);
 
         Assert.False(result.IsSuccess);
@@ -215,10 +321,30 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
-    public async Task CancelAsync_CancelsPendingOrder()
+    public async Task CancelAsync_CancelsPendingOrderAndReservation()
     {
         await using var db = CreateDbContext();
-        db.Add(CreateOrder(1, 7, "PENDING_PAY", new DateTime(2026, 8, 2, 10, 0, 0)));
+        var order = CreateOrder(1, 7, "PENDING_PAY", new DateTime(2026, 8, 2, 10, 0, 0));
+        order.Items.Add(new OrderItem
+        {
+            OrderItemId = 2,
+            SeatId = 50,
+            PriceStrategyId = 60,
+            UnitPrice = 188m,
+            ItemStatus = "NORMAL"
+        });
+        db.AddRange(
+            order,
+            new SeatReservation
+            {
+                SeatReservationId = 3,
+                SessionId = 10,
+                SeatId = 50,
+                OrderItemId = 2,
+                ReservationType = "ORDER",
+                ReservationStatus = "ACTIVE",
+                ReserveTime = new DateTime(2026, 8, 2, 10, 0, 0)
+            });
         await db.SaveChangesAsync();
         var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
         var service = new OrderService(db, new FixedTimeProvider(now));
@@ -228,6 +354,9 @@ public sealed class OrderServiceTests
         Assert.True(result.IsSuccess);
         Assert.Equal("CANCELLED", result.Value!.OrderStatus);
         Assert.Equal(now.UtcDateTime, result.Value.CancelTime);
+        var reservation = Assert.Single(await db.SeatReservations.ToListAsync());
+        Assert.Equal("CANCELLED", reservation.ReservationStatus);
+        Assert.Equal(now.UtcDateTime, reservation.CancelTime);
     }
 
     [Fact]
@@ -294,6 +423,26 @@ public sealed class OrderServiceTests
                 Price = 188m,
                 Status = "ENABLED"
             });
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task AddActiveLockAsync(
+        AppDbContext db,
+        long seatId,
+        string token,
+        DateTime now,
+        long userId = 7)
+    {
+        db.Add(new SeatLock
+        {
+            SessionId = 10,
+            SeatId = seatId,
+            UserId = userId,
+            LockToken = token,
+            LockStatus = "ACTIVE",
+            LockTime = now.AddMinutes(-1),
+            ExpireTime = now.AddMinutes(9)
+        });
         await db.SaveChangesAsync();
     }
 
