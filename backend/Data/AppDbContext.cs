@@ -24,7 +24,7 @@ public class AppDbContext : DbContext
     public DbSet<ShowSession> ShowSessions => Set<ShowSession>();
     public DbSet<Venue> Venues => Set<Venue>();
     public DbSet<PriceStrategy> PriceStrategy => Set<PriceStrategy>();
-
+    public DbSet<Show> Shows => Set<Show>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("APP_OWNER");

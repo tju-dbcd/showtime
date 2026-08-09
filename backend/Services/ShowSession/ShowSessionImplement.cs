@@ -203,4 +203,24 @@ public class AdminShowSessionService : IAdminShowSessionService
         _context.ShowSessions.Update(session);
         return await _context.SaveChangesAsync(cancellationToken) > 0;
     }
+
+    public async Task<IEnumerable<ShowSessionDto>> GetAdminSessionsByShowIdAsync(
+        long showId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.ShowSessions
+            .AsNoTracking()
+            .Where(s => s.ShowId == showId)
+            .OrderByDescending(s => s.StartTime)
+            .Select(s => new ShowSessionDto(
+                s.ShowId,
+                s.SessionId,
+                s.StartTime,
+                s.EndTime,
+                s.SaleStartTime,
+                s.SessionStatus,
+                s.SeatMapId
+            ))
+            .ToListAsync(cancellationToken);
+    }
 }

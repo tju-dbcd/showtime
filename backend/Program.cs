@@ -102,6 +102,7 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
+builder.Services.AddScoped<IAdminShowService, AdminShowService>();
 
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi(options =>
