@@ -14,6 +14,7 @@ public sealed record SeatMapRequest(
 public sealed record SeatMapResponse(
     long SeatMapId,
     long VenueId,
+    string VenueName,
     string MapCode,
     string MapName,
     string MapVersion,
