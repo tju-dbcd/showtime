@@ -28,8 +28,8 @@ public class AdminShowService : IAdminShowService
             DurationMinutes = request.DurationMinutes,
             PosterUrl = request.PosterUrl,
             Status = "DRAFT",
-            AuditStatus = "APPROVED",
-            CreateTime = DateTime.UtcNow
+            // <fix>新建演出初始化审核状态设为 PENDING
+            AuditStatus = "PENDING"
         };
 
         _context.Shows.Add(show);
@@ -50,7 +50,7 @@ public class AdminShowService : IAdminShowService
         show.DurationMinutes = request.DurationMinutes;
         show.PosterUrl = request.PosterUrl;
         show.Status = request.Status;
-        show.UpdateTime = DateTime.UtcNow;
+        //<fix> 已删除 show.UpdateTime = DateTime.UtcNow
 
         _context.Shows.Update(show);
         return await _context.SaveChangesAsync(cancellationToken) > 0;
@@ -101,7 +101,8 @@ public class AdminShowService : IAdminShowService
             .Select(s => MapToDto(s))
             .ToListAsync(cancellationToken);
 
-        return new PagedResponse<ShowDto>(items, total, query.PageIndex, query.PageSize);
+        // <fix> 修复构造参数顺序
+        return new PagedResponse<ShowDto>(items, query.PageIndex, query.PageSize, total);
     }
 
     private static ShowDto MapToDto(ShowtimeBackend.Entities.ShowSession.Show show) => new(
@@ -116,4 +117,3 @@ public class AdminShowService : IAdminShowService
         show.CreateTime
     );
 }
-
