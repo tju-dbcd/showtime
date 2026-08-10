@@ -1,5 +1,7 @@
 using ShowtimeBackend.DTOs.ShowSessionChange;
+using ShowtimeBackend.DTOs.Show;
 using ShowtimeBackend.DTOs.ShowSessionDto;
+using ShowtimeBackend.Common;
 
 namespace ShowtimeBackend.Services.ShowSession;
 
@@ -20,6 +22,19 @@ public interface IClientShowSessionService
     Task<IEnumerable<PricingStrategyDto>> GetPricingStrategiesAsync(long sessionId, CancellationToken cancellationToken = default);
 }
 
+public interface IClientShowService
+{
+    /// <summary>
+    /// 获取 C 端已上架且审核通过的演出
+    /// </summary>
+    Task<PagedResponse<ShowDto>> GetClientShowsAsync(ShowQueryRequest query, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 获取已上架演出的详情
+    /// </summary>
+    Task<ShowDto> GetClientShowByIdAsync(long showId, CancellationToken cancellationToken = default);
+}
+
 public interface IAdminShowSessionService
 {
     /// <summary>
@@ -33,7 +48,18 @@ public interface IAdminShowSessionService
     Task<bool> ConfigurePriceStrategiesAsync(long sessionId, IEnumerable<CreatePriceStrategyRequest> requests, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 手动变更场次状态（如紧急停售/下架）
+    /// 手动变更场次状态
     /// </summary>
     Task<bool> UpdateSessionStatusAsync(long sessionId, string newStatus, CancellationToken cancellationToken = default);
+
+    Task<IEnumerable<ShowSessionDto>> GetAdminSessionsByShowIdAsync(long showId, CancellationToken cancellationToken = default);
+}
+
+public interface IAdminShowService
+{
+    Task<ShowDto> CreateShowAsync(CreateShowRequest request, CancellationToken cancellationToken = default);
+    Task<bool> UpdateShowAsync(long showId, UpdateShowRequest request, CancellationToken cancellationToken = default);
+    Task<bool> DeleteShowAsync(long showId, CancellationToken cancellationToken = default);
+    Task<ShowDto> GetShowByIdAsync(long showId, CancellationToken cancellationToken = default);
+    Task<PagedResponse<ShowDto>> GetShowsAsync(ShowQueryRequest query, CancellationToken cancellationToken = default);
 }

@@ -14,8 +14,34 @@ using ShowtimeBackend.Services.Impl;
 
 namespace ShowtimeBackend.Tests.ShowSessionTest;
 
-public sealed class ShowSessionControllersTests
+public sealed class ShowSessionAdminControllersTests
 {
+    [Fact]
+    public async Task GetAdminSessions_WhenSessionsExist_ReturnsSessionList()
+    {
+        await using var db = CreateDbContext();
+        long targetShowId = 1;
+
+        db.ShowSessions.AddRange(
+            CreateSessionEntity(targetShowId, "ONSALE", DateTime.UtcNow.AddDays(1)),
+            CreateSessionEntity(targetShowId, "UPCOMING", DateTime.UtcNow.AddDays(2)),
+            CreateSessionEntity(showId: 99, "ONSALE", DateTime.UtcNow.AddDays(1)) // 其他演出的场次
+        );
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+
+        var actionResult = await controller.GetAdminSessions(targetShowId, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<IEnumerable<ShowSessionDto>>>(okResult.Value);
+        Assert.True(apiResponse.Success);
+        Assert.NotNull(apiResponse.Data);
+
+        var sessions = apiResponse.Data.ToList();
+        Assert.Equal(2, sessions.Count);
+        Assert.All(sessions, s => Assert.Equal(targetShowId, s.ShowId));
+    }
 
     [Fact]
     public async Task CreateSession_WithValidRequest_ReturnsCreatedAndPersistsToDb()
@@ -64,7 +90,7 @@ public sealed class ShowSessionControllersTests
         var baseTime = DateTime.UtcNow.AddDays(5);
 
         // 在数据库中插入已有排期场次
-        db.ShowSessions.Add(new Entities.ShowSession.ShowSession
+        db.ShowSessions.Add(new ShowSession
         {
             ShowId = 1,
             SeatMapId = 100,
@@ -204,101 +230,31 @@ public sealed class ShowSessionControllersTests
         Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
     }
 
-    // ==========================================
-    // ShowSessionClientController 测试集 (c端)
-    // ==========================================
     [Fact]
-    public async Task GetOnSaleSessions_WhenShowIdInvalid_ReturnsBadRequest()
+    public async Task UpdateSessionStatus_WhenSessionNotExists_ReturnsNotFound()
     {
         await using var db = CreateDbContext();
-        var controller = CreateClientController(db);
+        var controller = CreateAdminController(db);
 
-        var actionResult = await controller.GetOnSaleSessions(0, CancellationToken.None);
+        var actionResult = await controller.UpdateSessionStatus(
+            9999,
+            new UpdateSessionStatusRequest("ONSALE"),
+            CancellationToken.None);
 
-        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
-        var apiResponse = Assert.IsType<ApiResponse<IEnumerable<ShowSessionDto>>>(badRequestResult.Value);
+        var notFoundResult = Assert.IsType<NotFoundObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(notFoundResult.Value);
         Assert.False(apiResponse.Success);
-        Assert.Equal("INVALID_PARAM", apiResponse.Code);
+        Assert.Equal("NOT_FOUND", apiResponse.Code);
     }
 
-    [Fact]
-    public async Task GetOnSaleSessions_WhenValid_ReturnsOnlyOnSaleSessions()
-    {
-        await using var db = CreateDbContext();
-        long targetShowId = 1;
-
-        // 植入测试数据：包含 ONSALE、UPCOMING、ENDED 三种状态
-        db.ShowSessions.AddRange(
-            CreateSessionEntity(targetShowId, "ONSALE", DateTime.UtcNow.AddDays(1)),
-            CreateSessionEntity(targetShowId, "UPCOMING", DateTime.UtcNow.AddDays(2)),
-            CreateSessionEntity(targetShowId, "ENDED", DateTime.UtcNow.AddDays(-1)),
-            CreateSessionEntity(showId: 2, "ONSALE", DateTime.UtcNow.AddDays(1)) // 其他演出的场次
-        );
-        await db.SaveChangesAsync();
-
-        var controller = CreateClientController(db);
-
-        var actionResult = await controller.GetOnSaleSessions(targetShowId, CancellationToken.None);
-
-        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
-        var apiResponse = Assert.IsType<ApiResponse<IEnumerable<ShowSessionDto>>>(okResult.Value);
-        Assert.True(apiResponse.Success);
-        Assert.NotNull(apiResponse.Data);
-
-        var sessions = apiResponse.Data.ToList();
-        Assert.Single(sessions); // 只能查到 targetShowId 且状态为 ONSALE 的 1 条记录
-        Assert.Equal("ONSALE", sessions[0].SessionStatus);
-        Assert.Equal(targetShowId, sessions[0].ShowId);
-    }
-
-    [Fact]
-    public async Task GetPricingStrategies_WhenSessionIdInvalid_ReturnsBadRequest()
-    {
-        await using var db = CreateDbContext();
-        var controller = CreateClientController(db);
-
-        var actionResult = await controller.GetPricingStrategies(-5, CancellationToken.None);
-
-        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
-        var apiResponse = Assert.IsType<ApiResponse<IEnumerable<PricingStrategyDto>>>(badRequestResult.Value);
-        Assert.False(apiResponse.Success);
-        Assert.Equal("INVALID_PARAM", apiResponse.Code);
-    }
-
-    [Fact]
-    public async Task GetPricingStrategies_WhenValid_ReturnsOnlyEnabledStrategies()
-    {
-        await using var db = CreateDbContext();
-        long targetSessionId = 100;
-
-        // 植入策略数据：包含 ENABLED 和 DISABLED 状态
-        db.PriceStrategy.AddRange(
-            new PriceStrategy { SessionId = targetSessionId, SeatSectionId = 1, PriceType = "VIP", Price = 880m, Status = "ENABLED" },
-            new PriceStrategy { SessionId = targetSessionId, SeatSectionId = 2, PriceType = "STANDARD", Price = 380m, Status = "ENABLED" },
-            new PriceStrategy { SessionId = targetSessionId, SeatSectionId = 3, PriceType = "EARLY_BIRD", Price = 180m, Status = "DISABLED" },
-            new PriceStrategy { SessionId = 999, SeatSectionId = 1, PriceType = "VIP", Price = 880m, Status = "ENABLED" }
-        );
-        await db.SaveChangesAsync();
-
-        var controller = CreateClientController(db);
-
-        var actionResult = await controller.GetPricingStrategies(targetSessionId, CancellationToken.None);
-
-        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
-        var apiResponse = Assert.IsType<ApiResponse<IEnumerable<PricingStrategyDto>>>(okResult.Value);
-        Assert.True(apiResponse.Success);
-
-        var strategies = apiResponse.Data!.ToList();
-        Assert.Equal(2, strategies.Count);
-        Assert.All(strategies, s => Assert.Equal("ENABLED", s.Status));
-    }
-
+    // ==========================================
+    // Helper Methods
+    // ==========================================
 
     private static AppDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            // 忽略 EF Core InMemory 模式不支持事务 (BeginTransactionAsync) 的警告
             .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
 
@@ -308,7 +264,7 @@ public sealed class ShowSessionControllersTests
     private static AdminShowSessionController CreateAdminController(AppDbContext db, ClaimsPrincipal? user = null)
     {
         var adminService = new AdminShowSessionService(db);
-        var controller = new AdminShowSessionController(adminService)
+        return new AdminShowSessionController(adminService)
         {
             ControllerContext = new ControllerContext
             {
@@ -318,20 +274,6 @@ public sealed class ShowSessionControllersTests
                 }
             }
         };
-        return controller;
-    }
-
-    private static ShowSessionClientController CreateClientController(AppDbContext db)
-    {
-        var clientService = new ShowSessionService(db);
-        var controller = new ShowSessionClientController(clientService)
-        {
-            ControllerContext = new ControllerContext
-            {
-                HttpContext = new DefaultHttpContext()
-            }
-        };
-        return controller;
     }
 
     private static ClaimsPrincipal CreateAdminClaimsPrincipal()
@@ -363,13 +305,13 @@ public sealed class ShowSessionControllersTests
         );
     }
 
-    private static Entities.ShowSession.ShowSession SeedShowSession(
+    private static ShowSession SeedShowSession(
         AppDbContext db,
         long showId,
         long seatMapId,
         string initialStatus = "UPCOMING")
     {
-        var session = new Entities.ShowSession.ShowSession
+        var session = new ShowSession
         {
             ShowId = showId,
             SeatMapId = seatMapId,
@@ -386,9 +328,9 @@ public sealed class ShowSessionControllersTests
         return session;
     }
 
-    private static Entities.ShowSession.ShowSession CreateSessionEntity(long showId, string status, DateTime startTime)
+    private static ShowSession CreateSessionEntity(long showId, string status, DateTime startTime)
     {
-        return new Entities.ShowSession.ShowSession
+        return new ShowSession
         {
             ShowId = showId,
             SeatMapId = 1,

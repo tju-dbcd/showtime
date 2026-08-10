@@ -4,6 +4,7 @@ using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.ShowSessionChange;
 using ShowtimeBackend.DTOs.ShowSessionDto;
 using ShowtimeBackend.Services.ShowSession;
+using ShowtimeBackend.DTOs.Show;
 
 namespace ShowtimeBackend.Controllers.ShowSession.Admin;
 
@@ -18,6 +19,20 @@ public class AdminShowSessionController : ControllerBase
     {
         _adminService = adminService;
     }
+
+    /// <summary>
+    /// 获取指定演出下的所有排期场次
+    /// </summary>
+    [HttpGet("shows/{showId:long}/sessions")]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<ShowSessionDto>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<IEnumerable<ShowSessionDto>>>> GetAdminSessions(
+        [FromRoute] long showId,
+        CancellationToken cancellationToken)
+    {
+        var sessions = await _adminService.GetAdminSessionsByShowIdAsync(showId, cancellationToken);
+        return Ok(ApiResponse<IEnumerable<ShowSessionDto>>.Ok(sessions, "获取管理端场次列表成功"));
+    }
+
 
     /// <summary>
     /// 为指定演出创建/排布场次
@@ -112,6 +127,127 @@ public class AdminShowSessionController : ControllerBase
         catch (ArgumentException ex)
         {
             return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", ex.Message));
+        }
+    }
+}
+
+[ApiController]
+[Route("api/admin/shows")]
+[Authorize(Roles = "Admin")]
+public class AdminShowController : ControllerBase
+{
+    private readonly IAdminShowService _showService;
+
+    public AdminShowController(IAdminShowService showService)
+    {
+        _showService = showService;
+    }
+
+    /// <summary>
+    /// 创建/发布演出基础信息（获取 showId）
+    /// </summary>
+    [HttpPost]
+    [ProducesResponseType(typeof(ApiResponse<ShowDto>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<ShowDto>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ShowDto>>> CreateShow(
+        [FromBody] CreateShowRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var createdShow = await _showService.CreateShowAsync(request, cancellationToken);
+            return Created($"/api/admin/shows/{createdShow.ShowId}", ApiResponse<ShowDto>.Ok(createdShow, "演出创建成功"));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ApiResponse<ShowDto>.Fail("INVALID_ARGUMENT", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// 分页查询演出列表
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(ApiResponse<PagedResponse<ShowDto>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResponse<ShowDto>>>> GetShows(
+        [FromQuery] ShowQueryRequest query,
+        CancellationToken cancellationToken)
+    {
+        var result = await _showService.GetShowsAsync(query, cancellationToken);
+        return Ok(ApiResponse<PagedResponse<ShowDto>>.Ok(result, "获取演出列表成功"));
+    }
+
+    /// <summary>
+    /// 获取演出详情
+    /// </summary>
+    [HttpGet("{showId:long}")]
+    [ProducesResponseType(typeof(ApiResponse<ShowDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ShowDto>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<ShowDto>>> GetShowById(
+        [FromRoute] long showId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var show = await _showService.GetShowByIdAsync(showId, cancellationToken);
+            return Ok(ApiResponse<ShowDto>.Ok(show, "获取演出详情成功"));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ApiResponse<ShowDto>.Fail("NOT_FOUND", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// 更新演出信息
+    /// </summary>
+    [HttpPut("{showId:long}")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<object>>> UpdateShow(
+        [FromRoute] long showId,
+        [FromBody] UpdateShowRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _showService.UpdateShowAsync(showId, request, cancellationToken);
+            return Ok(ApiResponse<object>.Ok(null!, "演出更新成功"));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ApiResponse<object>.Fail("NOT_FOUND", ex.Message));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// 删除指定演出
+    /// </summary>
+    [HttpDelete("{showId:long}")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ApiResponse<object>>> DeleteShow(
+        [FromRoute] long showId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _showService.DeleteShowAsync(showId, cancellationToken);
+            return Ok(ApiResponse<object>.Ok(null!, "演出删除成功"));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ApiResponse<object>.Fail("NOT_FOUND", ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ApiResponse<object>.Fail("OPERATION_CONFLICT", ex.Message));
         }
     }
 }

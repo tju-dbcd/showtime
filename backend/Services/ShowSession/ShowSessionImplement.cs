@@ -128,7 +128,7 @@ public class AdminShowSessionService : IAdminShowSessionService
     {
         var session = await _context.ShowSessions.FindAsync(new object[] { sessionId }, cancellationToken);
         if (session == null)
-            throw new KeyNotFoundException($"未找到 ID 为 {sessionId} 的场次");
+            throw new KeyNotFoundException($"未找到ID为 {sessionId} 的场次");
 
         var requestList = requests.ToList();
         if (!requestList.Any())
@@ -202,5 +202,25 @@ public class AdminShowSessionService : IAdminShowSessionService
 
         _context.ShowSessions.Update(session);
         return await _context.SaveChangesAsync(cancellationToken) > 0;
+    }
+
+    public async Task<IEnumerable<ShowSessionDto>> GetAdminSessionsByShowIdAsync(
+        long showId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.ShowSessions
+            .AsNoTracking()
+            .Where(s => s.ShowId == showId)
+            .OrderByDescending(s => s.StartTime)
+            .Select(s => new ShowSessionDto(
+                s.ShowId,
+                s.SessionId,
+                s.StartTime,
+                s.EndTime,
+                s.SaleStartTime,
+                s.SessionStatus,
+                s.SeatMapId
+            ))
+            .ToListAsync(cancellationToken);
     }
 }
