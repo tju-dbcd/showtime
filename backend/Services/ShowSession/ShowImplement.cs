@@ -9,6 +9,12 @@ namespace ShowtimeBackend.Services.Impl;
 
 public class AdminShowService : IAdminShowService
 {
+    /// <summary>
+    /// 演出状态取值白名单（与 SHOW.STATUS 的 CHECK 约束对齐）。
+    /// </summary>
+    private static readonly HashSet<string> ValidShowStatuses =
+        new(StringComparer.OrdinalIgnoreCase) { "DRAFT", "PUBLISHED", "UNPUBLISHED" };
+
     private readonly AppDbContext _context;
 
     public AdminShowService(AppDbContext context)
@@ -20,6 +26,8 @@ public class AdminShowService : IAdminShowService
     {
         if (string.IsNullOrWhiteSpace(request.ShowName))
             throw new ArgumentException("演出名称不能为空");
+
+        await ValidateCategoryExistsAsync(request.CategoryId, cancellationToken);
 
         var show = new ShowtimeBackend.Entities.ShowSession.Show
         {
@@ -44,6 +52,12 @@ public class AdminShowService : IAdminShowService
         var show = await _context.Shows.FindAsync(new object[] { showId }, cancellationToken);
         if (show == null)
             throw new KeyNotFoundException($"未找到 ID 为 {showId} 的演出");
+
+        if (string.IsNullOrWhiteSpace(request.ShowName))
+            throw new ArgumentException("演出名称不能为空");
+        if (!ValidShowStatuses.Contains(request.Status))
+            throw new ArgumentException($"无效的演出状态: {request.Status}");
+        await ValidateCategoryExistsAsync(request.CategoryId, cancellationToken);
 
         show.ShowName = request.ShowName;
         show.CategoryId = request.CategoryId;
@@ -95,15 +109,28 @@ public class AdminShowService : IAdminShowService
 
         int total = await dbQuery.CountAsync(cancellationToken);
 
+        // 与 C 端一致：对分页参数做防御性钳制，避免负值导致 Skip 抛异常
+        int pageIndex = query.PageIndex < 1 ? 1 : query.PageIndex;
+        int pageSize = query.PageSize < 1 ? 10 : query.PageSize;
+
         var items = await dbQuery
             .OrderByDescending(s => s.CreateTime)
-            .Skip((query.PageIndex - 1) * query.PageSize)
-            .Take(query.PageSize)
+            .Skip((pageIndex - 1) * pageSize)
+            .Take(pageSize)
             .Select(s => MapToDto(s))
             .ToListAsync(cancellationToken);
 
         // <fix> 修复构造参数顺序
-        return new PagedResponse<ShowDto>(items, query.PageIndex, query.PageSize, total);
+        return new PagedResponse<ShowDto>(items, pageIndex, pageSize, total);
+    }
+
+    private async Task ValidateCategoryExistsAsync(long categoryId, CancellationToken cancellationToken)
+    {
+        bool exists = await _context.Set<ShowtimeBackend.Entities.ShowSession.Category>()
+            .AsNoTracking()
+            .AnyAsync(c => c.CategoryId == categoryId, cancellationToken);
+        if (!exists)
+            throw new ArgumentException($"未找到 ID 为 {categoryId} 的演出分类");
     }
 
     private static ShowDto MapToDto(ShowtimeBackend.Entities.ShowSession.Show show) => new(

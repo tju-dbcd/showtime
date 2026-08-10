@@ -77,9 +77,9 @@ public class ShowSessionClientController : ControllerBase
     }
 
     /// <summary>
-    /// 首页/搜索页获取演出
+    /// 首页/搜索页获取演出列表
     /// </summary>
-    [HttpGet]
+    [HttpGet("shows")]
     [ProducesResponseType(typeof(ApiResponse<PagedResponse<ShowDto>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<PagedResponse<ShowDto>>>> GetShows(
         [FromQuery] ShowQueryRequest query,
@@ -90,9 +90,9 @@ public class ShowSessionClientController : ControllerBase
     }
 
     /// <summary>
-    /// 获取演出详情页
+    /// 获取已上架演出的详情
     /// </summary>
-    [HttpGet("{showId:long}")]
+    [HttpGet("shows/{showId:long}")]
     [ProducesResponseType(typeof(ApiResponse<ShowDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ShowDto>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<ShowDto>), StatusCodes.Status404NotFound)]

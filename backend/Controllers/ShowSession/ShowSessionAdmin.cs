@@ -203,6 +203,7 @@ public class AdminShowController : ControllerBase
     /// </summary>
     [HttpPut("{showId:long}")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<object>>> UpdateShow(
         [FromRoute] long showId,
@@ -217,6 +218,10 @@ public class AdminShowController : ControllerBase
         catch (KeyNotFoundException ex)
         {
             return NotFound(ApiResponse<object>.Fail("NOT_FOUND", ex.Message));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", ex.Message));
         }
     }
 
