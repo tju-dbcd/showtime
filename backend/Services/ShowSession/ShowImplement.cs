@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.Show;
 using ShowtimeBackend.Services.ShowSession;
+using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Common;
 
 namespace ShowtimeBackend.Services.Impl;
@@ -106,6 +107,74 @@ public class AdminShowService : IAdminShowService
     }
 
     private static ShowDto MapToDto(ShowtimeBackend.Entities.ShowSession.Show show) => new(
+        show.ShowId,
+        show.ShowName,
+        show.CategoryId,
+        show.Description,
+        show.DurationMinutes,
+        show.PosterUrl,
+        show.Status,
+        show.AuditStatus,
+        show.CreateTime
+    );
+}
+
+public class ClientShowService : IClientShowService
+{
+    private readonly AppDbContext _context;
+
+    public ClientShowService(AppDbContext context)
+    {
+        _context = context;
+    }
+
+    public async Task<PagedResponse<ShowDto>> GetClientShowsAsync(ShowQueryRequest query, CancellationToken cancellationToken = default)
+    {
+        // 仅有非pending情况下可以被查询
+        var dbQuery = _context.Shows
+            .AsNoTracking()
+            .Where(s => s.Status == "PUBLISHED" && s.AuditStatus == "APPROVED");
+
+        if (!string.IsNullOrWhiteSpace(query.Keyword))
+        {
+            dbQuery = dbQuery.Where(s => s.ShowName.Contains(query.Keyword));
+        }
+
+        if (query.CategoryId.HasValue && query.CategoryId > 0)
+        {
+            dbQuery = dbQuery.Where(s => s.CategoryId == query.CategoryId.Value);
+        }
+
+        int total = await dbQuery.CountAsync(cancellationToken);
+
+        int pageIndex = query.PageIndex < 1 ? 1 : query.PageIndex;
+        int pageSize = query.PageSize < 1 ? 10 : query.PageSize;
+
+        var items = await dbQuery
+            .OrderByDescending(s => s.CreateTime)
+            .Skip((pageIndex - 1) * pageSize)
+            .Take(pageSize)
+            .Select(s => MapToDto(s))
+            .ToListAsync(cancellationToken);
+
+        return new PagedResponse<ShowDto>(items, pageIndex, pageSize, total);
+    }
+
+    public async Task<ShowDto> GetClientShowByIdAsync(long showId, CancellationToken cancellationToken = default)
+    {
+        var show = await _context.Shows
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.ShowId == showId && s.Status == "PUBLISHED" && s.AuditStatus == "APPROVED", cancellationToken);
+
+        if (show == null)
+        {
+            throw new KeyNotFoundException($"未找到 ID 为 {showId} 的有效演出或该演出未上架");
+        }
+
+        return MapToDto(show);
+    }
+
+    private static ShowDto MapToDto(Show show) => new(
         show.ShowId,
         show.ShowName,
         show.CategoryId,

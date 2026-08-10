@@ -22,6 +22,19 @@ public interface IClientShowSessionService
     Task<IEnumerable<PricingStrategyDto>> GetPricingStrategiesAsync(long sessionId, CancellationToken cancellationToken = default);
 }
 
+public interface IClientShowService
+{
+    /// <summary>
+    /// 获取 C 端已上架且审核通过的演出
+    /// </summary>
+    Task<PagedResponse<ShowDto>> GetClientShowsAsync(ShowQueryRequest query, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 获取已上架演出的详情
+    /// </summary>
+    Task<ShowDto> GetClientShowByIdAsync(long showId, CancellationToken cancellationToken = default);
+}
+
 public interface IAdminShowSessionService
 {
     /// <summary>
