@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 
 const BASE_URL = "http://127.0.0.1:5173";
 
-// 使用时间戳生成唯一用户
 const timestamp = Date.now();
 const testUser = {
   username: `e2e_test_${timestamp}`,
