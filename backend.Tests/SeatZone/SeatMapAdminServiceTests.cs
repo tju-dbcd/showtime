@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.SeatZone;
@@ -24,7 +23,7 @@ public sealed class SeatMapAdminServiceTests
         Assert.True(result.IsSuccess);
         var item = Assert.Single(result.Data!.Items);
         Assert.Equal(seatMap.SeatMapId, item.SeatMapId);
-        AssertVenueName(item, "天津大礼堂");
+        Assert.Equal("天津大礼堂", item.VenueName);
     }
 
     [Fact]
@@ -37,7 +36,7 @@ public sealed class SeatMapAdminServiceTests
         var result = await service.GetMapAsync(seatMap.SeatMapId, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        AssertVenueName(result.Data!, "天津音乐厅");
+        Assert.Equal("天津音乐厅", result.Data!.VenueName);
     }
 
     [Fact]
@@ -105,17 +104,6 @@ public sealed class SeatMapAdminServiceTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
         return new AppDbContext(options);
-    }
-
-    private static void AssertVenueName(SeatMapResponse response, string expected)
-    {
-        var json = JsonSerializer.Serialize(
-            response,
-            new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        using var document = JsonDocument.Parse(json);
-
-        Assert.True(document.RootElement.TryGetProperty("venueName", out var venueName));
-        Assert.Equal(expected, venueName.GetString());
     }
 
     private static SeatMapRequest CreateRequest(
