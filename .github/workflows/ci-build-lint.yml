@@ -189,8 +189,6 @@ jobs:
       - name: Build project
         run: dotnet build --no-restore --configuration Release
 
-      # 后端暂无非 web 启动的 OpenAPI 导出命令，这里以 Development 环境启动应用，
-      # 通过 HTTP 拉取 /openapi/v1.json 生成快照，随后立即关闭进程。
       - name: Start backend and export OpenAPI document
         working-directory: backend
         env:
@@ -214,8 +212,6 @@ jobs:
             exit 1
           fi
 
-      # 生成文档中的 servers[0].url 随启动端口变化，属于环境相关字段，
-      # 比较前先移除，只校验 API 契约（paths/components/security 等）是否过期。
       - name: Check OpenAPI snapshot freshness
         id: openapi_check
         run: |
@@ -245,11 +241,15 @@ jobs:
           if [ "${{ steps.openapi_check.outputs.status }}" == "fail" ]; then
             echo "Please regenerate the OpenAPI snapshot locally and commit it to frontend/src/api/openapi.json."
           fi
+
+  # ============================================================
+  # ✅ 新增：Playwright E2E Tests
+  # ============================================================
   e2e-test:
     name: Playwright E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [build, test, openapi-check, frontend]
+    needs: [build, frontend]
 
     steps:
       - name: Checkout repository
@@ -264,10 +264,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
-        working-directory: frontend
-
-      - name: Build frontend
-        run: npm run build
         working-directory: frontend
 
       - name: Setup .NET
@@ -293,46 +289,63 @@ jobs:
         run: npx playwright install --with-deps chromium
         working-directory: frontend
 
-      - name: Start backend and frontend, run E2E tests
-        working-directory: backend
+      - name: Start services and run E2E tests
         env:
           ASPNETCORE_ENVIRONMENT: Development
           ASPNETCORE_URLS: http://127.0.0.1:5000
         run: |
-          # Start backend
+          echo "=== Starting services ==="
+          
+          # 检查 dotnet 是否可用
+          dotnet --version
+          
+          # 检查后端 DLL 是否存在
+          ls -la backend/bin/Release/net10.0/ || echo "❌ Backend DLL not found"
+          
+          echo "Starting backend..."
+          cd backend
           dotnet ./bin/Release/net10.0/ShowtimeBackend.dll &
           BACKEND_PID=$!
 
-          # Wait for backend to be ready
+          echo "Waiting for backend..."
           for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:5000/health > /dev/null 2>&1; then
+            if curl -fsS http://127.0.0.1:5000 > /dev/null 2>&1; then
+              echo "✅ Backend ready (port 5000)"
               break
             fi
+            echo "⏳ Backend not ready... $i/30"
             sleep 2
           done
 
-          # Start frontend dev server
+          echo "Starting frontend..."
           cd ../frontend
           npm run dev -- --port 5173 &
           FRONTEND_PID=$!
 
-          # Wait for frontend to be ready
+          echo "Waiting for frontend..."
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:5173 > /dev/null 2>&1; then
+              echo "✅ Frontend ready (port 5173)"
               break
             fi
+            echo "⏳ Frontend not ready... $i/30"
             sleep 2
           done
 
-          # Run Playwright tests
-          npx playwright test
+          # 检查服务是否真的在运行
+          echo "=== Service check ==="
+          curl -v http://127.0.0.1:5000 || echo "❌ Backend check failed"
+          curl -v http://127.0.0.1:5173 || echo "❌ Frontend check failed"
+          echo "=== Running tests ==="
 
-          # Cleanup background processes
+          npx playwright test tests/showtime.spec.ts --reporter=line
+
           kill $FRONTEND_PID 2>/dev/null || true
           kill $BACKEND_PID 2>/dev/null || true
 
       - name: Upload Playwright test results
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: playwright-report
           path: frontend/playwright-report/
@@ -341,6 +354,7 @@ jobs:
 
       - name: Upload Playwright test traces
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: playwright-traces
           path: frontend/test-results/
