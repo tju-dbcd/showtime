@@ -512,7 +512,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -656,7 +656,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -811,7 +811,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -957,7 +957,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1031,7 +1031,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1115,7 +1115,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1181,7 +1181,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1285,7 +1285,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1369,7 +1369,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1495,7 +1495,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1601,7 +1601,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1687,7 +1687,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1739,7 +1739,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1785,7 +1785,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1849,7 +1849,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1876,7 +1876,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1950,7 +1950,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2002,7 +2002,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2048,7 +2048,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2112,7 +2112,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2139,7 +2139,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2185,7 +2185,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2249,7 +2249,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2278,7 +2278,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2376,7 +2376,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2440,7 +2440,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2486,7 +2486,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2550,7 +2550,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2577,7 +2577,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2661,7 +2661,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2725,7 +2725,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2771,7 +2771,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2835,7 +2835,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2862,7 +2862,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2990,7 +2990,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -3042,7 +3042,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3088,7 +3088,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3134,7 +3134,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3180,7 +3180,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3246,7 +3246,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3427,7 +3427,7 @@
           "success": {
             "type": "boolean"
           },
-          "data": {},
+          "data": { },
           "code": {
             "type": [
               "null",
@@ -5262,6 +5262,7 @@
         "required": [
           "seatMapId",
           "venueId",
+          "venueName",
           "mapCode",
           "mapName",
           "mapVersion",
@@ -5288,6 +5289,9 @@
               "string"
             ],
             "format": "int64"
+          },
+          "venueName": {
+            "type": "string"
           },
           "mapCode": {
             "type": "string"
