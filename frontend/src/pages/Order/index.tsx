@@ -1,210 +1,310 @@
-import { useState } from 'react';
-import { Table, Tag, Typography, Empty, Modal, Button, message } from 'antd';
+import { useState, useEffect } from 'react';
+import { Table, Tag, Typography, Empty, Modal, Button, message, Spin, Divider } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { useLocation } from 'react-router-dom';
-import { mockOrders } from '@/mock/orders';
+import { useNavigate } from 'react-router-dom';
+import { orderAPI, paymentAPI } from '@/api/requests';
+import type { OrderSummaryResponse, PaymentResponse } from '@/types/api';
 import './Order.css';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
-// 定义订单数据类型
-interface Order {
-  id: string;
-  eventName: string;
-  venue: string;
-  seats: string;
-  amount: number;
-  status: 'paid' | 'pending' | 'cancelled';
-  date: string;
-}
+// 订单状态映射
+const STATUS_MAP: Record<string, { color: string; text: string }> = {
+  Pending: { color: 'orange', text: '待支付' },
+  Paid: { color: 'green', text: '已支付' },
+  Cancelled: { color: 'red', text: '已取消' },
+  Expired: { color: 'default', text: '已过期' },
+};
 
-// 模拟生成二维码图片（实际项目用真实的二维码库）
-const generateQRCode = () => {
-  return `data:image/svg+xml,${encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
-      <rect width="200" height="200" fill="white"/>
-      <rect x="20" y="20" width="40" height="40" fill="black"/>
-      <rect x="70" y="20" width="20" height="20" fill="black"/>
-      <rect x="100" y="20" width="40" height="40" fill="black"/>
-      <rect x="20" y="70" width="20" height="40" fill="black"/>
-      <rect x="50" y="70" width="20" height="20" fill="black"/>
-      <rect x="80" y="70" width="20" height="40" fill="black"/>
-      <rect x="110" y="70" width="20" height="20" fill="black"/>
-      <rect x="140" y="70" width="40" height="40" fill="black"/>
-      <rect x="20" y="120" width="40" height="40" fill="black"/>
-      <rect x="70" y="120" width="40" height="20" fill="black"/>
-      <rect x="120" y="120" width="20" height="20" fill="black"/>
-      <rect x="150" y="120" width="30" height="40" fill="black"/>
-      <rect x="20" y="170" width="20" height="10" fill="black"/>
-      <rect x="50" y="170" width="30" height="20" fill="black"/>
-      <rect x="90" y="170" width="20" height="10" fill="black"/>
-      <rect x="120" y="170" width="60" height="20" fill="black"/>
-      <rect x="90" y="90" width="20" height="20" fill="black"/>
-      <rect x="140" y="20" width="10" height="10" fill="black"/>
-      <rect x="160" y="40" width="10" height="10" fill="black"/>
-      <rect x="40" y="160" width="10" height="10" fill="black"/>
-      <rect x="160" y="160" width="10" height="10" fill="black"/>
-      <rect x="180" y="20" width="10" height="10" fill="black"/>
-    </svg>
-  `)}`;
+// 支付状态映射
+const PAYMENT_STATUS_MAP: Record<string, { color: string; text: string }> = {
+  Pending: { color: 'orange', text: '支付中' },
+  Success: { color: 'green', text: '支付成功' },
+  Failed: { color: 'red', text: '支付失败' },
 };
 
 const Order = () => {
-  const location = useLocation();
+  const navigate = useNavigate();
+  const [orders, setOrders] = useState<OrderSummaryResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // 弹窗相关
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [selectedOrderNo, setSelectedOrderNo] = useState<string>('');
+  const [selectedAmount, setSelectedAmount] = useState<number>(0);
+  const [payments, setPayments] = useState<PaymentResponse[]>([]);
+  const [paying, setPaying] = useState(false);
+  const [loadingPayments, setLoadingPayments] = useState(false);
 
-  const state = location.state as { selectedSeats?: string[]; eventId?: string } | null;
+  // ========== 获取订单列表 ==========
+  const fetchOrders = async (currentPage: number = page, currentPageSize: number = pageSize) => {
+    setLoading(true);
+    try {
+      const response: any = await orderAPI.getOrders({
+        Page: currentPage,
+        PageSize: currentPageSize,
+      });
 
-  const orders: Order[] = mockOrders as Order[];
+      const result = response.data ? response.data : response;
 
-  const statusMap = {
-    paid: { color: 'green', text: '已支付' },
-    pending: { color: 'orange', text: '待支付' },
-    cancelled: { color: 'red', text: '已取消' },
+      if (result.success && result.data) {
+        setOrders(result.data.items || []);
+        setTotalCount(result.data.totalCount || 0);
+      } else {
+        message.error(result.message || '获取订单列表失败');
+      }
+    } catch (error: any) {
+      console.error('获取订单失败:', error);
+      message.error(error.response?.data?.message || '获取订单列表失败');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const columns: ColumnsType<Order> = [
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+  // ========== 分页变化 ==========
+  const handlePageChange = (newPage: number, newPageSize: number) => {
+    setPage(newPage);
+    setPageSize(newPageSize);
+    fetchOrders(newPage, newPageSize);
+  };
+
+  // ========== 打开支付弹窗 ==========
+  const handleOpenPaymentModal = async (orderId: number, orderNo: string, amount: number) => {
+    setSelectedOrderId(orderId);
+    setSelectedOrderNo(orderNo);
+    setSelectedAmount(amount);
+    setIsModalOpen(true);
+    setLoadingPayments(true);
+
+    try {
+      const response: any = await paymentAPI.getPayments(orderId);
+      const result = response.data ? response.data : response;
+      if (result.success && result.data) {
+        setPayments(result.data);
+      } else {
+        setPayments([]);
+      }
+    } catch (error) {
+      console.error('获取支付记录失败:', error);
+      setPayments([]);
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
+
+  // ========== 模拟支付 ==========
+  const handleMockPayment = async (channel: string = 'WeChat') => {
+    if (!selectedOrderId) return;
+    setPaying(true);
+    try {
+      const response: any = await paymentAPI.mockPayment(selectedOrderId, {
+        payChannel: channel,
+        result: 'Success',
+      });
+      const result = response.data ? response.data : response;
+      if (result.success && result.data) {
+        message.success('支付成功！');
+        setIsModalOpen(false);
+        fetchOrders();
+      } else {
+        message.error(result.message || '支付失败');
+      }
+    } catch (error: any) {
+      console.error('支付失败:', error);
+      message.error(error.response?.data?.message || '支付失败，请重试');
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  // ========== 取消订单 ==========
+  const handleCancelOrder = (orderId: number) => {
+    Modal.confirm({
+      title: '确认取消',
+      content: '确定要取消该订单吗？取消后无法恢复。',
+      onOk: async () => {
+        try {
+          const response: any = await orderAPI.cancelOrder(orderId);
+          const result = response.data ? response.data : response;
+          if (result.success) {
+            message.success('订单已取消');
+            fetchOrders();
+          } else {
+            message.error(result.message || '取消订单失败');
+          }
+        } catch (error: any) {
+          console.error('取消订单失败:', error);
+          message.error(error.response?.data?.message || '取消订单失败');
+        }
+      },
+    });
+  };
+
+  // ========== 关闭弹窗 ==========
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedOrderId(null);
+    setPayments([]);
+  };
+
+  // ========== 表格列定义 ==========
+  const columns: ColumnsType<OrderSummaryResponse> = [
     {
       title: '订单号',
-      dataIndex: 'id',
-      key: 'id',
+      dataIndex: 'orderNo',
+      key: 'orderNo',
       width: 180,
-      render: (id: string) => <span style={{ fontFamily: 'monospace' }}>{id}</span>,
+      render: (text: string) => <span style={{ fontFamily: 'monospace' }}>{text}</span>,
     },
     {
-      title: '演出名称',
-      dataIndex: 'eventName',
-      key: 'eventName',
-      width: 220,
-    },
-    {
-      title: '场馆',
-      dataIndex: 'venue',
-      key: 'venue',
-      width: 140,
-    },
-    {
-      title: '座位',
-      dataIndex: 'seats',
-      key: 'seats',
-      width: 160,
+      title: '票数',
+      dataIndex: 'ticketCount',
+      key: 'ticketCount',
+      width: 80,
+      align: 'center',
     },
     {
       title: '金额',
-      dataIndex: 'amount',
-      key: 'amount',
-      width: 100,
-      render: (amount: number) => <span style={{ color: '#ff4d4f', fontWeight: 600 }}>¥{amount}</span>,
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 100,
-      render: (status: 'paid' | 'pending' | 'cancelled') => (
-        <Tag color={statusMap[status].color}>{statusMap[status].text}</Tag>
+      dataIndex: 'totalAmount',
+      key: 'totalAmount',
+      width: 120,
+      render: (amount: number) => (
+        <span style={{ color: '#ff4d4f', fontWeight: 600 }}>¥{amount.toFixed(2)}</span>
       ),
     },
     {
+      title: '状态',
+      dataIndex: 'orderStatus',
+      key: 'orderStatus',
+      width: 100,
+      render: (status: string) => {
+        const info = STATUS_MAP[status] || { color: 'default', text: status };
+        return <Tag color={info.color}>{info.text}</Tag>;
+      },
+    },
+    {
       title: '下单时间',
-      dataIndex: 'date',
-      key: 'date',
-      width: 160,
+      dataIndex: 'createTime',
+      key: 'createTime',
+      width: 180,
+      render: (time: string) => new Date(time).toLocaleString('zh-CN'),
+    },
+    {
+      title: '过期时间',
+      dataIndex: 'expireTime',
+      key: 'expireTime',
+      width: 180,
+      render: (time: string) => new Date(time).toLocaleString('zh-CN'),
     },
     {
       title: '操作',
       key: 'action',
-      width: 100,
-      render: (_: any, record: Order) => {
-        if (record.status === 'pending') {
+      width: 200,
+      fixed: 'right',
+      render: (_: any, record: OrderSummaryResponse) => {
+        const status = record.orderStatus;
+
+        if (status === 'Pending') {
           return (
-            <Button
-              type="primary"
-              size="small"
-              onClick={() => {
-                setSelectedOrder(record);
-                setIsModalOpen(true);
-              }}
-            >
-              去支付
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button
+                type="primary"
+                size="small"
+                onClick={() => handleOpenPaymentModal(record.orderId, record.orderNo, record.totalAmount)}
+              >
+                去支付
+              </Button>
+              <Button type="link" size="small" danger onClick={() => handleCancelOrder(record.orderId)}>
+                取消
+              </Button>
+            </div>
+          );
+        }
+
+        if (status === 'Paid') {
+          return (
+            <Button type="link" size="small" onClick={() => navigate(`/order/${record.orderId}`)}>
+              查看详情
             </Button>
           );
         }
+
         return <span style={{ color: '#ccc' }}>--</span>;
       },
     },
   ];
 
-  const handlePay = () => {
-    if (!selectedOrder) {
-      message.warning('请选择要支付的订单');
-      return;
-    }
-    setIsModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setSelectedOrder(null);
-  };
-
-  const handleConfirmPay = () => {
-    message.success('支付成功！');
-    setIsModalOpen(false);
-    setSelectedOrder(null);
-  };
-
-  const showSelectedInfo = state?.selectedSeats && state.selectedSeats.length > 0;
-
-  const pendingOrders = orders.filter(o => o.status === 'pending');
-  const totalPendingAmount = pendingOrders.reduce((sum, o) => sum + o.amount, 0);
+  // ========== 待支付统计 ==========
+  const pendingOrders = orders.filter((o) => o.orderStatus === 'Pending');
+  const totalPendingAmount = pendingOrders.reduce((sum, o) => sum + o.totalAmount, 0);
 
   return (
     <>
       <div className="order-container">
         <div className="order-content">
           <Title level={2} style={{ marginBottom: 8 }}>我的订单</Title>
-          <p style={{ color: '#888', marginBottom: 24 }}>
-            共 {orders.length} 笔订单
-            {showSelectedInfo && (
-              <span style={{ marginLeft: 16, color: '#1890ff' }}>
-                刚刚选择了 {state.selectedSeats?.length} 个座位，待支付
+          <Text type="secondary" style={{ marginBottom: 24, display: 'block' }}>
+            共 {totalCount} 笔订单
+            {pendingOrders.length > 0 && (
+              <span style={{ marginLeft: 16, color: '#ff4d4f' }}>
+                待支付 {pendingOrders.length} 笔
               </span>
             )}
-          </p>
+          </Text>
 
-          <Table<Order>
-            dataSource={orders}
-            columns={columns}
-            rowKey="id"
-            pagination={{ pageSize: 10, showSizeChanger: true }}
-            bordered
-            style={{ background: '#fff', borderRadius: 12 }}
-            locale={{
-              emptyText: <Empty description="暂无订单，快去抢票吧！" />,
-            }}
-          />
+          <Spin spinning={loading}>
+            <Table<OrderSummaryResponse>
+              dataSource={orders}
+              columns={columns}
+              rowKey="orderId"
+              pagination={{
+                current: page,
+                pageSize: pageSize,
+                total: totalCount,
+                showSizeChanger: true,
+                showTotal: (total) => `共 ${total} 笔订单`,
+                onChange: handlePageChange,
+                onShowSizeChange: handlePageChange,
+              }}
+              bordered
+              style={{ background: '#fff', borderRadius: 12 }}
+              locale={{ emptyText: <Empty description="暂无订单，快去抢票吧！" /> }}
+              scroll={{ x: 900 }}
+            />
+          </Spin>
         </div>
 
+        {/* ====== 底部固定黑条 ====== */}
         <div className="order-footer">
           <div className="footer-info">
             <span className="footer-label">待支付：</span>
             <span className="footer-count">{pendingOrders.length} 笔</span>
-            <span className="footer-total">合计：¥{totalPendingAmount}</span>
+            <span className="footer-total">合计：¥{totalPendingAmount.toFixed(2)}</span>
           </div>
           <Button
             type="primary"
             size="large"
             className="pay-btn"
             disabled={pendingOrders.length === 0}
-            onClick={handlePay}
+            onClick={() => {
+              const first = pendingOrders[0];
+              handleOpenPaymentModal(first.orderId, first.orderNo, first.totalAmount);
+            }}
           >
             立即付款
           </Button>
         </div>
       </div>
 
+      {/* ====== 支付弹窗 ====== */}
       <Modal
         title="扫码支付"
         open={isModalOpen}
@@ -213,33 +313,65 @@ const Order = () => {
           <Button key="cancel" onClick={handleCloseModal}>
             取消
           </Button>,
-          <Button key="confirm" type="primary" onClick={handleConfirmPay}>
-            我已支付
+          <Button key="wechat" type="primary" loading={paying} onClick={() => handleMockPayment('WeChat')}>
+            微信支付
+          </Button>,
+          <Button key="alipay" type="primary" loading={paying} onClick={() => handleMockPayment('Alipay')}>
+            支付宝
           </Button>,
         ]}
         centered
         mask={{ closable: true }}
         className="payment-modal"
-        width={420}
+        width={460}
+        destroyOnClose
       >
         <div className="payment-content">
-          <div className="qr-code-wrapper">
-            <img
-              src={selectedOrder ? generateQRCode() : ''}
-              alt="付款二维码"
-              className="qr-code"
-            />
-          </div>
-          <div className="payment-info">
+          <div className="payment-info" style={{ width: '100%' }}>
             <p className="payment-amount">
-              支付金额：<span className="amount">¥{selectedOrder?.amount || 0}</span>
+              支付金额：<span className="amount">¥{selectedAmount.toFixed(2)}</span>
             </p>
             <p className="payment-order">
-              订单号：<span className="order-id">{selectedOrder?.id || ''}</span>
+              订单号：<span className="order-id">{selectedOrderNo}</span>
             </p>
-            <p className="payment-tip">
-              请使用微信 / 支付宝扫码支付，付款后点击"我已支付"
-            </p>
+
+            <Divider />
+
+            <div style={{ textAlign: 'center', marginTop: 8 }}>
+              <Text type="secondary" style={{ fontSize: 13 }}>选择支付方式完成支付</Text>
+            </div>
+
+            {loadingPayments ? (
+              <div style={{ textAlign: 'center', padding: 16 }}>
+                <Spin size="small" /> 加载支付记录...
+              </div>
+            ) : payments.length > 0 ? (
+              <div style={{ marginTop: 12 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>已有 {payments.length} 条支付记录</Text>
+                {payments.map((p) => (
+                  <div
+                    key={p.paymentId}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      padding: '4px 0',
+                      fontSize: 13,
+                      borderBottom: '1px solid #f5f5f5',
+                    }}
+                  >
+                    <span>{p.payChannel}</span>
+                    <span>¥{p.payAmount.toFixed(2)}</span>
+                    <Tag color={PAYMENT_STATUS_MAP[p.payStatus]?.color || 'default'}>
+                      {PAYMENT_STATUS_MAP[p.payStatus]?.text || p.payStatus}
+                    </Tag>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="payment-tip" style={{ marginTop: 16 }}>
+              请选择支付方式，付款后订单状态会自动更新
+            </div>
           </div>
         </div>
       </Modal>

@@ -13,6 +13,8 @@ import type {
   PagedOrderResponse,
   PaymentResponse,
   MockPaymentRequest,
+  PagedResponse,
+  ShowDto,
 } from '@/types/api';
 
 // ========== Auth API ==========
@@ -33,6 +35,22 @@ export const showSessionAPI = {
   // 获取场次的定价策略
   getPricingStrategies: (sessionId: number) =>
     apiClient.get<ApiResponse<PricingStrategyDto[]>>(`/api/client/sessions/${sessionId}/pricing-strategies`),
+};
+
+export const showAPI = {
+  // 获取演出列表（分页/搜索/筛选）
+  getShows: (params?: {
+    PageIndex?: number;
+    PageSize?: number;
+    Keyword?: string;
+    CategoryId?: number;
+    Status?: string;
+  }) =>
+    apiClient.get<ApiResponse<PagedResponse<ShowDto>>>('/api/client/shows', { params }),
+
+  // 获取演出详情
+  getShowDetail: (showId: number) =>
+    apiClient.get<ApiResponse<ShowDto>>(`/api/client/shows/${showId}`),
 };
 
 // ========== Session API ==========

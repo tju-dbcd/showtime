@@ -68,6 +68,18 @@ export interface PricingStrategyDto {
   status: string;
 }
 
+export interface ShowDto {
+  showId: number;
+  showName: string;
+  categoryId: number;
+  description: string | null;
+  durationMinutes: number | null;
+  posterUrl: string | null;
+  status: string;
+  auditStatus: string;
+  createTime: string;
+}
+
 // ========== 座位相关 ==========
 export interface SessionSeatMapDto {
   sessionId: number;
@@ -121,6 +133,8 @@ export interface SessionSeatMapSeatDto {
   isAisleSide: boolean;
   isSellable: boolean;
   availabilityStatus: string;
+  sectionName?: string;
+  sectionColor?: string;
 }
 
 // ========== 订单相关 ==========
