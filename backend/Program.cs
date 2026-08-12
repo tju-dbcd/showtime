@@ -105,6 +105,7 @@ builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
 builder.Services.AddScoped<ISeatLockService, SeatLockService>();
 builder.Services.AddScoped<IAdminShowService, AdminShowService>();
+builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IClientShowService, ClientShowService>();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi(options =>
