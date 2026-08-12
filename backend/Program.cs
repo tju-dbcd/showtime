@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Common.Jwt;
+using ShowtimeBackend.Common.Middlewares;
 using ShowtimeBackend.Common.OpenApi;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
@@ -46,7 +47,11 @@ builder.Services
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer();
+    .AddJwtBearer(options =>
+    {
+        // 统一 401/403 响应体为 ApiResponse 信封（与业务错误格式一致）
+        JwtErrorEnvelope.Configure(options.Events);
+    });
 builder.Services
     .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
     .Configure<Microsoft.Extensions.Options.IOptions<JwtOptions>>(
@@ -116,6 +121,7 @@ builder.Services.AddScoped<IAdminShowService, AdminShowService>();
 builder.Services.AddScoped<IClientShowService, ClientShowService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<ApiResponseExceptionHandler>();
 builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
