@@ -1,0 +1,36 @@
+import createClient from 'openapi-fetch';
+import type { components, paths } from './types';
+import { message } from 'antd';
+
+const client = createClient<paths>({
+  baseUrl: import.meta.env.VITE_API_BASE_URL || 'http://120.27.157.163:5146',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// 请求拦截器：加token
+client.use({
+  async onRequest({ request }) {
+    const token = localStorage.getItem('token');
+    if (token) {
+      request.headers.set('Authorization', `Bearer ${token}`);
+    }
+    return request;
+  },
+  async onResponse({ response }) {
+    if (!response.ok) {
+      try {
+        const data = await response.clone().json();
+        const msg = data?.message || data?.title || `请求失败 (${response.status})`;
+        message.error(msg);
+      } catch {
+        message.error(`请求失败 (${response.status})`);
+      }
+    }
+    return response;
+  },
+});
+
+export { client };
+export type { components, paths };
