@@ -1,4 +1,4 @@
-import createClient from 'openapi-fetch';
+import createClient, { type Middleware } from 'openapi-fetch';
 import type { components, paths } from './types';
 import { message } from 'antd';
 
@@ -10,7 +10,7 @@ const client = createClient<paths>({
 });
 
 // 请求拦截器：加token
-client.use({
+const authMiddleware: Middleware = {
   async onRequest({ request }) {
     const token = localStorage.getItem('token');
     if (token) {
@@ -30,7 +30,9 @@ client.use({
     }
     return response;
   },
-});
+};
+
+client.use(authMiddleware);
 
 export { client };
 export type { components, paths };
