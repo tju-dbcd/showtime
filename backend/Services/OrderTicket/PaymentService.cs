@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
@@ -7,11 +8,6 @@ namespace ShowtimeBackend.Services.OrderTicket;
 
 public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProvider) : IPaymentService
 {
-    private static readonly HashSet<string> PaymentChannels =
-    [
-        "ALIPAY", "WECHAT", "UNIONPAY", "BALANCE"
-    ];
-
     public async Task<OrderTicketResult<IReadOnlyList<PaymentResponse>>> ListAsync(
         long userId,
         long orderId,
@@ -28,23 +24,16 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
                 "The order does not exist.");
         }
 
+        // 先物化实体再映射 DTO：字符串状态转枚举在内存中完成（EF 无法在 SQL 中转换）
         var payments = await dbContext.Set<Payment>()
             .AsNoTracking()
             .Where(item => item.OrderId == orderId && item.UserId == userId)
             .OrderByDescending(item => item.CreateTime)
             .ThenByDescending(item => item.PaymentId)
-            .Select(item => new PaymentResponse(
-                item.PaymentId,
-                item.PaymentNo,
-                item.OrderId,
-                item.PayAmount,
-                item.PayChannel,
-                item.PayStatus,
-                item.TradeNo,
-                item.CallbackTime,
-                item.PayTime))
             .ToListAsync(cancellationToken);
-        return OrderTicketResult<IReadOnlyList<PaymentResponse>>.Success(payments);
+
+        var items = payments.Select(ToResponse).ToList();
+        return OrderTicketResult<IReadOnlyList<PaymentResponse>>.Success(items);
     }
 
     public async Task<OrderTicketResult<PaymentResponse>> PayAsync(
@@ -54,12 +43,9 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
         MockPaymentRequest request,
         CancellationToken cancellationToken)
     {
-        var channel = request.PayChannel?.Trim().ToUpperInvariant();
-        var mockResult = request.Result?.Trim().ToUpperInvariant();
-        if (channel is null || !PaymentChannels.Contains(channel) || mockResult is not ("SUCCESS" or "FAIL"))
-        {
-            return Invalid("PAYMENT_INVALID_REQUEST", "A valid payment channel and SUCCESS or FAIL result are required.");
-        }
+        // PayChannel / Result 已由 DTO 枚举 + JSON 模型绑定保证合法（取值与 CHK_PAYMENT_CHANNEL 一致）
+        var channel = request.PayChannel.ToDbString();
+        var mockResult = request.Result.ToDbString();
 
         var order = await dbContext.Set<Order>()
             .Include(item => item.Payments)
@@ -69,12 +55,12 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
             return NotFound("ORDER_NOT_FOUND", "The order does not exist.");
         }
 
-        if (order.Payments.Any(item => item.PayStatus == "SUCCESS"))
+        if (order.Payments.Any(item => item.PayStatus == PaymentStatus.SUCCESS.ToDbString()))
         {
             return Conflict("PAYMENT_ALREADY_SUCCEEDED", "The order already has a successful payment.");
         }
 
-        if (order.OrderStatus != "PENDING_PAY")
+        if (order.OrderStatus != OrderStatus.PENDING_PAY.ToDbString())
         {
             return Conflict("ORDER_CANNOT_PAY", "Only pending-payment orders can be paid.");
         }
@@ -82,7 +68,7 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
         var now = timeProvider.GetUtcNow().UtcDateTime;
         if (order.ExpireTime <= now)
         {
-            order.OrderStatus = "CANCELLED";
+            order.OrderStatus = OrderStatus.CANCELLED.ToDbString();
             order.CancelTime = now;
             order.UpdateBy = actor;
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -97,19 +83,19 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
             PayAmount = order.TotalAmount - order.DiscountAmount,
             PayChannel = channel,
             PayStatus = mockResult,
-            TradeNo = mockResult == "SUCCESS" ? CreateBusinessNumber("MOCK", now) : null,
+            TradeNo = request.Result == PaymentResult.SUCCESS ? CreateBusinessNumber("MOCK", now) : null,
             CallbackData = $"{{\"mockResult\":\"{mockResult}\"}}",
             CallbackTime = now,
-            PayTime = mockResult == "SUCCESS" ? now : null,
+            PayTime = request.Result == PaymentResult.SUCCESS ? now : null,
             RefundAmount = 0m,
             CreateBy = actor,
             UpdateBy = actor
         };
 
         order.Payments.Add(payment);
-        if (mockResult == "SUCCESS")
+        if (request.Result == PaymentResult.SUCCESS)
         {
-            order.OrderStatus = "PAID";
+            order.OrderStatus = OrderStatus.PAID.ToDbString();
             order.PayTime = now;
             order.UpdateBy = actor;
         }
@@ -126,8 +112,8 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
         payment.PaymentNo,
         payment.OrderId,
         payment.PayAmount,
-        payment.PayChannel,
-        payment.PayStatus,
+        payment.PayChannel.ToEnum<PaymentChannel>(),
+        payment.PayStatus.ToEnum<PaymentStatus>(),
         payment.TradeNo,
         payment.CallbackTime,
         payment.PayTime);

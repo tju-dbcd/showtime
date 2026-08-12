@@ -1,3 +1,5 @@
+using ShowtimeBackend.Common;
+
 namespace ShowtimeBackend.DTOs.Show;
 
 /// <summary>
@@ -20,7 +22,7 @@ public record UpdateShowRequest(
     string? Description,
     int? DurationMinutes,
     string? PosterUrl,
-    string Status // "DRAFT", "PUBLISHED", "UNPUBLISHED"
+    ShowStatus Status // 取值见 Common.Enums.ShowStatus（与 DDL CK_SHOW_STATUS 一致）
 );
 
 /// <summary>
@@ -31,7 +33,7 @@ public record ShowQueryRequest(
     int PageSize = 10,
     string? Keyword = null,
     long? CategoryId = null,
-    string? Status = null
+    ShowStatus? Status = null
 );
 
 /// <summary>
@@ -44,14 +46,7 @@ public record ShowDto(
     string? Description,
     int? DurationMinutes,
     string? PosterUrl,
-    string Status,
-    string AuditStatus,
+    ShowStatus Status,
+    ShowAuditStatus AuditStatus,
     DateTime CreateTime
-);
-
-public record PagedShowResponse(
-    IEnumerable<ShowDto> Items,
-    long TotalCount,
-    int PageIndex,
-    int PageSize
 );

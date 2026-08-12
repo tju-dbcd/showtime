@@ -1,7 +1,9 @@
+using ShowtimeBackend.Common;
+
 namespace ShowtimeBackend.DTOs.OrderTicket;
 
 public sealed record OrderListQuery(
-    string? Status,
+    OrderStatus? Status,
     int Page = 1,
     int PageSize = 20);
 
@@ -12,7 +14,7 @@ public sealed record OrderSummaryResponse(
     decimal TotalAmount,
     decimal DiscountAmount,
     int TicketCount,
-    string OrderStatus,
+    OrderStatus OrderStatus,
     DateTime ExpireTime,
     DateTime CreateTime);
 
