@@ -25,4 +25,17 @@ public interface IOrderService
         string actor,
         long orderId,
         CancellationToken cancellationToken);
+
+    Task<OrderTicketResult<PagedAdminOrderResponse>> ListAdminAsync(
+        AdminOrderListQuery query,
+        CancellationToken cancellationToken);
+
+    Task<OrderTicketResult<OrderResponse>> GetAdminAsync(
+        long orderId,
+        CancellationToken cancellationToken);
+
+    Task<OrderTicketResult<OrderResponse>> CancelAdminAsync(
+        string actor,
+        long orderId,
+        CancellationToken cancellationToken);
 }

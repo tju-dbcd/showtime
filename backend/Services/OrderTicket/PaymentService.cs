@@ -71,7 +71,16 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
             order.OrderStatus = OrderStatus.CANCELLED.ToDbString();
             order.CancelTime = now;
             order.UpdateBy = actor;
-            await dbContext.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Conflict(
+                    "ORDER_CANNOT_PAY",
+                    "The order status changed and it can no longer be paid.");
+            }
             return Conflict("ORDER_EXPIRED", "The order has expired and was cancelled.");
         }
 
@@ -100,7 +109,16 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
             order.UpdateBy = actor;
         }
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(
+                "ORDER_CANNOT_PAY",
+                "The order status changed and it can no longer be paid.");
+        }
         return OrderTicketResult<PaymentResponse>.Success(ToResponse(payment));
     }
 

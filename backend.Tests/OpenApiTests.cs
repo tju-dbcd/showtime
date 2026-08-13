@@ -38,6 +38,8 @@ public sealed class OpenApiTests
 
         // 需鉴权：/api/orders GET、/api/admin/seat-maps GET（新增管理端鉴权后）
         AssertSecurityApplied(paths, "/api/orders", "get", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/admin/orders", "get", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/admin/orders/{orderId}/cancel", "patch", expectApplied: true);
         AssertSecurityApplied(paths, "/api/admin/seat-maps", "get", expectApplied: true);
         AssertSecurityApplied(paths, "/api/admin/seat-rules", "post", expectApplied: true);
 
@@ -97,6 +99,37 @@ public sealed class OpenApiTests
             ["UPCOMING", "PRESALE", "ONSALE", "SOLD_OUT", "ENDED"]);
         AssertEnumValues(schemas, "OrderResponse", "orderStatus",
             ["PENDING_PAY", "PAID", "ISSUED", "PART_REFUND", "REFUNDED", "CANCELLED"]);
+        AssertQueryParameterEnumValues(
+            document.RootElement.GetProperty("paths"),
+            schemas,
+            "/api/admin/orders",
+            "get",
+            "Status",
+            ["PENDING_PAY", "PAID", "ISSUED", "PART_REFUND", "REFUNDED", "CANCELLED"]);
+    }
+
+    private static void AssertQueryParameterEnumValues(
+        JsonElement paths,
+        JsonElement schemas,
+        string path,
+        string method,
+        string parameterName,
+        string[] expectedValues)
+    {
+        var parameter = paths.GetProperty(path)
+            .GetProperty(method)
+            .GetProperty("parameters")
+            .EnumerateArray()
+            .Single(item => item.GetProperty("name").GetString() == parameterName);
+        var schema = parameter.GetProperty("schema");
+        var componentName = schema.GetProperty("$ref").GetString()!.Split('/').Last();
+        var enumElement = schemas.GetProperty(componentName).GetProperty("enum");
+        var actual = enumElement.EnumerateArray()
+            .Select(item => item.GetString())
+            .OrderBy(value => value)
+            .ToArray();
+
+        Assert.Equal(expectedValues.OrderBy(value => value), actual);
     }
 
     private static void AssertEnumValues(
