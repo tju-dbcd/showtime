@@ -19,7 +19,11 @@ public static class EnumCodec
                 $"无法将空字符串转换为枚举 {typeof(T).Name}。");
         }
 
-        if (Enum.TryParse<T>(value, ignoreCase: false, out var result))
+        // Enum.TryParse 会把数字字符串（如 "123"）解析为未定义的枚举值，
+        // 必须再校验 Enum.IsDefined，否则脏数据会在序列化阶段
+        // （allowIntegerValues:false）抛 JsonException 变 500 且难以定位。
+        if (Enum.TryParse<T>(value, ignoreCase: false, out var result) &&
+            Enum.IsDefined(result))
         {
             return result;
         }
