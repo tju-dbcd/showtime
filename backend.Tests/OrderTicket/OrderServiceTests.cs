@@ -596,13 +596,13 @@ public sealed class OrderServiceTests
         string userName,
         string nickname,
         string phone) => new()
-    {
-        UserId = userId,
-        UserName = userName,
-        PasswordHash = "test-password-hash",
-        Nickname = nickname,
-        Phone = phone
-    };
+        {
+            UserId = userId,
+            UserName = userName,
+            PasswordHash = "test-password-hash",
+            Nickname = nickname,
+            Phone = phone
+        };
 
     private static async Task SeedCatalogAsync(
         AppDbContext db,
