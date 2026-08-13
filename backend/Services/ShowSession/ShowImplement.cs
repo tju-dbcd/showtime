@@ -1,20 +1,14 @@
 using Microsoft.EntityFrameworkCore;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.Show;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Entities.ShowSession;
-using ShowtimeBackend.Common;
 
 namespace ShowtimeBackend.Services.Impl;
 
 public class AdminShowService : IAdminShowService
 {
-    /// <summary>
-    /// 演出状态取值白名单（与 SHOW.STATUS 的 CHECK 约束对齐）。
-    /// </summary>
-    private static readonly HashSet<string> ValidShowStatuses =
-        new(StringComparer.OrdinalIgnoreCase) { "DRAFT", "PUBLISHED", "UNPUBLISHED" };
-
     private readonly AppDbContext _context;
 
     public AdminShowService(AppDbContext context)
@@ -36,9 +30,9 @@ public class AdminShowService : IAdminShowService
             Description = request.Description,
             DurationMinutes = request.DurationMinutes,
             PosterUrl = request.PosterUrl,
-            Status = "DRAFT",
+            Status = ShowStatus.DRAFT.ToDbString(),
             // <fix>新建演出初始化审核状态设为 PENDING
-            AuditStatus = "PENDING"
+            AuditStatus = ShowAuditStatus.PENDING.ToDbString()
         };
 
         _context.Shows.Add(show);
@@ -55,17 +49,15 @@ public class AdminShowService : IAdminShowService
 
         if (string.IsNullOrWhiteSpace(request.ShowName))
             throw new ArgumentException("演出名称不能为空");
-        if (!ValidShowStatuses.Contains(request.Status))
-            throw new ArgumentException($"无效的演出状态: {request.Status}");
         await ValidateCategoryExistsAsync(request.CategoryId, cancellationToken);
 
+        // Status 已由 DTO 枚举 + JSON 模型绑定保证合法（取值与 DDL CK_SHOW_STATUS 一致）
         show.ShowName = request.ShowName;
         show.CategoryId = request.CategoryId;
         show.Description = request.Description;
         show.DurationMinutes = request.DurationMinutes;
         show.PosterUrl = request.PosterUrl;
-        show.Status = request.Status;
-        //<fix> 已删除 show.UpdateTime = DateTime.UtcNow
+        show.Status = request.Status.ToDbString();
 
         _context.Shows.Update(show);
         return await _context.SaveChangesAsync(cancellationToken) > 0;
@@ -104,8 +96,8 @@ public class AdminShowService : IAdminShowService
         if (query.CategoryId.HasValue && query.CategoryId > 0)
             dbQuery = dbQuery.Where(s => s.CategoryId == query.CategoryId.Value);
 
-        if (!string.IsNullOrWhiteSpace(query.Status))
-            dbQuery = dbQuery.Where(s => s.Status == query.Status);
+        if (query.Status.HasValue)
+            dbQuery = dbQuery.Where(s => s.Status == query.Status.Value.ToDbString());
 
         int total = await dbQuery.CountAsync(cancellationToken);
 
@@ -113,15 +105,18 @@ public class AdminShowService : IAdminShowService
         int pageIndex = query.PageIndex < 1 ? 1 : query.PageIndex;
         int pageSize = query.PageSize < 1 ? 10 : query.PageSize;
 
-        var items = await dbQuery
+        // 先物化实体再映射 DTO：字符串状态转枚举在内存中完成（EF 无法在 SQL 中转换）
+        var shows = await dbQuery
             .OrderByDescending(s => s.CreateTime)
             .Skip((pageIndex - 1) * pageSize)
             .Take(pageSize)
-            .Select(s => MapToDto(s))
             .ToListAsync(cancellationToken);
 
-        // <fix> 修复构造参数顺序
-        return new PagedResponse<ShowDto>(items, pageIndex, pageSize, total);
+        return new PagedResponse<ShowDto>(
+            shows.Select(MapToDto).ToList(),
+            pageIndex,
+            pageSize,
+            total);
     }
 
     private async Task ValidateCategoryExistsAsync(long categoryId, CancellationToken cancellationToken)
@@ -140,8 +135,8 @@ public class AdminShowService : IAdminShowService
         show.Description,
         show.DurationMinutes,
         show.PosterUrl,
-        show.Status,
-        show.AuditStatus,
+        show.Status.ToEnum<ShowStatus>(),
+        show.AuditStatus.ToEnum<ShowAuditStatus>(),
         show.CreateTime
     );
 }
@@ -160,7 +155,8 @@ public class ClientShowService : IClientShowService
         // 仅有非pending情况下可以被查询
         var dbQuery = _context.Shows
             .AsNoTracking()
-            .Where(s => s.Status == "PUBLISHED" && s.AuditStatus == "APPROVED");
+            .Where(s => s.Status == ShowStatus.PUBLISHED.ToDbString() &&
+                        s.AuditStatus == ShowAuditStatus.APPROVED.ToDbString());
 
         if (!string.IsNullOrWhiteSpace(query.Keyword))
         {
@@ -177,21 +173,28 @@ public class ClientShowService : IClientShowService
         int pageIndex = query.PageIndex < 1 ? 1 : query.PageIndex;
         int pageSize = query.PageSize < 1 ? 10 : query.PageSize;
 
-        var items = await dbQuery
+        var shows = await dbQuery
             .OrderByDescending(s => s.CreateTime)
             .Skip((pageIndex - 1) * pageSize)
             .Take(pageSize)
-            .Select(s => MapToDto(s))
             .ToListAsync(cancellationToken);
 
-        return new PagedResponse<ShowDto>(items, pageIndex, pageSize, total);
+        return new PagedResponse<ShowDto>(
+            shows.Select(MapToDto).ToList(),
+            pageIndex,
+            pageSize,
+            total);
     }
 
     public async Task<ShowDto> GetClientShowByIdAsync(long showId, CancellationToken cancellationToken = default)
     {
         var show = await _context.Shows
             .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.ShowId == showId && s.Status == "PUBLISHED" && s.AuditStatus == "APPROVED", cancellationToken);
+            .FirstOrDefaultAsync(
+                s => s.ShowId == showId &&
+                     s.Status == ShowStatus.PUBLISHED.ToDbString() &&
+                     s.AuditStatus == ShowAuditStatus.APPROVED.ToDbString(),
+                cancellationToken);
 
         if (show == null)
         {
@@ -208,8 +211,8 @@ public class ClientShowService : IClientShowService
         show.Description,
         show.DurationMinutes,
         show.PosterUrl,
-        show.Status,
-        show.AuditStatus,
+        show.Status.ToEnum<ShowStatus>(),
+        show.AuditStatus.ToEnum<ShowAuditStatus>(),
         show.CreateTime
     );
 }

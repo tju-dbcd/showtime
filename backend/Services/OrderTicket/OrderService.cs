@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Oracle.ManagedDataAccess.Client;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
@@ -13,10 +14,6 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
 {
     // 与座位规则 NUMBER(3) 的取值范围保持一致，并避免生成过大的 Oracle IN 查询。
     private const int MaxSeatsPerOrder = 999;
-    private static readonly HashSet<string> OrderStatuses =
-    [
-        "PENDING_PAY", "PAID", "ISSUED", "PART_REFUND", "REFUNDED", "CANCELLED"
-    ];
 
     public async Task<OrderTicketResult<PagedOrderResponse>> ListAsync(
         long userId,
@@ -31,42 +28,34 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                 "Page must be positive and pageSize must be between 1 and 100.");
         }
 
-        var status = string.IsNullOrWhiteSpace(query.Status)
-            ? null
-            : query.Status.Trim().ToUpperInvariant();
-        if (status is not null && !OrderStatuses.Contains(status))
-        {
-            return OrderTicketResult<PagedOrderResponse>.Fail(
-                OrderTicketFailure.InvalidRequest,
-                "ORDER_INVALID_STATUS",
-                "The requested order status is invalid.");
-        }
-
+        // Status 已由 DTO 枚举 + 查询绑定保证合法（取值与 CHK_T_ORDER_STATUS 一致）
         var orders = dbContext.Set<Order>()
             .AsNoTracking()
             .Where(item => item.UserId == userId);
-        if (status is not null)
+        if (query.Status.HasValue)
         {
+            var status = query.Status.Value.ToDbString();
             orders = orders.Where(item => item.OrderStatus == status);
         }
 
         var totalCount = await orders.CountAsync(cancellationToken);
-        var items = await orders
+        // 先物化实体再映射 DTO：字符串状态转枚举在内存中完成（EF 无法在 SQL 中转换）
+        var entities = await orders
             .OrderByDescending(item => item.CreateTime)
             .ThenByDescending(item => item.OrderId)
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
-            .Select(item => new OrderSummaryResponse(
-                item.OrderId,
-                item.OrderNo,
-                item.SessionId,
-                item.TotalAmount,
-                item.DiscountAmount,
-                item.TicketCount,
-                item.OrderStatus,
-                item.ExpireTime,
-                item.CreateTime))
             .ToListAsync(cancellationToken);
+        var items = entities.Select(item => new OrderSummaryResponse(
+            item.OrderId,
+            item.OrderNo,
+            item.SessionId,
+            item.TotalAmount,
+            item.DiscountAmount,
+            item.TicketCount,
+            item.OrderStatus.ToEnum<OrderStatus>(),
+            item.ExpireTime,
+            item.CreateTime)).ToList();
 
         return OrderTicketResult<PagedOrderResponse>.Success(
             new PagedOrderResponse(items, query.Page, query.PageSize, totalCount));
@@ -353,7 +342,7 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         order.TotalAmount,
         order.DiscountAmount,
         order.TicketCount,
-        order.OrderStatus,
+        order.OrderStatus.ToEnum<OrderStatus>(),
         order.ExpireTime,
         order.PayTime,
         order.CancelTime,
@@ -365,14 +354,14 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             item.PriceStrategyId,
             item.RealNameId,
             item.UnitPrice,
-            item.ItemStatus)).ToList(),
+            item.ItemStatus.ToEnum<OrderItemStatus>())).ToList(),
         order.Payments.Select(item => new PaymentResponse(
             item.PaymentId,
             item.PaymentNo,
             item.OrderId,
             item.PayAmount,
-            item.PayChannel,
-            item.PayStatus,
+            item.PayChannel.ToEnum<PaymentChannel>(),
+            item.PayStatus.ToEnum<PaymentStatus>(),
             item.TradeNo,
             item.CallbackTime,
             item.PayTime)).ToList(),
@@ -382,8 +371,9 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                 item.ETicket!.ETicketId,
                 item.ETicket.ETicketNo,
                 item.ETicket.OrderItemId,
-                item.ETicket.TicketStatus))
-            .ToList());
+                item.ETicket.TicketStatus.ToEnum<ETicketStatus>()))
+            .ToList(),
+        order.CreateTime);
 
     private static OrderTicketResult<OrderResponse> Invalid(string code, string message) =>
         OrderTicketResult<OrderResponse>.Fail(OrderTicketFailure.InvalidRequest, code, message);

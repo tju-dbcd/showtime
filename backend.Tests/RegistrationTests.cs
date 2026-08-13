@@ -128,7 +128,7 @@ public sealed class RegistrationTests
         Assert.Equal(HttpStatusCode.BadRequest, httpResponse.StatusCode);
         var response = await AuthTestFactory.ReadResponseAsync<object>(httpResponse);
         Assert.False(response.Success);
-        Assert.Equal("AUTH_VALIDATION_FAILED", response.Code);
+        Assert.Equal("VALIDATION_FAILED", response.Code);
         var userCount = await factory.ExecuteDbContextAsync(
             dbContext => dbContext.Set<SysUser>().CountAsync());
         Assert.Equal(0, userCount);

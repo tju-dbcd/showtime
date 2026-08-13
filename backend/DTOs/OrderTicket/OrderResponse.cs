@@ -1,3 +1,5 @@
+using ShowtimeBackend.Common;
+
 namespace ShowtimeBackend.DTOs.OrderTicket;
 
 public sealed record OrderItemResponse(
@@ -6,13 +8,13 @@ public sealed record OrderItemResponse(
     long PriceStrategyId,
     long? RealNameId,
     decimal UnitPrice,
-    string ItemStatus);
+    OrderItemStatus ItemStatus);
 
 public sealed record ETicketSummaryResponse(
     long ETicketId,
     string ETicketNo,
     long OrderItemId,
-    string TicketStatus);
+    ETicketStatus TicketStatus);
 
 public sealed record OrderResponse(
     long OrderId,
@@ -21,7 +23,7 @@ public sealed record OrderResponse(
     decimal TotalAmount,
     decimal DiscountAmount,
     int TicketCount,
-    string OrderStatus,
+    OrderStatus OrderStatus,
     DateTime ExpireTime,
     DateTime? PayTime,
     DateTime? CancelTime,
@@ -29,4 +31,5 @@ public sealed record OrderResponse(
     string? Remark,
     IReadOnlyList<OrderItemResponse> Items,
     IReadOnlyList<PaymentResponse> Payments,
-    IReadOnlyList<ETicketSummaryResponse> Tickets);
+    IReadOnlyList<ETicketSummaryResponse> Tickets,
+    DateTime CreateTime);

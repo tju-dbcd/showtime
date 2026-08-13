@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
@@ -40,7 +41,7 @@ public sealed class OrderServiceTests
         Assert.Equal(376m, result.Value!.TotalAmount);
         Assert.Equal(0m, result.Value.DiscountAmount);
         Assert.Equal(2, result.Value.TicketCount);
-        Assert.Equal("PENDING_PAY", result.Value.OrderStatus);
+        Assert.Equal(OrderStatus.PENDING_PAY, result.Value.OrderStatus);
         Assert.Equal(new DateTime(2026, 8, 2, 12, 15, 0), result.Value.ExpireTime);
         Assert.Equal([188m, 188m], result.Value.Items.Select(item => item.UnitPrice));
         Assert.All(await db.SeatLocks.ToListAsync(), item =>
@@ -299,7 +300,7 @@ public sealed class OrderServiceTests
         await db.SaveChangesAsync();
         var service = new OrderService(db, TimeProvider.System);
 
-        var result = await service.ListAsync(7, new OrderListQuery("PENDING_PAY", 1, 20), CancellationToken.None);
+        var result = await service.ListAsync(7, new OrderListQuery(OrderStatus.PENDING_PAY, 1, 20), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         var order = Assert.Single(result.Value!.Items);
@@ -397,7 +398,7 @@ public sealed class OrderServiceTests
         var result = await service.CancelAsync(7, "alice", 1, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal("CANCELLED", result.Value!.OrderStatus);
+        Assert.Equal(OrderStatus.CANCELLED, result.Value!.OrderStatus);
         Assert.Equal(now.UtcDateTime, result.Value.CancelTime);
         var reservation = Assert.Single(await db.SeatReservations.ToListAsync());
         Assert.Equal("CANCELLED", reservation.ReservationStatus);

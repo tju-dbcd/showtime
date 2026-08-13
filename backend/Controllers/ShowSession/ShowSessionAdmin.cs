@@ -41,8 +41,8 @@ public class AdminShowSessionController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status409Conflict)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<ShowSessionDto>>> CreateSession(
         [FromRoute] long showId,
         [FromBody] CreateShowSessionRequest request,
@@ -79,8 +79,8 @@ public class AdminShowSessionController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<object>>> ConfigurePriceStrategies(
         [FromRoute] long sessionId,
         [FromBody] IEnumerable<CreatePriceStrategyRequest> requests,
@@ -108,8 +108,8 @@ public class AdminShowSessionController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<object>>> UpdateSessionStatus(
         [FromRoute] long sessionId,
         [FromBody] UpdateSessionStatusRequest request,

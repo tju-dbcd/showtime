@@ -1,3 +1,5 @@
+using ShowtimeBackend.Common;
+
 namespace ShowtimeBackend.DTOs.SeatZone;
 
 /// <summary>
@@ -11,7 +13,7 @@ public sealed record SessionSeatMapDto(
     DateTime EndTime,
     DateTime SaleStartTime,
     DateTime SaleEndTime,
-    string SessionStatus,
+    SessionStatus SessionStatus,
     SessionSeatMapMapDto SeatMap);
 
 /// <summary>

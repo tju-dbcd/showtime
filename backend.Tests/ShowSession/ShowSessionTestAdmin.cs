@@ -59,7 +59,7 @@ public sealed class ShowSessionAdminControllersTests
         Assert.True(apiResponse.Success);
         Assert.NotNull(apiResponse.Data);
         Assert.Equal(1, apiResponse.Data.ShowId);
-        Assert.Equal("PRESALE", apiResponse.Data.SessionStatus);
+        Assert.Equal(SessionStatus.PRESALE, apiResponse.Data.SessionStatus);
 
         var dbSession = await db.ShowSessions.FirstOrDefaultAsync(s => s.SessionId == apiResponse.Data.SessionId);
         Assert.NotNull(dbSession);
@@ -124,7 +124,7 @@ public sealed class ShowSessionAdminControllersTests
         var controller = CreateAdminController(db);
         var requests = new[]
         {
-            new CreatePriceStrategyRequest(1, "VIP策略", "VIP", 580m, null, null)
+            new CreatePriceStrategyRequest(1, "VIP策略", PriceType.VIP, 580m, null, null)
         };
 
         var actionResult = await controller.ConfigurePriceStrategies(999, requests, CancellationToken.None);
@@ -136,15 +136,12 @@ public sealed class ShowSessionAdminControllersTests
     }
 
     [Fact]
-    public async Task ConfigurePriceStrategies_WithInvalidPriceType_ReturnsBadRequest()
+    public async Task ConfigurePriceStrategies_WithEmptyRequests_ReturnsBadRequest()
     {
         await using var db = CreateDbContext();
         var session = SeedShowSession(db, 1, 10);
         var controller = CreateAdminController(db);
-        var requests = new[]
-        {
-            new CreatePriceStrategyRequest(1, "非法策略", "INVALID_TYPE", 100m, null, null)
-        };
+        var requests = Array.Empty<CreatePriceStrategyRequest>();
 
         var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, requests, CancellationToken.None);
 
@@ -175,8 +172,8 @@ public sealed class ShowSessionAdminControllersTests
         var controller = CreateAdminController(db);
         var newRequests = new[]
         {
-            new CreatePriceStrategyRequest(1, "VIP票策略", "VIP", 880m, null, null),
-            new CreatePriceStrategyRequest(2, "早鸟票策略", "EARLY_BIRD", 280m, null, null)
+            new CreatePriceStrategyRequest(1, "VIP票策略", PriceType.VIP, 880m, null, null),
+            new CreatePriceStrategyRequest(2, "早鸟票策略", PriceType.EARLY_BIRD, 280m, null, null)
         };
 
         var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, newRequests, CancellationToken.None);
@@ -201,7 +198,7 @@ public sealed class ShowSessionAdminControllersTests
 
         var actionResult = await controller.UpdateSessionStatus(
             session.SessionId,
-            new UpdateSessionStatusRequest("ONSALE"),
+            new UpdateSessionStatusRequest(SessionStatus.ONSALE),
             CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
@@ -213,24 +210,6 @@ public sealed class ShowSessionAdminControllersTests
     }
 
     [Fact]
-    public async Task UpdateSessionStatus_WhenInvalidStatus_ReturnsBadRequest()
-    {
-        await using var db = CreateDbContext();
-        var session = SeedShowSession(db, 1, 10);
-        var controller = CreateAdminController(db);
-
-        var actionResult = await controller.UpdateSessionStatus(
-            session.SessionId,
-            new UpdateSessionStatusRequest("UNKNOWN_STATUS"),
-            CancellationToken.None);
-
-        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
-        var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
-        Assert.False(apiResponse.Success);
-        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
-    }
-
-    [Fact]
     public async Task UpdateSessionStatus_WhenSessionNotExists_ReturnsNotFound()
     {
         await using var db = CreateDbContext();
@@ -238,7 +217,7 @@ public sealed class ShowSessionAdminControllersTests
 
         var actionResult = await controller.UpdateSessionStatus(
             9999,
-            new UpdateSessionStatusRequest("ONSALE"),
+            new UpdateSessionStatusRequest(SessionStatus.ONSALE),
             CancellationToken.None);
 
         var notFoundResult = Assert.IsType<NotFoundObjectResult>(actionResult.Result);
@@ -296,7 +275,6 @@ public sealed class ShowSessionAdminControllersTests
         long seatMapId = 10)
     {
         return new CreateShowSessionRequest(
-            SessionId: 0,
             StartTime: startTime,
             EndTime: endTime,
             SaleStartTime: startTime.AddDays(-5),

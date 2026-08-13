@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
@@ -21,12 +22,12 @@ public sealed class PaymentServiceTests
             7,
             "alice",
             1,
-            new MockPaymentRequest("ALIPAY", "SUCCESS"),
+            new MockPaymentRequest(PaymentChannel.ALIPAY, PaymentResult.SUCCESS),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(150m, result.Value!.PayAmount);
-        Assert.Equal("SUCCESS", result.Value.PayStatus);
+        Assert.Equal(PaymentStatus.SUCCESS, result.Value.PayStatus);
         Assert.Equal(now.UtcDateTime, result.Value.PayTime);
         Assert.Equal("PAID", (await db.Set<Order>().SingleAsync()).OrderStatus);
     }
@@ -45,11 +46,11 @@ public sealed class PaymentServiceTests
             7,
             "alice",
             1,
-            new MockPaymentRequest("WECHAT", "FAIL"),
+            new MockPaymentRequest(PaymentChannel.WECHAT, PaymentResult.FAIL),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal("FAIL", result.Value!.PayStatus);
+        Assert.Equal(PaymentStatus.FAIL, result.Value!.PayStatus);
         Assert.Null(result.Value.PayTime);
         Assert.Equal("PENDING_PAY", (await db.Set<Order>().SingleAsync()).OrderStatus);
     }
@@ -78,7 +79,7 @@ public sealed class PaymentServiceTests
             7,
             "alice",
             1,
-            new MockPaymentRequest("ALIPAY", "SUCCESS"),
+            new MockPaymentRequest(PaymentChannel.ALIPAY, PaymentResult.SUCCESS),
             CancellationToken.None);
 
         Assert.False(result.IsSuccess);
@@ -101,7 +102,7 @@ public sealed class PaymentServiceTests
             7,
             "alice",
             1,
-            new MockPaymentRequest("ALIPAY", "SUCCESS"),
+            new MockPaymentRequest(PaymentChannel.ALIPAY, PaymentResult.SUCCESS),
             CancellationToken.None);
 
         Assert.False(result.IsSuccess);
