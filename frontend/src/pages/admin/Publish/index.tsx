@@ -20,6 +20,14 @@ interface PriceItem {
   priceType: string
 }
 
+const PRICE_TYPES = [
+  { value: 'STANDARD', label: '标准票' },
+  { value: 'EARLY_BIRD', label: '早鸟票' },
+  { value: 'PRESALE', label: '预售票' },
+  { value: 'VIP', label: 'VIP票' },
+  { value: 'MEMBER', label: '会员票' },
+]
+
 const Publish = () => {
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
@@ -27,7 +35,7 @@ const Publish = () => {
   const [sections, setSections] = useState<SeatSectionResponse[]>([])
   const [selectedSeatMapId, setSelectedSeatMapId] = useState<number | undefined>()
   const [priceList, setPriceList] = useState<PriceItem[]>([
-    { seatSectionId: undefined, price: 180, priceType: 'normal' }
+    { seatSectionId: undefined, price: 180, priceType: 'STANDARD' }
   ])
 
   // 加载座位图列表
@@ -39,7 +47,7 @@ const Publish = () => {
           const result = (res.data as any).data || (res.data as any)
           setSeatMaps(result?.items || result || [])
         }
-      } catch (err) {
+      } catch {
         message.error('加载座位图失败')
       }
     }
@@ -56,7 +64,7 @@ const Publish = () => {
         const result = (res.data as any).data || (res.data as any)
         setSections(result?.items || result || [])
       }
-    } catch (err) {
+    } catch {
       message.error('加载票区失败')
     }
     // 重置已选的票区
@@ -65,7 +73,7 @@ const Publish = () => {
 
   // 添加票价
   const addPrice = () => {
-    setPriceList([...priceList, { seatSectionId: undefined, price: 180, priceType: 'normal' }])
+    setPriceList([...priceList, { seatSectionId: undefined, price: 180, priceType: 'STANDARD' }])
   }
 
   // 删除票价
@@ -78,7 +86,7 @@ const Publish = () => {
   }
 
   // 更新票价项
-  const updatePrice = (index: number, field: keyof PriceItem, value: any) => {
+  const updatePrice = (index: number, field: keyof PriceItem, value: number | string) => {
     const newList = [...priceList]
     newList[index] = { ...newList[index], [field]: value }
     setPriceList(newList)
@@ -118,10 +126,10 @@ const Publish = () => {
       }
       message.success({ content: '演出创建成功', key: 'publish' })
 
-      // 2. 创建场次
+      // 2. 创建场次（sessionId由数据库自增，传0占位）
       message.loading({ content: '正在创建场次...', key: 'session' })
       const sessionRes = await addSession(Number(showId), {
-        sessionId: values.sessionId || Date.now(),
+        sessionId: 0,
         startTime: values.time[0].toISOString(),
         endTime: values.time[1].toISOString(),
         saleStartTime: values.saleTime[0].toISOString(),
@@ -133,7 +141,10 @@ const Publish = () => {
         throw new Error('创建场次失败')
       }
 
-      const sessionId = (sessionRes.data as any)?.data?.sessionId || values.sessionId
+      const sessionId = (sessionRes.data as any)?.data?.sessionId
+      if (!sessionId) {
+        throw new Error('创建场次失败：未返回sessionId')
+      }
       message.success({ content: '场次创建成功', key: 'session' })
 
       // 3. 添加定价策略
@@ -154,16 +165,16 @@ const Publish = () => {
       }
       message.success({ content: '票价设置成功', key: 'price' })
 
-      // 4. 更新场次状态为上架
+      // 4. 更新场次状态为售卖中
       message.loading({ content: '正在上架...', key: 'status' })
-      const statusRes = await updateSessionStatus(Number(sessionId), { status: 'OnSale' })
+      const statusRes = await updateSessionStatus(Number(sessionId), { status: 'ONSALE' })
       if (statusRes.error) {
         throw new Error('上架失败')
       }
 
       message.success({ content: '发布成功！', key: 'status' })
       form.resetFields()
-      setPriceList([{ seatSectionId: undefined, price: 180, priceType: 'normal' }])
+      setPriceList([{ seatSectionId: undefined, price: 180, priceType: 'STANDARD' }])
       setSelectedSeatMapId(undefined)
       setSections([])
     } catch (err: any) {
@@ -242,38 +253,27 @@ const Publish = () => {
 
           <Divider>场次信息</Divider>
 
-          <Space size="large" style={{ width: '100%' }}>
-            <Form.Item
-              label="场次编号"
-              name="sessionId"
-              rules={[{ required: true, message: '请输入场次编号' }]}
-              tooltip="场次唯一ID，可使用数字编号"
+          <Form.Item
+            label="座位图"
+            name="seatMapId"
+            rules={[{ required: true, message: '请选择座位图' }]}
+            tooltip="选择场馆和座位图"
+          >
+            <Select
+              size="large"
+              style={{ width: 300 }}
+              placeholder="请选择座位图"
+              onChange={handleSeatMapChange}
+              showSearch
+              optionFilterProp="children"
             >
-              <InputNumber min={1} size="large" style={{ width: 160 }} />
-            </Form.Item>
-
-            <Form.Item
-              label="座位图"
-              name="seatMapId"
-              rules={[{ required: true, message: '请选择座位图' }]}
-              tooltip="选择场馆和座位图"
-            >
-              <Select
-                size="large"
-                style={{ width: 300 }}
-                placeholder="请选择座位图"
-                onChange={handleSeatMapChange}
-                showSearch
-                optionFilterProp="children"
-              >
-                {seatMaps.map(map => (
-                  <Select.Option key={map.seatMapId} value={Number(map.seatMapId)}>
-                    {map.venueName} / {map.mapName}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-          </Space>
+              {seatMaps.map(map => (
+                <Select.Option key={map.seatMapId} value={Number(map.seatMapId)}>
+                  {(map as Record<string, unknown>).venueName as string} / {map.mapName}
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
 
           <Form.Item
             label="演出时间"
@@ -344,12 +344,8 @@ const Publish = () => {
                   onChange={v => updatePrice(index, 'priceType', v)}
                   size="large"
                   style={{ width: 140 }}
-                >
-                  <Select.Option value="normal">普通票</Select.Option>
-                  <Select.Option value="earlyBird">早鸟票</Select.Option>
-                  <Select.Option value="vip">VIP票</Select.Option>
-                  <Select.Option value="student">学生票</Select.Option>
-                </Select>
+                  options={PRICE_TYPES}
+                />
               </Form.Item>
               <Button
                 type="text"
@@ -386,7 +382,7 @@ const Publish = () => {
               style={{ marginLeft: 16, width: 140 }}
               onClick={() => {
                 form.resetFields()
-                setPriceList([{ seatSectionId: undefined, price: 180, priceType: 'normal' }])
+                setPriceList([{ seatSectionId: undefined, price: 180, priceType: 'STANDARD' }])
                 setSelectedSeatMapId(undefined)
                 setSections([])
               }}

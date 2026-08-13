@@ -18,11 +18,11 @@ import {
 } from '../../../api/admin'
 
 const sessionStatusMap: Record<string, { text: string; color: string }> = {
-  Scheduled: { text: '待上架', color: 'default' },
-  OnSale: { text: '售卖中', color: 'success' },
-  OffSale: { text: '已下架', color: 'warning' },
-  Cancelled: { text: '已取消', color: 'error' },
-  Ended: { text: '已结束', color: 'default' },
+  UPCOMING: { text: '待上架', color: 'default' },
+  PRESALE: { text: '预售中', color: 'processing' },
+  ONSALE: { text: '售卖中', color: 'success' },
+  SOLD_OUT: { text: '已售罄', color: 'warning' },
+  ENDED: { text: '已结束', color: 'default' },
 }
 
 const Session = () => {
@@ -42,7 +42,7 @@ const Session = () => {
           const result = (res.data as any).data || (res.data as any)
           setShows(result?.items || result || [])
         }
-      } catch (err) {
+      } catch {
         message.error('加载演出列表失败')
       }
     }
@@ -58,7 +58,7 @@ const Session = () => {
         const result = (res.data as any).data || (res.data as any)
         setSessions(Array.isArray(result) ? result : (result?.items || []))
       }
-    } catch (err) {
+    } catch {
       message.error('加载场次失败')
     } finally {
       setLoading(false)
@@ -81,7 +81,7 @@ const Session = () => {
       if (selectedShowId) {
         loadSessions(selectedShowId)
       }
-    } catch (err) {
+    } catch {
       message.error('操作失败')
     }
   }
@@ -138,38 +138,29 @@ const Session = () => {
     {
       title: '操作',
       key: 'action',
-      width: 280,
-      render: (_: any, record: ShowSessionDto) => (
+      width: 200,
+      render: (_: unknown, record: ShowSessionDto) => (
         <Space>
           <Button type="link" size="small" onClick={() => handleViewDetail(record)}>
             详情
           </Button>
-          {record.sessionStatus !== 'OnSale' && (
+          {(record.sessionStatus === 'UPCOMING' || record.sessionStatus === 'PRESALE') && (
             <Button
               type="link"
               size="small"
-              onClick={() => handleStatusChange(Number(record.sessionId), 'OnSale')}
+              onClick={() => handleStatusChange(Number(record.sessionId), 'ONSALE')}
             >
               上架
             </Button>
           )}
-          {record.sessionStatus === 'OnSale' && (
-            <Button
-              type="link"
-              size="small"
-              onClick={() => handleStatusChange(Number(record.sessionId), 'OffSale')}
-            >
-              下架
-            </Button>
-          )}
-          {record.sessionStatus !== 'Cancelled' && record.sessionStatus !== 'Ended' && (
+          {record.sessionStatus === 'ONSALE' && (
             <Button
               type="link"
               size="small"
               danger
-              onClick={() => handleStatusChange(Number(record.sessionId), 'Cancelled')}
+              onClick={() => handleStatusChange(Number(record.sessionId), 'ENDED')}
             >
-              取消
+              结束
             </Button>
           )}
         </Space>

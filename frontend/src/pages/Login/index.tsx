@@ -1,22 +1,42 @@
 import { Form, Input, Button, Card, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { client } from '../../api/request';
 
 const Login = () => {
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
 
-  const onFinish = (values: any) => {
-    console.log('登录数据:', values);
-    localStorage.setItem('token', 'fake-token-123');
-    message.success('登录成功！');
-    setTimeout(() => {
-      navigate('/');
-    }, 500);
+  const onFinish = async (values: { username: string; password: string }) => {
+    setLoading(true);
+    try {
+      const { data, error } = await client.POST('/api/auth/login', {
+        body: {
+          account: values.username,
+          password: values.password,
+        },
+      });
+
+      if (error || !data?.success || !data.data?.accessToken) {
+        message.error(data?.message || '登录失败，请检查用户名或密码');
+        return;
+      }
+
+      localStorage.setItem('token', data.data.accessToken);
+      message.success('登录成功！');
+      setTimeout(() => {
+        navigate('/');
+      }, 500);
+    } catch {
+      message.error('登录失败，请检查网络连接');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const onFinishFailed = (errorInfo: any) => {
+  const onFinishFailed = () => {
     message.error('请检查用户名或密码');
-    console.log('登录失败:', errorInfo);
   };
 
   return (
@@ -54,7 +74,7 @@ const Login = () => {
           </Form.Item>
 
           <Form.Item>
-            <Button type="primary" htmlType="submit" block>
+            <Button type="primary" htmlType="submit" block loading={loading}>
               登 录
             </Button>
           </Form.Item>

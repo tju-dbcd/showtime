@@ -34,13 +34,9 @@ const categoryMap: Record<number, string> = {
 }
 
 const statusMap: Record<string, { text: string; color: string }> = {
-  Draft: { text: '草稿', color: 'default' },
-  PendingAudit: { text: '待审核', color: 'processing' },
-  Approved: { text: '已审核', color: 'success' },
-  Rejected: { text: '已驳回', color: 'error' },
-  OnSale: { text: '售卖中', color: 'success' },
-  OffSale: { text: '已下架', color: 'warning' },
-  Ended: { text: '已结束', color: 'default' },
+  DRAFT: { text: '草稿', color: 'default' },
+  PUBLISHED: { text: '已发布', color: 'success' },
+  UNPUBLISHED: { text: '已下架', color: 'warning' },
 }
 
 const Performance = () => {
@@ -123,7 +119,7 @@ const Performance = () => {
         const updateData: UpdateShowRequest = {
           showName: values.showName,
           categoryId: values.categoryId,
-          status: editingShow.status || 'Draft',
+          status: editingShow.status || 'DRAFT',
           description: values.description || null,
           durationMinutes: values.durationMinutes || null,
           posterUrl: values.posterUrl || null,
