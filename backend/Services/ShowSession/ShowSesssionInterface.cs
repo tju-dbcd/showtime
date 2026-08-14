@@ -1,7 +1,7 @@
+using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.ShowSessionChange;
 using ShowtimeBackend.DTOs.Show;
 using ShowtimeBackend.DTOs.ShowSessionDto;
-using ShowtimeBackend.Common;
 
 namespace ShowtimeBackend.Services.ShowSession;
 
@@ -50,7 +50,7 @@ public interface IAdminShowSessionService
     /// <summary>
     /// 手动变更场次状态
     /// </summary>
-    Task<bool> UpdateSessionStatusAsync(long sessionId, string newStatus, CancellationToken cancellationToken = default);
+    Task<bool> UpdateSessionStatusAsync(long sessionId, SessionStatus newStatus, CancellationToken cancellationToken = default);
 
     Task<IEnumerable<ShowSessionDto>> GetAdminSessionsByShowIdAsync(long showId, CancellationToken cancellationToken = default);
 }

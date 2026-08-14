@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -7,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Common.Jwt;
+using ShowtimeBackend.Common.Middlewares;
 using ShowtimeBackend.Common.OpenApi;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
@@ -45,7 +47,11 @@ builder.Services
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer();
+    .AddJwtBearer(options =>
+    {
+        // 统一 401/403 响应体为 ApiResponse 信封（与业务错误格式一致）
+        JwtErrorEnvelope.Configure(options.Events);
+    });
 builder.Services
     .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
     .Configure<Microsoft.Extensions.Options.IOptions<JwtOptions>>(
@@ -72,6 +78,13 @@ builder.Services.AddAuthorization();
 
 builder.Services
     .AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // 枚举序列化为成员名字符串（与数据库 CHECK 约束取值一致），
+        // 并使 OpenAPI 生成 enum 约束进入 schema。
+        options.JsonSerializerOptions.Converters.Add(
+            new JsonStringEnumConverter(allowIntegerValues: false));
+    })
     .ConfigureApiBehaviorOptions(options =>
     {
         options.InvalidModelStateResponseFactory = context =>
@@ -90,7 +103,7 @@ builder.Services
 
             return new BadRequestObjectResult(
                 ApiResponse<object>.Fail(
-                    "AUTH_VALIDATION_FAILED",
+                    "VALIDATION_FAILED",
                     message));
         };
     });
@@ -106,10 +119,13 @@ builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
 builder.Services.AddScoped<ISeatLockService, SeatLockService>();
 builder.Services.AddScoped<IAdminShowService, AdminShowService>();
 builder.Services.AddScoped<IClientShowService, ClientShowService>();
+builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<ApiResponseExceptionHandler>();
 builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+    options.AddSchemaTransformer<EnumStringSchemaTransformer>();
 });
 
 var app = builder.Build();

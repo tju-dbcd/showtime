@@ -56,7 +56,7 @@ public sealed class ShowSessionClientControllersTests
 
         var sessions = apiResponse.Data.ToList();
         Assert.Single(sessions); // 只能查到 targetShowId 且状态为 ONSALE 的 1 条记录
-        Assert.Equal("ONSALE", sessions[0].SessionStatus);
+        Assert.Equal(SessionStatus.ONSALE, sessions[0].SessionStatus);
         Assert.Equal(targetShowId, sessions[0].ShowId);
     }
 
@@ -99,7 +99,7 @@ public sealed class ShowSessionClientControllersTests
 
         var strategies = apiResponse.Data!.ToList();
         Assert.Equal(2, strategies.Count);
-        Assert.All(strategies, s => Assert.Equal("ENABLED", s.Status));
+        Assert.All(strategies, s => Assert.Equal(PriceStrategyStatus.ENABLED, s.Status));
     }
 
     // ==========================================

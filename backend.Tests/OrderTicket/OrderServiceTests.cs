@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
@@ -40,7 +41,7 @@ public sealed class OrderServiceTests
         Assert.Equal(376m, result.Value!.TotalAmount);
         Assert.Equal(0m, result.Value.DiscountAmount);
         Assert.Equal(2, result.Value.TicketCount);
-        Assert.Equal("PENDING_PAY", result.Value.OrderStatus);
+        Assert.Equal(OrderStatus.PENDING_PAY, result.Value.OrderStatus);
         Assert.Equal(new DateTime(2026, 8, 2, 12, 15, 0), result.Value.ExpireTime);
         Assert.Equal([188m, 188m], result.Value.Items.Select(item => item.UnitPrice));
         Assert.All(await db.SeatLocks.ToListAsync(), item =>
@@ -299,12 +300,92 @@ public sealed class OrderServiceTests
         await db.SaveChangesAsync();
         var service = new OrderService(db, TimeProvider.System);
 
-        var result = await service.ListAsync(7, new OrderListQuery("PENDING_PAY", 1, 20), CancellationToken.None);
+        var result = await service.ListAsync(7, new OrderListQuery(OrderStatus.PENDING_PAY, 1, 20), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         var order = Assert.Single(result.Value!.Items);
         Assert.Equal(1, order.OrderId);
         Assert.Equal(1, result.Value.TotalCount);
+    }
+
+    [Fact]
+    public async Task ListAdminAsync_ReturnsOrdersAcrossUsersWithUserInformation()
+    {
+        await using var db = CreateDbContext();
+        db.AddRange(
+            CreateUser(7, "alice", "Alice", "13800000001"),
+            CreateUser(8, "bob", "Bob", "13800000002"),
+            CreateOrder(1, 7, "PENDING_PAY", new DateTime(2026, 8, 2, 10, 0, 0)),
+            CreateOrder(2, 8, "PAID", new DateTime(2026, 8, 2, 11, 0, 0)));
+        await db.SaveChangesAsync();
+        var service = new OrderService(db, TimeProvider.System);
+
+        var result = await service.ListAdminAsync(
+            new AdminOrderListQuery(null, null, 1, 20),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, result.Value!.TotalCount);
+        Assert.Equal([2L, 1L], result.Value.Items.Select(item => item.OrderId));
+        Assert.Equal("bob", result.Value.Items[0].UserName);
+        Assert.Equal("Alice", result.Value.Items[1].Nickname);
+    }
+
+    [Theory]
+    [InlineData("PAID", 2)]
+    [InlineData("ORD000001", 1)]
+    [InlineData("alice", 1)]
+    [InlineData("Alice", 1)]
+    [InlineData("13800000001", 1)]
+    public async Task ListAdminAsync_FiltersByStatusOrKeyword(string filter, long expectedOrderId)
+    {
+        await using var db = CreateDbContext();
+        db.AddRange(
+            CreateUser(7, "alice", "Alice", "13800000001"),
+            CreateUser(8, "bob", "Bob", "13800000002"),
+            CreateOrder(1, 7, "PENDING_PAY", new DateTime(2026, 8, 2, 10, 0, 0)),
+            CreateOrder(2, 8, "PAID", new DateTime(2026, 8, 2, 11, 0, 0)));
+        await db.SaveChangesAsync();
+        var service = new OrderService(db, TimeProvider.System);
+        var query = filter == "PAID"
+            ? new AdminOrderListQuery(OrderStatus.PAID, null, 1, 20)
+            : new AdminOrderListQuery(null, filter, 1, 20);
+
+        var result = await service.ListAdminAsync(query, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var order = Assert.Single(result.Value!.Items);
+        Assert.Equal(expectedOrderId, order.OrderId);
+    }
+
+    [Fact]
+    public async Task ListAdminAsync_RejectsInvalidPaging()
+    {
+        await using var db = CreateDbContext();
+        var service = new OrderService(db, TimeProvider.System);
+
+        var result = await service.ListAdminAsync(
+            new AdminOrderListQuery(null, null, 0, 20),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.InvalidRequest, result.Failure);
+        Assert.Equal("ORDER_INVALID_PAGING", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ListAdminAsync_RejectsPagingOffsetOverflow()
+    {
+        await using var db = CreateDbContext();
+        var service = new OrderService(db, TimeProvider.System);
+
+        var result = await service.ListAdminAsync(
+            new AdminOrderListQuery(null, null, int.MaxValue, 100),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.InvalidRequest, result.Failure);
+        Assert.Equal("ORDER_INVALID_PAGING", result.ErrorCode);
     }
 
     [Fact]
@@ -366,6 +447,20 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
+    public async Task GetAdminAsync_ReturnsAnotherUsersOrder()
+    {
+        await using var db = CreateDbContext();
+        db.Add(CreateOrder(1, 8, "PENDING_PAY", new DateTime(2026, 8, 2, 10, 0, 0)));
+        await db.SaveChangesAsync();
+        var service = new OrderService(db, TimeProvider.System);
+
+        var result = await service.GetAdminAsync(1, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, result.Value!.OrderId);
+    }
+
+    [Fact]
     public async Task CancelAsync_CancelsPendingOrderAndReservation()
     {
         await using var db = CreateDbContext();
@@ -397,7 +492,7 @@ public sealed class OrderServiceTests
         var result = await service.CancelAsync(7, "alice", 1, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal("CANCELLED", result.Value!.OrderStatus);
+        Assert.Equal(OrderStatus.CANCELLED, result.Value!.OrderStatus);
         Assert.Equal(now.UtcDateTime, result.Value.CancelTime);
         var reservation = Assert.Single(await db.SeatReservations.ToListAsync());
         Assert.Equal("CANCELLED", reservation.ReservationStatus);
@@ -417,6 +512,59 @@ public sealed class OrderServiceTests
         Assert.False(result.IsSuccess);
         Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
         Assert.Equal("ORDER_CANNOT_CANCEL", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelAdminAsync_CancelsPendingOrderAndReservationAcrossUsers()
+    {
+        await using var db = CreateDbContext();
+        var order = CreateOrder(1, 8, "PENDING_PAY", new DateTime(2026, 8, 2, 10, 0, 0));
+        order.Items.Add(new OrderItem
+        {
+            OrderItemId = 2,
+            SeatId = 50,
+            PriceStrategyId = 60,
+            UnitPrice = 188m,
+            ItemStatus = "NORMAL"
+        });
+        db.AddRange(
+            order,
+            new SeatReservation
+            {
+                SeatReservationId = 3,
+                SessionId = 10,
+                SeatId = 50,
+                OrderItemId = 2,
+                ReservationType = "ORDER",
+                ReservationStatus = "ACTIVE",
+                ReserveTime = new DateTime(2026, 8, 2, 10, 0, 0)
+            });
+        await db.SaveChangesAsync();
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
+        var service = new OrderService(db, new FixedTimeProvider(now));
+
+        var result = await service.CancelAdminAsync("admin", 1, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(OrderStatus.CANCELLED, result.Value!.OrderStatus);
+        Assert.Equal("admin", (await db.Set<Order>().SingleAsync()).UpdateBy);
+        Assert.Equal("CANCELLED", (await db.SeatReservations.SingleAsync()).ReservationStatus);
+    }
+
+    [Fact]
+    public async Task CancelAdminAsync_RejectsPaidOrderWithoutChangingIt()
+    {
+        await using var db = CreateDbContext();
+        db.Add(CreateOrder(1, 8, "PAID", new DateTime(2026, 8, 2, 10, 0, 0)));
+        await db.SaveChangesAsync();
+        var service = new OrderService(db, TimeProvider.System);
+
+        var result = await service.CancelAdminAsync("admin", 1, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("ORDER_CANNOT_CANCEL", result.ErrorCode);
+        Assert.Equal("PAID", (await db.Set<Order>().SingleAsync()).OrderStatus);
     }
 
     private static AppDbContext CreateDbContext()
@@ -442,6 +590,19 @@ public sealed class OrderServiceTests
         CreateTime = createTime,
         UpdateTime = createTime
     };
+
+    private static SysUser CreateUser(
+        long userId,
+        string userName,
+        string nickname,
+        string phone) => new()
+        {
+            UserId = userId,
+            UserName = userName,
+            PasswordHash = "test-password-hash",
+            Nickname = nickname,
+            Phone = phone
+        };
 
     private static async Task SeedCatalogAsync(
         AppDbContext db,

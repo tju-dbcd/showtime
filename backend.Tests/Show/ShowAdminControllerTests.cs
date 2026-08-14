@@ -32,8 +32,8 @@ public sealed class ShowAdminControllerTests
         Assert.True(apiResponse.Success);
         Assert.NotNull(apiResponse.Data);
         Assert.Equal("测试演出", apiResponse.Data.ShowName);
-        Assert.Equal("DRAFT", apiResponse.Data.Status);
-        Assert.Equal("PENDING", apiResponse.Data.AuditStatus); // 验证初始审核状态
+        Assert.Equal(ShowStatus.DRAFT, apiResponse.Data.Status);
+        Assert.Equal(ShowAuditStatus.PENDING, apiResponse.Data.AuditStatus); // 验证初始审核状态
 
         var dbShow = await db.Shows.FirstOrDefaultAsync(s => s.ShowId == apiResponse.Data.ShowId);
         Assert.NotNull(dbShow);
@@ -130,7 +130,7 @@ public sealed class ShowAdminControllerTests
         await db.SaveChangesAsync();
 
         var controller = CreateAdminController(db);
-        var query = new ShowQueryRequest { PageIndex = 1, PageSize = 10, Status = "PUBLISHED" };
+        var query = new ShowQueryRequest { PageIndex = 1, PageSize = 10, Status = ShowStatus.PUBLISHED };
 
         var actionResult = await controller.GetShows(query, CancellationToken.None);
 
@@ -138,7 +138,7 @@ public sealed class ShowAdminControllerTests
         var apiResponse = Assert.IsType<ApiResponse<PagedResponse<ShowDto>>>(okResult.Value);
         var shows = apiResponse.Data!.Items;
         Assert.Single(shows);
-        Assert.Equal("PUBLISHED", shows.First().Status);
+        Assert.Equal(ShowStatus.PUBLISHED, shows.First().Status);
     }
 
     [Fact]
@@ -182,7 +182,7 @@ public sealed class ShowAdminControllerTests
         await db.SaveChangesAsync();
 
         var controller = CreateAdminController(db);
-        var updateRequest = new UpdateShowRequest("新名字", 2, "新描述", 150, "http://newposter.jpg", "PUBLISHED");
+        var updateRequest = new UpdateShowRequest("新名字", 2, "新描述", 150, "http://newposter.jpg", ShowStatus.PUBLISHED);
 
         var actionResult = await controller.UpdateShow(show.ShowId, updateRequest, CancellationToken.None);
 
@@ -196,10 +196,8 @@ public sealed class ShowAdminControllerTests
         Assert.Equal(2, dbShow.CategoryId);
     }
 
-    [Theory]
-    [InlineData("INVALID")]
-    [InlineData("")]
-    public async Task UpdateShow_WhenStatusInvalid_ReturnsBadRequest(string status)
+    [Fact]
+    public async Task UpdateShow_WhenShowNameEmpty_ReturnsBadRequest()
     {
         await using var db = CreateAndSeedDbContext();
         var show = CreateShowEntity("待更新", "DRAFT");
@@ -207,7 +205,7 @@ public sealed class ShowAdminControllerTests
         await db.SaveChangesAsync();
 
         var controller = CreateAdminController(db);
-        var updateRequest = new UpdateShowRequest("新名字", 1, "新描述", 150, "http://newposter.jpg", status);
+        var updateRequest = new UpdateShowRequest("", 1, "新描述", 150, "http://newposter.jpg", ShowStatus.PUBLISHED);
 
         var actionResult = await controller.UpdateShow(show.ShowId, updateRequest, CancellationToken.None);
 
@@ -226,7 +224,7 @@ public sealed class ShowAdminControllerTests
         await db.SaveChangesAsync();
 
         var controller = CreateAdminController(db);
-        var updateRequest = new UpdateShowRequest("新名字", 999, "新描述", 150, "http://newposter.jpg", "PUBLISHED");
+        var updateRequest = new UpdateShowRequest("新名字", 999, "新描述", 150, "http://newposter.jpg", ShowStatus.PUBLISHED);
 
         var actionResult = await controller.UpdateShow(show.ShowId, updateRequest, CancellationToken.None);
 

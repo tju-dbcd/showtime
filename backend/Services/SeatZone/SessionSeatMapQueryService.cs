@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.SeatZone;
 using ShowtimeBackend.Data;
 
@@ -92,7 +93,7 @@ public sealed class SessionSeatMapQueryService
                            item.ReservationStatus == "ACTIVE")
             .Select(item => item.SeatId)
             .ToHashSetAsync(cancellationToken);
-        var sessionIsOnSale = session.SessionStatus == "ONSALE" &&
+        var sessionIsOnSale = session.SessionStatus == SessionStatus.ONSALE.ToDbString() &&
                               session.SaleStartTime <= now &&
                               session.SaleEndTime >= now;
         var seats = await (
@@ -171,7 +172,7 @@ public sealed class SessionSeatMapQueryService
             session.EndTime,
             session.SaleStartTime,
             session.SaleEndTime,
-            session.SessionStatus,
+            session.SessionStatus.ToEnum<SessionStatus>(),
             mapDto));
     }
 
