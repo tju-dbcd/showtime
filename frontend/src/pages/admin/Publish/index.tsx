@@ -8,8 +8,11 @@ import {
   updateSessionStatus,
   getSeatMapList,
   getSeatSections,
+  getCategories,
   type SeatMapResponse,
   type SeatSectionResponse,
+  type CategoryResponse,
+  type PriceType,
 } from '../../../api/admin'
 
 const { TextArea } = Input
@@ -17,10 +20,10 @@ const { TextArea } = Input
 interface PriceItem {
   seatSectionId: number | undefined
   price: number
-  priceType: string
+  priceType: PriceType
 }
 
-const PRICE_TYPES = [
+const PRICE_TYPES: { value: PriceType; label: string }[] = [
   { value: 'STANDARD', label: '标准票' },
   { value: 'EARLY_BIRD', label: '早鸟票' },
   { value: 'PRESALE', label: '预售票' },
@@ -33,25 +36,31 @@ const Publish = () => {
   const [loading, setLoading] = useState(false)
   const [seatMaps, setSeatMaps] = useState<SeatMapResponse[]>([])
   const [sections, setSections] = useState<SeatSectionResponse[]>([])
+  const [categories, setCategories] = useState<CategoryResponse[]>([])
   const [selectedSeatMapId, setSelectedSeatMapId] = useState<number | undefined>()
   const [priceList, setPriceList] = useState<PriceItem[]>([
     { seatSectionId: undefined, price: 180, priceType: 'STANDARD' }
   ])
 
-  // 加载座位图列表
+  // 加载分类和座位图
   useEffect(() => {
-    const loadSeatMaps = async () => {
+    const loadData = async () => {
       try {
-        const res = await getSeatMapList({ PageSize: 100 })
-        if (res.data) {
-          const result = (res.data as any).data || (res.data as any)
-          setSeatMaps(result?.items || result || [])
+        const [catRes, mapRes] = await Promise.all([
+          getCategories(),
+          getSeatMapList({ PageSize: 100 }),
+        ])
+        if (catRes.data?.data) {
+          setCategories(catRes.data.data)
+        }
+        if (mapRes.data?.data) {
+          setSeatMaps(mapRes.data.data.items || [])
         }
       } catch {
-        message.error('加载座位图失败')
+        message.error('加载数据失败')
       }
     }
-    loadSeatMaps()
+    loadData()
   }, [])
 
   // 选择座位图后加载票区
@@ -60,9 +69,8 @@ const Publish = () => {
     form.setFieldValue('seatMapId', value)
     try {
       const res = await getSeatSections(value, { PageSize: 100 })
-      if (res.data) {
-        const result = (res.data as any).data || (res.data as any)
-        setSections(result?.items || result || [])
+      if (res.data?.data) {
+        setSections(res.data.data.items || [])
       }
     } catch {
       message.error('加载票区失败')
@@ -86,7 +94,7 @@ const Publish = () => {
   }
 
   // 更新票价项
-  const updatePrice = (index: number, field: keyof PriceItem, value: number | string) => {
+  const updatePrice = <K extends keyof PriceItem>(index: number, field: K, value: PriceItem[K]) => {
     const newList = [...priceList]
     newList[index] = { ...newList[index], [field]: value }
     setPriceList(newList)
@@ -120,16 +128,15 @@ const Publish = () => {
         throw new Error('创建演出失败')
       }
 
-      const showId = (showRes.data as any)?.data?.showId
+      const showId = showRes.data?.data?.showId
       if (!showId) {
         throw new Error('创建演出失败：未返回showId')
       }
       message.success({ content: '演出创建成功', key: 'publish' })
 
-      // 2. 创建场次（sessionId由数据库自增，传0占位）
+      // 2. 创建场次（sessionId由数据库自增，无需传）
       message.loading({ content: '正在创建场次...', key: 'session' })
       const sessionRes = await addSession(Number(showId), {
-        sessionId: 0,
         startTime: values.time[0].toISOString(),
         endTime: values.time[1].toISOString(),
         saleStartTime: values.saleTime[0].toISOString(),
@@ -141,7 +148,7 @@ const Publish = () => {
         throw new Error('创建场次失败')
       }
 
-      const sessionId = (sessionRes.data as any)?.data?.sessionId
+      const sessionId = sessionRes.data?.data?.sessionId
       if (!sessionId) {
         throw new Error('创建场次失败：未返回sessionId')
       }
@@ -159,7 +166,7 @@ const Publish = () => {
         priority: 0,
       }))
 
-      const priceRes = await addPricingStrategies(Number(sessionId), priceData as any)
+      const priceRes = await addPricingStrategies(Number(sessionId), priceData)
       if (priceRes.error) {
         throw new Error('设置票价失败')
       }
@@ -177,8 +184,8 @@ const Publish = () => {
       setPriceList([{ seatSectionId: undefined, price: 180, priceType: 'STANDARD' }])
       setSelectedSeatMapId(undefined)
       setSections([])
-    } catch (err: any) {
-      message.error(err.message || '发布失败')
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '发布失败')
     } finally {
       setLoading(false)
     }
@@ -215,11 +222,11 @@ const Publish = () => {
               style={{ width: 200 }}
             >
               <Select size="large">
-                <Select.Option value={1}>演唱会</Select.Option>
-                <Select.Option value={2}>话剧音乐剧</Select.Option>
-                <Select.Option value={3}>曲苑杂坛</Select.Option>
-                <Select.Option value={4}>体育赛事</Select.Option>
-                <Select.Option value={5}>展览休闲</Select.Option>
+                {categories.map(cat => (
+                  <Select.Option key={cat.categoryId} value={Number(cat.categoryId)}>
+                    {cat.categoryName}
+                  </Select.Option>
+                ))}
               </Select>
             </Form.Item>
 
@@ -269,7 +276,7 @@ const Publish = () => {
             >
               {seatMaps.map(map => (
                 <Select.Option key={map.seatMapId} value={Number(map.seatMapId)}>
-                  {(map as Record<string, unknown>).venueName as string} / {map.mapName}
+                  {map.venueName} / {map.mapName}
                 </Select.Option>
               ))}
             </Select>

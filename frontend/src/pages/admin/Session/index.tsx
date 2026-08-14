@@ -15,9 +15,10 @@ import {
   updateSessionStatus,
   type ShowDto,
   type ShowSessionDto,
+  type SessionStatus,
 } from '../../../api/admin'
 
-const sessionStatusMap: Record<string, { text: string; color: string }> = {
+const sessionStatusMap: Record<SessionStatus, { text: string; color: string }> = {
   UPCOMING: { text: '待上架', color: 'default' },
   PRESALE: { text: '预售中', color: 'processing' },
   ONSALE: { text: '售卖中', color: 'success' },
@@ -38,9 +39,8 @@ const Session = () => {
     const loadShows = async () => {
       try {
         const res = await getShowList({ PageSize: 100 })
-        if (res.data) {
-          const result = (res.data as any).data || (res.data as any)
-          setShows(result?.items || result || [])
+        if (res.data?.data) {
+          setShows(res.data.data.items || [])
         }
       } catch {
         message.error('加载演出列表失败')
@@ -54,9 +54,8 @@ const Session = () => {
     setLoading(true)
     try {
       const res = await getShowSessions(showId)
-      if (res.data) {
-        const result = (res.data as any).data || (res.data as any)
-        setSessions(Array.isArray(result) ? result : (result?.items || []))
+      if (res.data?.data) {
+        setSessions(res.data.data || [])
       }
     } catch {
       message.error('加载场次失败')
@@ -70,7 +69,7 @@ const Session = () => {
     loadSessions(value)
   }
 
-  const handleStatusChange = async (sessionId: number, status: string) => {
+  const handleStatusChange = async (sessionId: number, status: SessionStatus) => {
     try {
       const res = await updateSessionStatus(sessionId, { status })
       if (res.error) {
@@ -120,6 +119,13 @@ const Session = () => {
       render: (time: string) => time ? new Date(time).toLocaleString('zh-CN') : '-',
     },
     {
+      title: '售票结束时间',
+      dataIndex: 'saleEndTime',
+      key: 'saleEndTime',
+      width: 180,
+      render: (time: string) => time ? new Date(time).toLocaleString('zh-CN') : '-',
+    },
+    {
       title: '座位图ID',
       dataIndex: 'seatMapId',
       key: 'seatMapId',
@@ -130,7 +136,7 @@ const Session = () => {
       dataIndex: 'sessionStatus',
       key: 'sessionStatus',
       width: 100,
-      render: (status: string) => {
+      render: (status: SessionStatus) => {
         const s = sessionStatusMap[status]
         return s ? <Tag color={s.color}>{s.text}</Tag> : status
       },
@@ -221,6 +227,9 @@ const Session = () => {
             </Descriptions.Item>
             <Descriptions.Item label="售票开始时间">
               {currentSession.saleStartTime ? new Date(currentSession.saleStartTime).toLocaleString('zh-CN') : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="售票结束时间">
+              {currentSession.saleEndTime ? new Date(currentSession.saleEndTime).toLocaleString('zh-CN') : '-'}
             </Descriptions.Item>
             <Descriptions.Item label="座位图ID">{currentSession.seatMapId}</Descriptions.Item>
             <Descriptions.Item label="状态">

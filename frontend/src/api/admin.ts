@@ -1,6 +1,21 @@
 import { client } from './request';
 import type { components } from './types';
 
+// ========== 枚举类型 ==========
+export type PriceType = components['schemas']['PriceType'];
+export type SessionStatus = components['schemas']['SessionStatus'];
+export type OrderStatus = components['schemas']['OrderStatus'];
+export type ShowStatus = components['schemas']['ShowStatus'];
+export type OrderItemStatus = components['schemas']['OrderItemStatus'];
+
+// ========== 分类相关 ==========
+export type CategoryResponse = components['schemas']['CategoryResponse'];
+
+// 获取分类列表（公开接口）
+export const getCategories = () => {
+  return client.GET('/api/categories', {});
+};
+
 // ========== 演出相关 ==========
 export type CreateShowRequest = components['schemas']['CreateShowRequest'];
 export type UpdateShowRequest = components['schemas']['UpdateShowRequest'];
@@ -19,7 +34,7 @@ export const getShowList = (params?: {
   PageSize?: number;
   Keyword?: string;
   CategoryId?: number;
-  Status?: string;
+  Status?: ShowStatus;
 }) => {
   return client.GET('/api/admin/shows', {
     params: { query: params },
@@ -91,9 +106,11 @@ export type SeatSectionResponse = components['schemas']['SeatSectionResponse'];
 
 // 获取座位图列表
 export const getSeatMapList = (params?: {
-  PageIndex?: number;
-  PageSize?: number;
+  VenueId?: number;
+  MapStatus?: string;
   Keyword?: string;
+  Page?: number;
+  PageSize?: number;
 }) => {
   return client.GET('/api/admin/seat-maps', {
     params: { query: params },
@@ -102,7 +119,9 @@ export const getSeatMapList = (params?: {
 
 // 获取某座位图下的票区列表
 export const getSeatSections = (seatMapId: number, params?: {
-  PageIndex?: number;
+  SectionType?: string;
+  IsSellable?: boolean;
+  Page?: number;
   PageSize?: number;
 }) => {
   return client.GET('/api/admin/seat-maps/{seatMapId}/sections', {
@@ -110,40 +129,34 @@ export const getSeatSections = (seatMapId: number, params?: {
   });
 };
 
-// ========== 订单相关 ==========
-export type OrderSummary = components['schemas']['OrderSummaryResponse'];
+// ========== 订单相关（管理端） ==========
+export type AdminOrderSummary = components['schemas']['AdminOrderSummaryResponse'];
 export type OrderDetail = components['schemas']['OrderResponse'];
 export type OrderItem = components['schemas']['OrderItemResponse'];
 export type Payment = components['schemas']['PaymentResponse'];
 
-// 获取订单列表
-export const getOrderList = (params?: {
-  Status?: string;
+// 管理端：分页查询全部订单
+export const getAdminOrderList = (params?: {
+  Status?: OrderStatus;
+  Keyword?: string;
   Page?: number;
   PageSize?: number;
 }) => {
-  return client.GET('/api/orders', {
+  return client.GET('/api/admin/orders', {
     params: { query: params },
   });
 };
 
-// 获取订单详情
-export const getOrderDetail = (orderId: number) => {
-  return client.GET('/api/orders/{orderId}', {
+// 管理端：获取任意订单详情
+export const getAdminOrderDetail = (orderId: number) => {
+  return client.GET('/api/admin/orders/{orderId}', {
     params: { path: { orderId } },
   });
 };
 
-// 取消订单
-export const cancelOrder = (orderId: number) => {
-  return client.PATCH('/api/orders/{orderId}/cancel', {
-    params: { path: { orderId } },
-  });
-};
-
-// 获取订单支付记录
-export const getOrderPayments = (orderId: number) => {
-  return client.GET('/api/orders/{orderId}/payments', {
+// 管理端：取消订单（仅 PENDING_PAY）
+export const adminCancelOrder = (orderId: number) => {
+  return client.PATCH('/api/admin/orders/{orderId}/cancel', {
     params: { path: { orderId } },
   });
 };

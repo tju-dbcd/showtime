@@ -191,6 +191,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiResponseOfIEnumerableOfCategoryResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/client/shows/{showId}/sessions": {
         parameters: {
             query?: never;
@@ -315,7 +350,7 @@ export interface paths {
                     PageSize?: number | string;
                     Keyword?: string;
                     CategoryId?: number | string;
-                    Status?: string;
+                    Status?: components["schemas"]["ShowStatus"];
                 };
                 header?: never;
                 path?: never;
@@ -474,9 +509,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ProblemDetails"];
-                        "application/json": components["schemas"]["ProblemDetails"];
-                        "text/json": components["schemas"]["ProblemDetails"];
+                        "text/plain": components["schemas"]["ApiResponseOfShowSessionDto"];
+                        "application/json": components["schemas"]["ApiResponseOfShowSessionDto"];
+                        "text/json": components["schemas"]["ApiResponseOfShowSessionDto"];
                     };
                 };
                 /** @description Forbidden */
@@ -485,9 +520,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ProblemDetails"];
-                        "application/json": components["schemas"]["ProblemDetails"];
-                        "text/json": components["schemas"]["ProblemDetails"];
+                        "text/plain": components["schemas"]["ApiResponseOfShowSessionDto"];
+                        "application/json": components["schemas"]["ApiResponseOfShowSessionDto"];
+                        "text/json": components["schemas"]["ApiResponseOfShowSessionDto"];
                     };
                 };
                 /** @description Conflict */
@@ -563,9 +598,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ProblemDetails"];
-                        "application/json": components["schemas"]["ProblemDetails"];
-                        "text/json": components["schemas"]["ProblemDetails"];
+                        "text/plain": components["schemas"]["ApiResponseOfObject"];
+                        "application/json": components["schemas"]["ApiResponseOfObject"];
+                        "text/json": components["schemas"]["ApiResponseOfObject"];
                     };
                 };
                 /** @description Forbidden */
@@ -574,9 +609,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ProblemDetails"];
-                        "application/json": components["schemas"]["ProblemDetails"];
-                        "text/json": components["schemas"]["ProblemDetails"];
+                        "text/plain": components["schemas"]["ApiResponseOfObject"];
+                        "application/json": components["schemas"]["ApiResponseOfObject"];
+                        "text/json": components["schemas"]["ApiResponseOfObject"];
                     };
                 };
                 /** @description Not Found */
@@ -651,9 +686,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ProblemDetails"];
-                        "application/json": components["schemas"]["ProblemDetails"];
-                        "text/json": components["schemas"]["ProblemDetails"];
+                        "text/plain": components["schemas"]["ApiResponseOfObject"];
+                        "application/json": components["schemas"]["ApiResponseOfObject"];
+                        "text/json": components["schemas"]["ApiResponseOfObject"];
                     };
                 };
                 /** @description Forbidden */
@@ -662,9 +697,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ProblemDetails"];
-                        "application/json": components["schemas"]["ProblemDetails"];
-                        "text/json": components["schemas"]["ProblemDetails"];
+                        "text/plain": components["schemas"]["ApiResponseOfObject"];
+                        "application/json": components["schemas"]["ApiResponseOfObject"];
+                        "text/json": components["schemas"]["ApiResponseOfObject"];
                     };
                 };
                 /** @description Not Found */
@@ -701,7 +736,7 @@ export interface paths {
                     PageSize?: number | string;
                     Keyword?: string;
                     CategoryId?: number | string;
-                    Status?: string;
+                    Status?: components["schemas"]["ShowStatus"];
                 };
                 header?: never;
                 path?: never;
@@ -1847,6 +1882,236 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Status?: components["schemas"]["OrderStatus"];
+                    Keyword?: string;
+                    Page?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedAdminOrderResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/orders/{orderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/orders/{orderId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfOrderResponse"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/orders": {
         parameters: {
             query?: never;
@@ -1857,7 +2122,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    Status?: string;
+                    Status?: components["schemas"]["OrderStatus"];
                     Page?: number | string;
                     PageSize?: number | string;
                 };
@@ -2081,6 +2346,35 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AdminOrderSummaryResponse: {
+            /** Format: int64 */
+            orderId: number | string;
+            orderNo: string;
+            /** Format: int64 */
+            userId: number | string;
+            userName: string;
+            nickname: null | string;
+            phone: string;
+            /** Format: int64 */
+            sessionId: number | string;
+            /** Format: double */
+            totalAmount: number | string;
+            /** Format: double */
+            discountAmount: number | string;
+            /** Format: int32 */
+            ticketCount: number | string;
+            orderStatus: components["schemas"]["OrderStatus"];
+            /** Format: date-time */
+            expireTime: string;
+            /** Format: date-time */
+            createTime: string;
+        };
+        ApiResponseOfIEnumerableOfCategoryResponse: {
+            success: boolean;
+            data: null | components["schemas"]["CategoryResponse"][];
+            code: null | string;
+            message: string;
+        };
         ApiResponseOfIEnumerableOfPricingStrategyDto: {
             success: boolean;
             data: null | components["schemas"]["PricingStrategyDto"][];
@@ -2120,6 +2414,12 @@ export interface components {
         ApiResponseOfOrderResponse: {
             success: boolean;
             data: null | components["schemas"]["OrderResponse"];
+            code: null | string;
+            message: string;
+        };
+        ApiResponseOfPagedAdminOrderResponse: {
+            success: boolean;
+            data: null | components["schemas"]["PagedAdminOrderResponse"];
             code: null | string;
             message: string;
         };
@@ -2231,6 +2531,15 @@ export interface components {
             code: null | string;
             message: string;
         };
+        CategoryResponse: {
+            /** Format: int64 */
+            categoryId: number | string;
+            categoryName: string;
+            /** Format: int64 */
+            parentId: null | number | string;
+            /** Format: int32 */
+            sortOrder: number | string;
+        };
         CreateOrderItemRequest: {
             /** Format: int64 */
             seatId: number | string;
@@ -2250,7 +2559,7 @@ export interface components {
             /** Format: int64 */
             seatSectionId: number | string;
             strategyName: null | string;
-            priceType: string;
+            priceType: components["schemas"]["PriceType"];
             /** Format: double */
             price: number | string;
             /** Format: date-time */
@@ -2275,8 +2584,6 @@ export interface components {
             posterUrl: null | string;
         };
         CreateShowSessionRequest: {
-            /** Format: int64 */
-            sessionId: number | string;
             /** Format: date-time */
             startTime: string;
             /** Format: date-time */
@@ -2288,13 +2595,15 @@ export interface components {
             /** Format: int64 */
             seatMapId: number | string;
         };
+        /** @enum {string} */
+        ETicketStatus: "UNUSED" | "USED" | "REFUNDED" | "EXCHANGED";
         ETicketSummaryResponse: {
             /** Format: int64 */
             eTicketId: number | string;
             eTicketNo: string;
             /** Format: int64 */
             orderItemId: number | string;
-            ticketStatus: string;
+            ticketStatus: components["schemas"]["ETicketStatus"];
         };
         LoginRequest: {
             account: string;
@@ -2310,8 +2619,8 @@ export interface components {
             user: components["schemas"]["UserResponse"];
         };
         MockPaymentRequest: {
-            payChannel: string;
-            result: string;
+            payChannel: components["schemas"]["PaymentChannel"];
+            result: components["schemas"]["PaymentResult"];
         };
         OrderItemResponse: {
             /** Format: int64 */
@@ -2324,8 +2633,10 @@ export interface components {
             realNameId: null | number | string;
             /** Format: double */
             unitPrice: number | string;
-            itemStatus: string;
+            itemStatus: components["schemas"]["OrderItemStatus"];
         };
+        /** @enum {string} */
+        OrderItemStatus: "NORMAL" | "REFUNDING" | "REFUNDED" | "EXCHANGING" | "EXCHANGED";
         OrderResponse: {
             /** Format: int64 */
             orderId: number | string;
@@ -2338,7 +2649,7 @@ export interface components {
             discountAmount: number | string;
             /** Format: int32 */
             ticketCount: number | string;
-            orderStatus: string;
+            orderStatus: components["schemas"]["OrderStatus"];
             /** Format: date-time */
             expireTime: string;
             /** Format: date-time */
@@ -2350,7 +2661,11 @@ export interface components {
             items: components["schemas"]["OrderItemResponse"][];
             payments: components["schemas"]["PaymentResponse"][];
             tickets: components["schemas"]["ETicketSummaryResponse"][];
+            /** Format: date-time */
+            createTime: string;
         };
+        /** @enum {string} */
+        OrderStatus: "PENDING_PAY" | "PAID" | "ISSUED" | "PART_REFUND" | "REFUNDED" | "CANCELLED";
         OrderSummaryResponse: {
             /** Format: int64 */
             orderId: number | string;
@@ -2363,11 +2678,20 @@ export interface components {
             discountAmount: number | string;
             /** Format: int32 */
             ticketCount: number | string;
-            orderStatus: string;
+            orderStatus: components["schemas"]["OrderStatus"];
             /** Format: date-time */
             expireTime: string;
             /** Format: date-time */
             createTime: string;
+        };
+        PagedAdminOrderResponse: {
+            items: components["schemas"]["AdminOrderSummaryResponse"][];
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
         };
         PagedOrderResponse: {
             items: components["schemas"]["OrderSummaryResponse"][];
@@ -2423,6 +2747,8 @@ export interface components {
             /** Format: int32 */
             totalCount: number | string;
         };
+        /** @enum {string} */
+        PaymentChannel: "ALIPAY" | "WECHAT" | "UNIONPAY" | "BALANCE";
         PaymentResponse: {
             /** Format: int64 */
             paymentId: number | string;
@@ -2431,31 +2757,31 @@ export interface components {
             orderId: number | string;
             /** Format: double */
             payAmount: number | string;
-            payChannel: string;
-            payStatus: string;
+            payChannel: components["schemas"]["PaymentChannel"];
+            payStatus: components["schemas"]["PaymentStatus"];
             tradeNo: null | string;
             /** Format: date-time */
             callbackTime: null | string;
             /** Format: date-time */
             payTime: null | string;
         };
+        /** @enum {string} */
+        PaymentResult: "SUCCESS" | "FAIL";
+        /** @enum {string} */
+        PaymentStatus: "PENDING" | "SUCCESS" | "FAIL" | "CLOSED";
+        /** @enum {string} */
+        PriceStrategyStatus: "ENABLED" | "DISABLED";
+        /** @enum {string} */
+        PriceType: "EARLY_BIRD" | "PRESALE" | "STANDARD" | "VIP" | "MEMBER";
         PricingStrategyDto: {
             /** Format: int64 */
             priceStrategyId: number | string;
             /** Format: int64 */
             seatSectionId: number | string;
-            priceType: string;
+            priceType: components["schemas"]["PriceType"];
             /** Format: double */
             price: number | string;
-            status: string;
-        };
-        ProblemDetails: {
-            type?: null | string;
-            title?: null | string;
-            /** Format: int32 */
-            status?: null | number | string;
-            detail?: null | string;
-            instance?: null | string;
+            status: components["schemas"]["PriceStrategyStatus"];
         };
         RegisterRequest: {
             userName: string;
@@ -2655,7 +2981,7 @@ export interface components {
             saleStartTime: string;
             /** Format: date-time */
             saleEndTime: string;
-            sessionStatus: string;
+            sessionStatus: components["schemas"]["SessionStatus"];
             seatMap: components["schemas"]["SessionSeatMapMapDto"];
         };
         SessionSeatMapMapDto: {
@@ -2710,6 +3036,10 @@ export interface components {
             displayOrder: number | string;
             seats: components["schemas"]["SessionSeatMapSeatDto"][];
         };
+        /** @enum {string} */
+        SessionStatus: "UPCOMING" | "PRESALE" | "ONSALE" | "SOLD_OUT" | "ENDED";
+        /** @enum {string} */
+        ShowAuditStatus: "PENDING" | "APPROVED" | "REJECTED";
         ShowDto: {
             /** Format: int64 */
             showId: number | string;
@@ -2720,8 +3050,8 @@ export interface components {
             /** Format: int32 */
             durationMinutes: null | number | string;
             posterUrl: null | string;
-            status: string;
-            auditStatus: string;
+            status: components["schemas"]["ShowStatus"];
+            auditStatus: components["schemas"]["ShowAuditStatus"];
             /** Format: date-time */
             createTime: string;
         };
@@ -2736,12 +3066,16 @@ export interface components {
             endTime: string;
             /** Format: date-time */
             saleStartTime: string;
-            sessionStatus: string;
+            /** Format: date-time */
+            saleEndTime: string;
+            sessionStatus: components["schemas"]["SessionStatus"];
             /** Format: int64 */
             seatMapId: number | string;
         };
+        /** @enum {string} */
+        ShowStatus: "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
         UpdateSessionStatusRequest: {
-            status: string;
+            status: components["schemas"]["SessionStatus"];
         };
         UpdateShowRequest: {
             showName: string;
@@ -2751,7 +3085,7 @@ export interface components {
             /** Format: int32 */
             durationMinutes: null | number | string;
             posterUrl: null | string;
-            status: string;
+            status: components["schemas"]["ShowStatus"];
         };
         UserResponse: {
             /** Format: int64 */

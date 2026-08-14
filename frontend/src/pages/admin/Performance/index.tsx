@@ -18,22 +18,17 @@ import {
   createShow,
   updateShow,
   deleteShow,
+  getCategories,
   type ShowDto,
   type CreateShowRequest,
   type UpdateShowRequest,
+  type ShowStatus,
+  type CategoryResponse,
 } from '../../../api/admin'
 
 const { TextArea } = Input
 
-const categoryMap: Record<number, string> = {
-  1: '演唱会',
-  2: '话剧音乐剧',
-  3: '曲苑杂坛',
-  4: '体育赛事',
-  5: '展览休闲',
-}
-
-const statusMap: Record<string, { text: string; color: string }> = {
+const statusMap: Record<ShowStatus, { text: string; color: string }> = {
   DRAFT: { text: '草稿', color: 'default' },
   PUBLISHED: { text: '已发布', color: 'success' },
   UNPUBLISHED: { text: '已下架', color: 'warning' },
@@ -48,7 +43,8 @@ const Performance = () => {
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
   const [searchName, setSearchName] = useState('')
   const [searchCategory, setSearchCategory] = useState<number | undefined>()
-  const [searchStatus, setSearchStatus] = useState<string | undefined>()
+  const [searchStatus, setSearchStatus] = useState<ShowStatus | undefined>()
+  const [categories, setCategories] = useState<CategoryResponse[]>([])
 
   const loadData = async (page = 1, pageSize = 10) => {
     setLoading(true)
@@ -60,13 +56,13 @@ const Performance = () => {
         CategoryId: searchCategory,
         Status: searchStatus,
       })
-      if (res.data) {
-        const result = (res.data as any).data || (res.data as any)
-        setData(result?.items || result || [])
+      if (res.data?.data) {
+        const result = res.data.data
+        setData(result.items || [])
         setPagination({
           current: page,
           pageSize,
-          total: result?.totalCount || 0,
+          total: Number(result.totalCount) || 0,
         })
       }
     } catch (err) {
@@ -77,6 +73,9 @@ const Performance = () => {
   }
 
   useEffect(() => {
+    getCategories().then(res => {
+      if (res.data?.data) setCategories(res.data.data)
+    }).catch(() => {})
     loadData(1)
   }, [])
 
@@ -147,9 +146,9 @@ const Performance = () => {
       }
       setModalVisible(false)
       loadData(pagination.current, pagination.pageSize)
-    } catch (err: any) {
-      if (err.errorFields) return
-      message.error(err.message || '操作失败')
+    } catch (err) {
+      if (err && typeof err === 'object' && 'errorFields' in err) return
+      message.error(err instanceof Error ? err.message : '操作失败')
     }
   }
 
@@ -170,7 +169,10 @@ const Performance = () => {
       dataIndex: 'categoryId',
       key: 'categoryId',
       width: 100,
-      render: (id: number) => categoryMap[id] || id,
+      render: (id: number | string) => {
+        const cat = categories.find(c => c.categoryId === id)
+        return cat ? cat.categoryName : id
+      },
     },
     {
       title: '时长(分钟)',
@@ -183,7 +185,7 @@ const Performance = () => {
       dataIndex: 'status',
       key: 'status',
       width: 100,
-      render: (status: string) => {
+      render: (status: ShowStatus) => {
         const s = statusMap[status]
         return s ? <Tag color={s.color}>{s.text}</Tag> : status
       },
@@ -199,7 +201,7 @@ const Performance = () => {
       title: '操作',
       key: 'action',
       width: 150,
-      render: (_: any, record: ShowDto) => (
+      render: (_: unknown, record: ShowDto) => (
         <Space>
           <Button type="link" size="small" onClick={() => handleEdit(record)}>
             编辑
@@ -238,8 +240,8 @@ const Performance = () => {
             style={{ width: 120 }}
             allowClear
           >
-            {Object.entries(categoryMap).map(([id, name]) => (
-              <Select.Option key={id} value={Number(id)}>{name}</Select.Option>
+            {categories.map(cat => (
+              <Select.Option key={cat.categoryId} value={Number(cat.categoryId)}>{cat.categoryName}</Select.Option>
             ))}
           </Select>
           <Select
@@ -300,8 +302,8 @@ const Performance = () => {
               style={{ width: 200 }}
             >
               <Select>
-                {Object.entries(categoryMap).map(([id, name]) => (
-                  <Select.Option key={id} value={Number(id)}>{name}</Select.Option>
+                {categories.map(cat => (
+                  <Select.Option key={cat.categoryId} value={Number(cat.categoryId)}>{cat.categoryName}</Select.Option>
                 ))}
               </Select>
             </Form.Item>

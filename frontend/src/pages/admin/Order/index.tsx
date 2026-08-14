@@ -8,15 +8,19 @@ import {
   Modal,
   Descriptions,
   Popconfirm,
+  Input,
   message,
 } from 'antd'
 import {
-  getOrderList,
-  getOrderDetail,
-  cancelOrder,
+  getAdminOrderList,
+  getAdminOrderDetail,
+  adminCancelOrder,
+  type AdminOrderSummary,
+  type OrderDetail,
+  type OrderStatus,
 } from '../../../api/admin'
 
-const orderStatusMap: Record<string, { text: string; color: string }> = {
+const orderStatusMap: Record<OrderStatus, { text: string; color: string }> = {
   PENDING_PAY: { text: '待支付', color: 'warning' },
   PAID: { text: '已支付', color: 'processing' },
   ISSUED: { text: '已出票', color: 'success' },
@@ -26,38 +30,39 @@ const orderStatusMap: Record<string, { text: string; color: string }> = {
 }
 
 const itemStatusMap: Record<string, { text: string; color: string }> = {
-  PENDING: { text: '待处理', color: 'default' },
-  PAID: { text: '已支付', color: 'processing' },
-  ISSUED: { text: '已出票', color: 'success' },
+  NORMAL: { text: '正常', color: 'success' },
+  REFUNDING: { text: '退款中', color: 'processing' },
   REFUNDED: { text: '已退款', color: 'default' },
-  CANCELLED: { text: '已取消', color: 'error' },
+  EXCHANGING: { text: '换票中', color: 'warning' },
+  EXCHANGED: { text: '已换票', color: 'default' },
 }
 
 const Order = () => {
-  const [data, setData] = useState<unknown[]>([])
+  const [data, setData] = useState<AdminOrderSummary[]>([])
   const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<string | undefined>()
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | undefined>()
+  const [keyword, setKeyword] = useState('')
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
   const [detailVisible, setDetailVisible] = useState(false)
-  const [orderDetail, setOrderDetail] = useState<Record<string, unknown> | null>(null)
+  const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
 
   const loadData = async (page = 1, pageSize = 10) => {
     setLoading(true)
     try {
-      const res = await getOrderList({
+      const res = await getAdminOrderList({
         Status: statusFilter,
+        Keyword: keyword || undefined,
         Page: page,
         PageSize: pageSize,
       })
-      if (res.data) {
-        const result = (res.data as Record<string, unknown>).data || res.data
-        const r = result as Record<string, unknown>
-        setData((r?.items as unknown[]) || (Array.isArray(result) ? result : []) || [])
+      if (res.data?.data) {
+        const r = res.data.data
+        setData(r.items || [])
         setPagination({
           current: page,
           pageSize,
-          total: (r?.totalCount as number) || 0,
+          total: Number(r.totalCount) || 0,
         })
       }
     } catch {
@@ -75,9 +80,9 @@ const Order = () => {
     setDetailVisible(true)
     setDetailLoading(true)
     try {
-      const res = await getOrderDetail(orderId)
-      if (res.data) {
-        setOrderDetail(((res.data as Record<string, unknown>).data || res.data) as Record<string, unknown>)
+      const res = await getAdminOrderDetail(orderId)
+      if (res.data?.data) {
+        setOrderDetail(res.data.data)
       }
     } catch {
       message.error('加载订单详情失败')
@@ -88,7 +93,7 @@ const Order = () => {
 
   const handleCancel = async (orderId: number) => {
     try {
-      const res = await cancelOrder(orderId)
+      const res = await adminCancelOrder(orderId)
       if (res.error) {
         message.error('取消订单失败')
         return
@@ -108,37 +113,44 @@ const Order = () => {
       width: 200,
     },
     {
+      title: '用户',
+      key: 'user',
+      width: 150,
+      render: (_: unknown, record: AdminOrderSummary) => (
+        <span>{record.nickname || record.userName}</span>
+      ),
+    },
+    {
+      title: '手机号',
+      dataIndex: 'phone',
+      key: 'phone',
+      width: 130,
+    },
+    {
       title: '场次ID',
       dataIndex: 'sessionId',
       key: 'sessionId',
-      width: 100,
+      width: 90,
     },
     {
       title: '票数',
       dataIndex: 'ticketCount',
       key: 'ticketCount',
-      width: 80,
+      width: 70,
     },
     {
       title: '总金额',
       dataIndex: 'totalAmount',
       key: 'totalAmount',
       width: 100,
-      render: (amount: number) => `¥${amount}`,
-    },
-    {
-      title: '优惠金额',
-      dataIndex: 'discountAmount',
-      key: 'discountAmount',
-      width: 100,
-      render: (amount: number) => amount ? `¥${amount}` : '-',
+      render: (amount: number | string) => `¥${amount}`,
     },
     {
       title: '订单状态',
       dataIndex: 'orderStatus',
       key: 'orderStatus',
       width: 100,
-      render: (status: string) => {
+      render: (status: OrderStatus) => {
         const s = orderStatusMap[status]
         return s ? <Tag color={s.color}>{s.text}</Tag> : status
       },
@@ -154,7 +166,7 @@ const Order = () => {
       title: '操作',
       key: 'action',
       width: 150,
-      render: (_: unknown, record: Record<string, unknown>) => (
+      render: (_: unknown, record: AdminOrderSummary) => (
         <Space>
           <Button type="link" size="small" onClick={() => handleViewDetail(Number(record.orderId))}>
             详情
@@ -192,6 +204,14 @@ const Order = () => {
               <Select.Option key={key} value={key}>{val.text}</Select.Option>
             ))}
           </Select>
+          <Input
+            placeholder="搜索订单号/用户"
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
+            style={{ width: 200 }}
+            allowClear
+            onPressEnter={() => loadData(1)}
+          />
           <Button type="primary" onClick={() => loadData(1)}>
             筛选
           </Button>
@@ -200,7 +220,7 @@ const Order = () => {
 
       <Table
         columns={columns}
-        dataSource={data as Record<string, unknown>[]}
+        dataSource={data}
         rowKey="orderId"
         loading={loading}
         pagination={{
@@ -227,43 +247,43 @@ const Order = () => {
         ) : orderDetail ? (
           <div>
             <Descriptions column={2} bordered size="small">
-              <Descriptions.Item label="订单ID">{orderDetail.orderId as string}</Descriptions.Item>
-              <Descriptions.Item label="订单号">{orderDetail.orderNo as string}</Descriptions.Item>
-              <Descriptions.Item label="场次ID">{orderDetail.sessionId as string}</Descriptions.Item>
-              <Descriptions.Item label="票数">{orderDetail.ticketCount as string}</Descriptions.Item>
-              <Descriptions.Item label="总金额">¥{orderDetail.totalAmount as string}</Descriptions.Item>
+              <Descriptions.Item label="订单ID">{orderDetail.orderId}</Descriptions.Item>
+              <Descriptions.Item label="订单号">{orderDetail.orderNo}</Descriptions.Item>
+              <Descriptions.Item label="场次ID">{orderDetail.sessionId}</Descriptions.Item>
+              <Descriptions.Item label="票数">{orderDetail.ticketCount}</Descriptions.Item>
+              <Descriptions.Item label="总金额">¥{orderDetail.totalAmount}</Descriptions.Item>
               <Descriptions.Item label="优惠金额">
                 {orderDetail.discountAmount ? `¥${orderDetail.discountAmount}` : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="订单状态">
                 {(() => {
-                  const s = orderStatusMap[orderDetail.orderStatus as string]
-                  return s ? <Tag color={s.color}>{s.text}</Tag> : (orderDetail.orderStatus as string)
+                  const s = orderStatusMap[orderDetail.orderStatus]
+                  return s ? <Tag color={s.color}>{s.text}</Tag> : orderDetail.orderStatus
                 })()}
               </Descriptions.Item>
-              <Descriptions.Item label="来源">{(orderDetail.source as string) || '-'}</Descriptions.Item>
+              <Descriptions.Item label="来源">{orderDetail.source || '-'}</Descriptions.Item>
               <Descriptions.Item label="创建时间">
-                {orderDetail.createTime ? new Date(orderDetail.createTime as string).toLocaleString('zh-CN') : '-'}
+                {orderDetail.createTime ? new Date(orderDetail.createTime).toLocaleString('zh-CN') : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="支付时间">
-                {orderDetail.payTime ? new Date(orderDetail.payTime as string).toLocaleString('zh-CN') : '-'}
+                {orderDetail.payTime ? new Date(orderDetail.payTime).toLocaleString('zh-CN') : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="取消时间">
-                {orderDetail.cancelTime ? new Date(orderDetail.cancelTime as string).toLocaleString('zh-CN') : '-'}
+                {orderDetail.cancelTime ? new Date(orderDetail.cancelTime).toLocaleString('zh-CN') : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="过期时间">
-                {orderDetail.expireTime ? new Date(orderDetail.expireTime as string).toLocaleString('zh-CN') : '-'}
+                {orderDetail.expireTime ? new Date(orderDetail.expireTime).toLocaleString('zh-CN') : '-'}
               </Descriptions.Item>
-              {Boolean(orderDetail.remark) && (
-                <Descriptions.Item label="备注" span={2}>{orderDetail.remark as string}</Descriptions.Item>
+              {orderDetail.remark && (
+                <Descriptions.Item label="备注" span={2}>{orderDetail.remark}</Descriptions.Item>
               )}
             </Descriptions>
 
-            {Boolean(orderDetail.items) && (orderDetail.items as unknown[]).length > 0 && (
+            {orderDetail.items && orderDetail.items.length > 0 && (
               <div style={{ marginTop: 16 }}>
                 <h4>票品明细</h4>
                 <Table
-                  dataSource={orderDetail.items as Record<string, unknown>[]}
+                  dataSource={orderDetail.items}
                   rowKey="orderItemId"
                   size="small"
                   pagination={false}
@@ -271,7 +291,7 @@ const Order = () => {
                     { title: '明细ID', dataIndex: 'orderItemId', key: 'orderItemId', width: 100 },
                     { title: '座位ID', dataIndex: 'seatId', key: 'seatId', width: 100 },
                     { title: '定价策略ID', dataIndex: 'priceStrategyId', key: 'priceStrategyId', width: 110 },
-                    { title: '单价', dataIndex: 'unitPrice', key: 'unitPrice', width: 90, render: (p: number) => `¥${p}` },
+                    { title: '单价', dataIndex: 'unitPrice', key: 'unitPrice', width: 90, render: (p: number | string) => `¥${p}` },
                     {
                       title: '状态',
                       dataIndex: 'itemStatus',
