@@ -83,6 +83,7 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             .HasMaxLength(20)
             .IsUnicode(false)
             .HasDefaultValue("PENDING_PAY")
+            .IsConcurrencyToken()
             .IsRequired();
 
         builder.Property(entity => entity.ExpireTime)
