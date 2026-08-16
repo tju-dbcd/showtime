@@ -3,7 +3,7 @@ import type { components, paths } from './types';
 import { message } from 'antd';
 
 const client = createClient<paths>({
-  baseUrl: import.meta.env.VITE_API_BASE_URL || 'http://120.27.157.163:5146',
+  baseUrl: import.meta.env.VITE_API_BASE_URL || '',
   headers: {
     'Content-Type': 'application/json',
   },
