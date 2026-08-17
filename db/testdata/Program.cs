@@ -42,7 +42,10 @@ class Program
             using var context = new AppDbContext(optionsBuilder.Options);
 
             Console.WriteLine("Checking database connection...");
-            context.Database.EnsureCreated();
+            // 注意：数据库 Schema 已由 APP_OWNER 持有（db/baseline 脚本），此处不做 EnsureCreated：
+            // 1) Oracle 提供器 HasTables 只检查当前用户 USER_TABLES，个人账号空 schema 会被误判为空库触发建表；
+            // 2) 个人账号无 DDL 权限，也不应重建 Schema。
+            context.Database.ExecuteSqlRaw("SELECT 1 FROM DUAL");
 
             var genConfig = configuration.GetSection("DataGeneration");
             int showCount = int.Parse(genConfig["ShowCount"] ?? "10");
@@ -72,6 +75,8 @@ class Program
             Console.WriteLine("========================================");
             Console.WriteLine("  Data generation completed!");
             Console.WriteLine("========================================");
+            Console.WriteLine($"测试账号 -> 管理员:   {TestDataGenerator.AdminUserName} / {TestDataGenerator.AdminPassword}");
+            Console.WriteLine($"测试账号 -> 普通用户: testuser1~3 / {TestDataGenerator.TestUserPassword}");
         }
         catch (Exception ex)
         {
@@ -80,9 +85,13 @@ class Program
             Environment.ExitCode = 1;
         }
 
-        Console.WriteLine();
-        Console.WriteLine("Press any key to exit...");
-        Console.ReadKey();
+        // 非交互环境（CI / 管道重定向）下不阻塞等待按键
+        if (!Console.IsInputRedirected)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
+        }
     }
 
     private static string ExtractDbName(string connectionString)

@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Bogus;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using ShowtimeBackend.Data;
-using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Entities.SeatZone;
+using ShowtimeBackend.Entities.ShowSession;
+using ShowtimeBackend.Entities.UserPermission;
 
 namespace ShowtimeBackend.TestData
 {
@@ -20,6 +22,13 @@ namespace ShowtimeBackend.TestData
         private readonly int _maxSessions;
         private readonly int _seatsPerSession;
         private readonly bool _enableDetailedLog;
+
+        /// <summary>测试管理员账号（拥有 Admin + USER 角色）</summary>
+        public const string AdminUserName = "admin";
+        public const string AdminPassword = "Admin@12345";
+        /// <summary>普通测试用户账号密码</summary>
+        public const string TestUserPassword = "Test@12345";
+        private const string DefaultActor = "TestDataGenerator";
 
         public TestDataGenerator(
             AppDbContext context,
@@ -45,60 +54,77 @@ namespace ShowtimeBackend.TestData
 
             try
             {
+                // ---- 用户与权限模块（幂等：已存在的角色/用户/权限不重复创建）----
+                var roles = GenerateRoles();
+                var users = GenerateUsers(roles);
+                GeneratePermissions(roles);
+                Log($"[1/13] User & Permission module: {roles.Count} roles, {users.Count} users");
+
+                // ---- 演出/座位主体数据（已存在则跳过，防止重复爆炸）----
+                if (HasExistingShowData())
+                {
+                    Log("检测到已存在演出/座位类数据，跳过主体数据生成。");
+                    Log("如需重新生成，请先清空相关业务表（或手动处理冲突）后重跑。");
+                    transaction.Commit();
+                    Log("=== Test Data Generation Completed (main data skipped) ===");
+                    PrintStatistics();
+                    return;
+                }
+
                 var categories = GenerateCategories();
                 _context.Set<Category>().AddRange(categories);
                 _context.SaveChanges();
-                Log($"[1/10] Generated {categories.Count} categories");
+                Log($"[2/13] Generated {categories.Count} categories");
 
                 var tags = GenerateTags();
                 _context.Set<Tag>().AddRange(tags);
                 _context.SaveChanges();
-                Log($"[2/10] Generated {tags.Count} tags");
+                Log($"[3/13] Generated {tags.Count} tags");
 
                 var venues = GenerateVenues();
                 _context.Set<Venue>().AddRange(venues);
                 _context.SaveChanges();
-                Log($"[3/10] Generated {venues.Count} venues");
+                Log($"[4/13] Generated {venues.Count} venues");
 
                 var seatMaps = GenerateSeatMaps(venues);
                 _context.Set<SeatMap>().AddRange(seatMaps);
                 _context.SaveChanges();
-                Log($"[4/10] Generated {seatMaps.Count} seat maps");
+                Log($"[5/13] Generated {seatMaps.Count} seat maps");
 
                 var seatSections = GenerateSeatSections(seatMaps);
                 _context.Set<SeatSection>().AddRange(seatSections);
                 _context.SaveChanges();
-                Log($"[5/10] Generated {seatSections.Count} seat sections");
+                Log($"[6/13] Generated {seatSections.Count} seat sections");
 
                 var seats = GenerateSeats(seatSections);
                 _context.Set<Seat>().AddRange(seats);
                 _context.SaveChanges();
-                Log($"[6/10] Generated {seats.Count} seats");
+                Log($"[7/13] Generated {seats.Count} seats");
 
                 var shows = GenerateShows(categories);
                 _context.Set<Show>().AddRange(shows);
                 _context.SaveChanges();
-                Log($"[7/10] Generated {shows.Count} shows");
+                Log($"[8/13] Generated {shows.Count} shows");
 
                 var showTags = GenerateShowTags(shows, tags);
                 _context.Set<ShowTag>().AddRange(showTags);
                 _context.SaveChanges();
-                Log($"[8/10] Generated {showTags.Count} show-tag associations");
+                Log($"[9/13] Generated {showTags.Count} show-tag associations");
 
                 var showSessions = GenerateShowSessions(shows, seatMaps);
                 _context.Set<ShowSession>().AddRange(showSessions);
                 _context.SaveChanges();
-                Log($"[9/10] Generated {showSessions.Count} show sessions");
+                Log($"[10/13] Generated {showSessions.Count} show sessions");
 
                 var priceStrategies = GeneratePriceStrategies(showSessions, seatSections);
                 _context.Set<PriceStrategy>().AddRange(priceStrategies);
                 _context.SaveChanges();
-                Log($"[10/11] Generated {priceStrategies.Count} price strategies");
+                Log($"[11/13] Generated {priceStrategies.Count} price strategies");
 
                 var purchaseLimits = GeneratePurchaseLimits(shows, showSessions);
                 _context.Set<PurchaseLimit>().AddRange(purchaseLimits);
                 _context.SaveChanges();
-                Log($"[11/11] Generated {purchaseLimits.Count} purchase limits");
+                Log($"[12/13] Generated {purchaseLimits.Count} purchase limits");
 
                 transaction.Commit();
 
@@ -109,6 +135,12 @@ namespace ShowtimeBackend.TestData
             {
                 transaction.Rollback();
                 Log($"ERROR: {ex.Message}");
+                var inner = ex.InnerException;
+                while (inner is not null)
+                {
+                    Log($"  INNER: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
                 throw;
             }
         }
@@ -562,6 +594,227 @@ namespace ShowtimeBackend.TestData
 
         #endregion
 
+        #region User & Permission Data Generation
+
+        /// <summary>幂等创建基础角色：USER / OPERATOR / Admin（按 RoleCode 去重）</summary>
+        private List<Role> GenerateRoles()
+        {
+            var roleDefs = new[]
+            {
+                (Code: "USER", Name: "普通用户", Desc: "默认注册角色，可购票"),
+                (Code: "OPERATOR", Name: "运营人员", Desc: "演出/场次/订单运营权限"),
+                (Code: "Admin", Name: "系统管理员", Desc: "全部管理权限")
+            };
+
+            var existing = _context.Set<Role>().ToList();
+            var existingCodes = existing.Select(r => r.RoleCode).ToHashSet();
+            var roles = new List<Role>(existing);
+
+            foreach (var (code, name, desc) in roleDefs)
+            {
+                if (existingCodes.Contains(code)) continue;
+
+                var role = new Role
+                {
+                    RoleCode = code,
+                    RoleName = name,
+                    RoleDesc = desc,
+                    Status = true,
+                    CreateBy = DefaultActor,
+                    UpdateBy = DefaultActor
+                };
+                _context.Set<Role>().Add(role);
+                roles.Add(role);
+            }
+
+            _context.SaveChanges();
+            return roles;
+        }
+
+        /// <summary>幂等创建测试用户（admin + 3 个普通用户），附角色与已实名认证信息</summary>
+        private List<SysUser> GenerateUsers(List<Role> roles)
+        {
+            var existingNames = _context.Set<SysUser>().Select(u => u.UserName).ToHashSet();
+            var passwordHasher = new PasswordHasher<SysUser>();
+            var users = new List<SysUser>();
+
+            var userDefs = new[]
+            {
+                (Name: AdminUserName, Nick: "系统管理员", Phone: "13900000001", Email: "admin@showtime.test", Roles: new[] { "Admin", "USER" }),
+                (Name: "testuser1", Nick: "测试用户一", Phone: "13900000002", Email: "testuser1@showtime.test", Roles: new[] { "USER" }),
+                (Name: "testuser2", Nick: "测试用户二", Phone: "13900000003", Email: "testuser2@showtime.test", Roles: new[] { "USER" }),
+                (Name: "testuser3", Nick: "测试用户三", Phone: "13900000004", Email: "testuser3@showtime.test", Roles: new[] { "USER" })
+            };
+
+            foreach (var def in userDefs)
+            {
+                if (existingNames.Contains(def.Name)) continue;
+
+                var user = new SysUser
+                {
+                    UserName = def.Name,
+                    Nickname = def.Nick,
+                    Phone = def.Phone,
+                    Email = def.Email,
+                    UserType = "NORMAL",
+                    Status = 1,
+                    PasswordHash = string.Empty,
+                    CreateBy = DefaultActor,
+                    UpdateBy = DefaultActor
+                };
+                user.PasswordHash = passwordHasher.HashPassword(
+                    user,
+                    def.Name == AdminUserName ? AdminPassword : TestUserPassword);
+
+                foreach (var roleCode in def.Roles)
+                {
+                    var role = roles.First(r => r.RoleCode == roleCode);
+                    user.UserRoles.Add(new UserRole { Role = role });
+                }
+
+                // 每个测试用户配一条已实名认证记录（订单流程支持按实名购票）
+                user.RealNames.Add(new UserRealName
+                {
+                    RealName = _faker.Name.FullName(),
+                    IdCardNo = GenerateIdCardNo(),
+                    IsDefault = true,
+                    IsVerified = true,
+                    CreateBy = DefaultActor,
+                    UpdateBy = DefaultActor
+                });
+
+                _context.Set<SysUser>().Add(user);
+                users.Add(user);
+            }
+
+            _context.SaveChanges();
+            return users;
+        }
+
+        /// <summary>幂等创建权限树与角色-权限映射</summary>
+        private void GeneratePermissions(List<Role> roles)
+        {
+            // (permCode, permName, resourceType, parentCode)  resourceType 对齐 DDL CK_PERMISSION_TYPE: MENU/BUTTON/API/DATA
+            var permDefs = new[]
+            {
+                ("system:manage", "系统管理", "MENU", (string?)null),
+                ("user:manage", "用户管理", "MENU", "system:manage"),
+                ("user:view", "用户查询", "API", "user:manage"),
+                ("user:edit", "用户编辑", "API", "user:manage"),
+                ("role:manage", "角色管理", "MENU", "system:manage"),
+                ("role:view", "角色查询", "API", "role:manage"),
+                ("role:edit", "角色编辑", "API", "role:manage"),
+                ("show:manage", "演出管理", "MENU", null),
+                ("show:create", "演出创建", "API", "show:manage"),
+                ("show:edit", "演出编辑", "API", "show:manage"),
+                ("show:publish", "演出发布/审核", "API", "show:manage"),
+                ("session:manage", "场次管理", "MENU", null),
+                ("session:create", "场次排布", "API", "session:manage"),
+                ("session:status", "场次状态变更", "API", "session:manage"),
+                ("seat:manage", "座位管理", "MENU", null),
+                ("seat:edit", "座位图编辑", "API", "seat:manage"),
+                ("order:manage", "订单管理", "MENU", null),
+                ("order:view", "订单查询", "API", "order:manage"),
+                ("order:refund", "订单退款", "API", "order:manage")
+            };
+
+            var existingCodes = _context.Set<Permission>().Select(p => p.PermCode).ToHashSet();
+            var created = new List<Permission>();
+            int sort = 10;
+
+            // 第一阶段：先落库全部权限（此时 ParentId 留空），
+            // 避免新实体 PermissionId 尚未生成（仍为 0）导致外键指向 0
+            foreach (var (code, name, resourceType, _) in permDefs)
+            {
+                if (existingCodes.Contains(code)) continue;
+
+                var perm = new Permission
+                {
+                    PermCode = code,
+                    PermName = name,
+                    ResourceType = resourceType,
+                    ParentId = null,
+                    SortOrder = sort += 10,
+                    Status = true,
+                    CreateBy = DefaultActor,
+                    UpdateBy = DefaultActor
+                };
+                _context.Set<Permission>().Add(perm);
+                created.Add(perm);
+            }
+
+            _context.SaveChanges();
+
+            // 第二阶段：回填父子关系（父权限此刻已有真实 PermissionId）
+            var byCode = _context.Set<Permission>().ToDictionary(p => p.PermCode);
+            foreach (var (code, _, _, parentCode) in permDefs)
+            {
+                if (parentCode is null || !byCode.TryGetValue(code, out var perm)) continue;
+                if (!byCode.TryGetValue(parentCode, out var parent)) continue;
+
+                perm.ParentId = parent.PermissionId;
+                _context.Set<Permission>().Update(perm);
+            }
+
+            _context.SaveChanges();
+
+            // 角色-权限映射（幂等）
+            var allPermissions = _context.Set<Permission>().ToList();
+            var rolePerms = _context.Set<RolePermission>().ToList();
+            var existingKeys = rolePerms
+                .Select(rp => $"{rp.RoleId}_{rp.PermissionId}")
+                .ToHashSet();
+
+            void Grant(Role role, string permCode)
+            {
+                var perm = allPermissions.First(p => p.PermCode == permCode);
+                var key = $"{role.RoleId}_{perm.PermissionId}";
+                if (existingKeys.Contains(key)) return;
+                _context.Set<RolePermission>().Add(new RolePermission
+                {
+                    Role = role,
+                    Permission = perm
+                });
+                existingKeys.Add(key);
+            }
+
+            var admin = roles.First(r => r.RoleCode == "Admin");
+            var operatorRole = roles.First(r => r.RoleCode == "OPERATOR");
+            var userRole = roles.First(r => r.RoleCode == "USER");
+
+            foreach (var perm in allPermissions)
+            {
+                Grant(admin, perm.PermCode);
+            }
+            Grant(operatorRole, "show:manage");
+            Grant(operatorRole, "show:create");
+            Grant(operatorRole, "show:edit");
+            Grant(operatorRole, "show:publish");
+            Grant(operatorRole, "session:manage");
+            Grant(operatorRole, "session:create");
+            Grant(operatorRole, "session:status");
+            Grant(operatorRole, "order:view");
+            Grant(userRole, "user:view");
+
+            _context.SaveChanges();
+        }
+
+        private bool HasExistingShowData() =>
+            _context.Set<Category>().Count() > 0 ||
+            _context.Set<SeatMap>().Count() > 0 ||
+            _context.Set<Venue>().Count() > 0;
+
+        /// <summary>生成 18 位大陆身份证号码（测试数据，不保证校验位合法）</summary>
+        private string GenerateIdCardNo()
+        {
+            var region = _faker.PickRandom(new[] { "110101", "310101", "440101", "510101", "330101", "420101" });
+            var birth = new DateTime(_random.Next(1970, 2005), _random.Next(1, 13), _random.Next(1, 29));
+            var seq = _random.Next(0, 999).ToString("D3");
+            return region + birth.ToString("yyyyMMdd") + seq + _faker.PickRandom("0123456789X");
+        }
+
+        #endregion
+
         #region Utility Methods
 
         private void Log(string message)
@@ -576,6 +829,12 @@ namespace ShowtimeBackend.TestData
         {
             Console.WriteLine();
             Console.WriteLine("=== Data Generation Statistics ===");
+            Console.WriteLine($"  ROLE:              {_context.Set<Role>().Count()}");
+            Console.WriteLine($"  SYS_USER:          {_context.Set<SysUser>().Count()}");
+            Console.WriteLine($"  USER_ROLE:         {_context.Set<UserRole>().Count()}");
+            Console.WriteLine($"  PERMISSION:        {_context.Set<Permission>().Count()}");
+            Console.WriteLine($"  ROLE_PERMISSION:   {_context.Set<RolePermission>().Count()}");
+            Console.WriteLine($"  USER_REAL_NAME:    {_context.Set<UserRealName>().Count()}");
             Console.WriteLine($"  CATEGORY:          {_context.Set<Category>().Count()}");
             Console.WriteLine($"  TAG:               {_context.Set<Tag>().Count()}");
             Console.WriteLine($"  VENUE:             {_context.Set<Venue>().Count()}");

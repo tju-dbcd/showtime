@@ -1,131 +1,399 @@
-import { Form, Input, Select, DatePicker, Upload, Button, Card, message } from 'antd'
-import { UploadOutlined } from '@ant-design/icons'
+import { Form, Input, Select, DatePicker, Button, Card, message, InputNumber, Space, Divider } from 'antd'
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { useState, useEffect } from 'react'
+import {
+  createShow,
+  addSession,
+  addPricingStrategies,
+  updateSessionStatus,
+  getSeatMapList,
+  getSeatSections,
+  getCategories,
+  type SeatMapResponse,
+  type SeatSectionResponse,
+  type CategoryResponse,
+  type PriceType,
+} from '../../../api/admin'
 
 const { TextArea } = Input
-const { RangePicker } = DatePicker
+
+interface PriceItem {
+  seatSectionId: number | undefined
+  price: number
+  priceType: PriceType
+}
+
+const PRICE_TYPES: { value: PriceType; label: string }[] = [
+  { value: 'STANDARD', label: '标准票' },
+  { value: 'EARLY_BIRD', label: '早鸟票' },
+  { value: 'PRESALE', label: '预售票' },
+  { value: 'VIP', label: 'VIP票' },
+  { value: 'MEMBER', label: '会员票' },
+]
 
 const Publish = () => {
   const [form] = Form.useForm()
+  const [loading, setLoading] = useState(false)
+  const [seatMaps, setSeatMaps] = useState<SeatMapResponse[]>([])
+  const [sections, setSections] = useState<SeatSectionResponse[]>([])
+  const [categories, setCategories] = useState<CategoryResponse[]>([])
+  const [selectedSeatMapId, setSelectedSeatMapId] = useState<number | undefined>()
+  const [priceList, setPriceList] = useState<PriceItem[]>([
+    { seatSectionId: undefined, price: 180, priceType: 'STANDARD' }
+  ])
 
-  // 点击发布按钮
-  const handleSubmit = () => {
-    form.validateFields().then(values => {
-      console.log('发布信息：', values)
-      message.success('发布成功（演示）')
+  // 加载分类和座位图
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [catRes, mapRes] = await Promise.all([
+          getCategories(),
+          getSeatMapList({ PageSize: 100 }),
+        ])
+        if (catRes.data?.data) {
+          setCategories(catRes.data.data)
+        }
+        if (mapRes.data?.data) {
+          setSeatMaps(mapRes.data.data.items || [])
+        }
+      } catch {
+        message.error('加载数据失败')
+      }
+    }
+    loadData()
+  }, [])
+
+  // 选择座位图后加载票区
+  const handleSeatMapChange = async (value: number) => {
+    setSelectedSeatMapId(value)
+    form.setFieldValue('seatMapId', value)
+    try {
+      const res = await getSeatSections(value, { PageSize: 100 })
+      if (res.data?.data) {
+        setSections(res.data.data.items || [])
+      }
+    } catch {
+      message.error('加载票区失败')
+    }
+    // 重置已选的票区
+    setPriceList(priceList.map(item => ({ ...item, seatSectionId: undefined })))
+  }
+
+  // 添加票价
+  const addPrice = () => {
+    setPriceList([...priceList, { seatSectionId: undefined, price: 180, priceType: 'STANDARD' }])
+  }
+
+  // 删除票价
+  const removePrice = (index: number) => {
+    if (priceList.length === 1) {
+      message.warning('至少保留一个票价')
+      return
+    }
+    setPriceList(priceList.filter((_, i) => i !== index))
+  }
+
+  // 更新票价项
+  const updatePrice = <K extends keyof PriceItem>(index: number, field: K, value: PriceItem[K]) => {
+    const newList = [...priceList]
+    newList[index] = { ...newList[index], [field]: value }
+    setPriceList(newList)
+  }
+
+  // 提交发布
+  const handleSubmit = async () => {
+    try {
+      const values = await form.validateFields()
+
+      // 校验票区都选了
+      const invalidPrice = priceList.find(item => !item.seatSectionId)
+      if (invalidPrice) {
+        message.warning('请为每个票价选择票区')
+        return
+      }
+
+      setLoading(true)
+
+      // 1. 创建演出
+      message.loading({ content: '正在创建演出...', key: 'publish' })
+      const showRes = await createShow({
+        showName: values.showName,
+        categoryId: values.categoryId,
+        description: values.description || null,
+        durationMinutes: values.durationMinutes || null,
+        posterUrl: values.posterUrl || null,
+      })
+
+      if (showRes.error) {
+        throw new Error('创建演出失败')
+      }
+
+      const showId = showRes.data?.data?.showId
+      if (!showId) {
+        throw new Error('创建演出失败：未返回showId')
+      }
+      message.success({ content: '演出创建成功', key: 'publish' })
+
+      // 2. 创建场次（sessionId由数据库自增，无需传）
+      message.loading({ content: '正在创建场次...', key: 'session' })
+      const sessionRes = await addSession(Number(showId), {
+        startTime: values.time[0].toISOString(),
+        endTime: values.time[1].toISOString(),
+        saleStartTime: values.saleTime[0].toISOString(),
+        saleEndTime: values.saleTime[1].toISOString(),
+        seatMapId: values.seatMapId,
+      })
+
+      if (sessionRes.error) {
+        throw new Error('创建场次失败')
+      }
+
+      const sessionId = sessionRes.data?.data?.sessionId
+      if (!sessionId) {
+        throw new Error('创建场次失败：未返回sessionId')
+      }
+      message.success({ content: '场次创建成功', key: 'session' })
+
+      // 3. 添加定价策略
+      message.loading({ content: '正在设置票价...', key: 'price' })
+      const priceData = priceList.map(item => ({
+        seatSectionId: item.seatSectionId as number,
+        price: item.price,
+        priceType: item.priceType,
+        strategyName: `${item.priceType}-${item.price}`,
+        saleStartTime: values.saleTime[0].toISOString(),
+        saleEndTime: values.saleTime[1].toISOString(),
+        priority: 0,
+      }))
+
+      const priceRes = await addPricingStrategies(Number(sessionId), priceData)
+      if (priceRes.error) {
+        throw new Error('设置票价失败')
+      }
+      message.success({ content: '票价设置成功', key: 'price' })
+
+      // 4. 更新场次状态为售卖中
+      message.loading({ content: '正在上架...', key: 'status' })
+      const statusRes = await updateSessionStatus(Number(sessionId), { status: 'ONSALE' })
+      if (statusRes.error) {
+        throw new Error('上架失败')
+      }
+
+      message.success({ content: '发布成功！', key: 'status' })
       form.resetFields()
-    })
+      setPriceList([{ seatSectionId: undefined, price: 180, priceType: 'STANDARD' }])
+      setSelectedSeatMapId(undefined)
+      setSections([])
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '发布失败')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <div>
-      {/* 页面标题 */}
       <h2 style={{ margin: '0 0 24px 0', fontSize: 18 }}>演出发布</h2>
 
-      <Card style={{ maxWidth: 700 }}>
+      <Card style={{ maxWidth: 800 }}>
         <Form
           form={form}
           layout="vertical"
-          initialValues={{ status: 'onSale' }}
+          initialValues={{
+            categoryId: 1,
+            durationMinutes: 120,
+          }}
         >
-          {/* 演出名称 */}
+          <Divider>演出基本信息</Divider>
+
           <Form.Item
             label="演出名称"
-            name="name"
+            name="showName"
             rules={[{ required: true, message: '请输入演出名称' }]}
           >
             <Input placeholder="请输入演出名称" size="large" />
           </Form.Item>
 
-          {/* 演出类型 */}
+          <Space size="large" style={{ width: '100%' }}>
+            <Form.Item
+              label="演出分类"
+              name="categoryId"
+              rules={[{ required: true, message: '请选择分类' }]}
+              style={{ width: 200 }}
+            >
+              <Select size="large">
+                {categories.map(cat => (
+                  <Select.Option key={cat.categoryId} value={Number(cat.categoryId)}>
+                    {cat.categoryName}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+
+            <Form.Item
+              label="演出时长（分钟）"
+              name="durationMinutes"
+              rules={[{ required: true, message: '请输入时长' }]}
+            >
+              <InputNumber min={1} size="large" style={{ width: 160 }} />
+            </Form.Item>
+          </Space>
+
           <Form.Item
-            label="演出类型"
-            name="type"
-            rules={[{ required: true, message: '请选择演出类型' }]}
+            label="海报图片URL"
+            name="posterUrl"
           >
-            <Select placeholder="请选择演出类型" size="large">
-              <Select.Option value="concert">演唱会</Select.Option>
-              <Select.Option value="drama">话剧</Select.Option>
-              <Select.Option value="crosstalk">相声</Select.Option>
-              <Select.Option value="musical">音乐剧</Select.Option>
-              <Select.Option value="dance">舞蹈</Select.Option>
-            </Select>
+            <Input placeholder="请输入海报图片链接（可选）" size="large" />
           </Form.Item>
 
-          {/* 演出时间 */}
-          <Form.Item
-            label="演出时间"
-            name="time"
-            rules={[{ required: true, message: '请选择演出时间' }]}
-          >
-            <RangePicker
-              showTime
-              style={{ width: '100%' }}
-              size="large"
-              placeholder={['开始时间', '结束时间']}
-            />
-          </Form.Item>
-
-          {/* 演出场地 */}
-          <Form.Item
-            label="演出场地"
-            name="venue"
-            rules={[{ required: true, message: '请输入演出场地' }]}
-          >
-            <Input placeholder="请输入演出场地" size="large" />
-          </Form.Item>
-
-          {/* 票价 */}
-          <Form.Item
-            label="票价（元）"
-            name="price"
-            rules={[{ required: true, message: '请输入票价' }]}
-          >
-            <Input placeholder="请输入票价，多档用逗号分隔，如：180,280,380" size="large" />
-          </Form.Item>
-
-          {/* 演出介绍 */}
           <Form.Item
             label="演出介绍"
             name="description"
-            rules={[{ required: true, message: '请输入演出介绍' }]}
           >
             <TextArea
-              rows={6}
-              placeholder="请输入演出介绍"
-              maxLength={500}
+              rows={4}
+              placeholder="请输入演出介绍（可选）"
+              maxLength={1000}
               showCount
             />
           </Form.Item>
 
-          {/* 封面图片 */}
-          <Form.Item
-            label="封面图片"
-            name="cover"
-            rules={[{ required: true, message: '请上传封面图片' }]}
-          >
-            <Upload>
-              <Button icon={<UploadOutlined />}>点击上传</Button>
-            </Upload>
-          </Form.Item>
+          <Divider>场次信息</Divider>
 
-          {/* 发布状态 */}
           <Form.Item
-            label="发布状态"
-            name="status"
-            rules={[{ required: true, message: '请选择发布状态' }]}
+            label="座位图"
+            name="seatMapId"
+            rules={[{ required: true, message: '请选择座位图' }]}
+            tooltip="选择场馆和座位图"
           >
-            <Select placeholder="请选择发布状态" size="large">
-              <Select.Option value="onSale">立即上架</Select.Option>
-              <Select.Option value="draft">存为草稿</Select.Option>
+            <Select
+              size="large"
+              style={{ width: 300 }}
+              placeholder="请选择座位图"
+              onChange={handleSeatMapChange}
+              showSearch
+              optionFilterProp="children"
+            >
+              {seatMaps.map(map => (
+                <Select.Option key={map.seatMapId} value={Number(map.seatMapId)}>
+                  {map.venueName} / {map.mapName}
+                </Select.Option>
+              ))}
             </Select>
           </Form.Item>
 
-          {/* 底部按钮 */}
+          <Form.Item
+            label="演出时间"
+            name="time"
+            rules={[{ required: true, message: '请选择演出开始和结束时间' }]}
+          >
+            <DatePicker.RangePicker
+              showTime
+              style={{ width: '100%' }}
+              size="large"
+              placeholder={['演出开始时间', '演出结束时间']}
+              format="YYYY-MM-DD HH:mm"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="售票时间"
+            name="saleTime"
+            rules={[{ required: true, message: '请选择售票开始和结束时间' }]}
+          >
+            <DatePicker.RangePicker
+              showTime
+              style={{ width: '100%' }}
+              size="large"
+              placeholder={['售票开始时间', '售票结束时间']}
+              format="YYYY-MM-DD HH:mm"
+            />
+          </Form.Item>
+
+          <Divider>票价设置</Divider>
+
+          {priceList.map((item, index) => (
+            <Space key={index} size="middle" align="start" style={{ display: 'flex', marginBottom: 16 }} wrap>
+              <Form.Item label="票区" required>
+                <Select
+                  placeholder="请选择票区"
+                  value={item.seatSectionId}
+                  onChange={v => updatePrice(index, 'seatSectionId', v)}
+                  size="large"
+                  style={{ width: 180 }}
+                  disabled={!selectedSeatMapId}
+                  showSearch
+                  optionFilterProp="children"
+                >
+                  {sections
+                    .filter(s => s.isSellable)
+                    .map(section => (
+                      <Select.Option key={section.seatSectionId} value={Number(section.seatSectionId)}>
+                        {section.sectionName}
+                      </Select.Option>
+                    ))}
+                </Select>
+              </Form.Item>
+              <Form.Item label="价格（元）" required>
+                <InputNumber
+                  min={0}
+                  step={10}
+                  value={item.price}
+                  onChange={v => updatePrice(index, 'price', v || 0)}
+                  size="large"
+                  style={{ width: 140 }}
+                  prefix="¥"
+                />
+              </Form.Item>
+              <Form.Item label="价格类型" required>
+                <Select
+                  value={item.priceType}
+                  onChange={v => updatePrice(index, 'priceType', v)}
+                  size="large"
+                  style={{ width: 140 }}
+                  options={PRICE_TYPES}
+                />
+              </Form.Item>
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => removePrice(index)}
+                style={{ marginTop: 30 }}
+              />
+            </Space>
+          ))}
+
+          <Button
+            type="dashed"
+            onClick={addPrice}
+            icon={<PlusOutlined />}
+            style={{ width: '100%', marginBottom: 24 }}
+            disabled={!selectedSeatMapId}
+          >
+            添加票价档位
+          </Button>
+
           <Form.Item style={{ marginTop: 32 }}>
-            <Button type="primary" size="large" onClick={handleSubmit} style={{ width: 120 }}>
-              发布
+            <Button
+              type="primary"
+              size="large"
+              onClick={handleSubmit}
+              loading={loading}
+              style={{ width: 140 }}
+            >
+              发布演出
             </Button>
-            <Button size="large" style={{ marginLeft: 16, width: 120 }} onClick={() => form.resetFields()}>
+            <Button
+              size="large"
+              style={{ marginLeft: 16, width: 140 }}
+              onClick={() => {
+                form.resetFields()
+                setPriceList([{ seatSectionId: undefined, price: 180, priceType: 'STANDARD' }])
+                setSelectedSeatMapId(undefined)
+                setSections([])
+              }}
+            >
               重置
             </Button>
           </Form.Item>

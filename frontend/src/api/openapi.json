@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:5146/"
+      "url": "http://127.0.0.1:5200/"
     }
   ],
   "paths": {
@@ -247,6 +247,25 @@
         }
       }
     },
+    "/api/categories": {
+      "get": {
+        "tags": [
+          "Categories"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfIEnumerableOfCategoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/client/shows/{showId}/sessions": {
       "get": {
         "tags": [
@@ -402,7 +421,7 @@
             "name": "Status",
             "in": "query",
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/ShowStatus"
             }
           }
         ],
@@ -618,17 +637,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfShowSessionDto"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfShowSessionDto"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfShowSessionDto"
                 }
               }
             }
@@ -638,17 +657,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfShowSessionDto"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfShowSessionDto"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfShowSessionDto"
                 }
               }
             }
@@ -773,17 +792,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               }
             }
@@ -793,17 +812,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               }
             }
@@ -919,17 +938,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               }
             }
@@ -939,17 +958,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiResponseOfObject"
                 }
               }
             }
@@ -1087,7 +1106,7 @@
             "name": "Status",
             "in": "query",
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/ShowStatus"
             }
           }
         ],
@@ -2928,6 +2947,372 @@
         }
       }
     },
+    "/api/admin/orders": {
+      "get": {
+        "tags": [
+          "Admin Orders"
+        ],
+        "parameters": [
+          {
+            "name": "Status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/OrderStatus"
+            }
+          },
+          {
+            "name": "Keyword",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfPagedAdminOrderResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
+      }
+    },
+    "/api/admin/orders/{orderId}": {
+      "get": {
+        "tags": [
+          "Admin Orders"
+        ],
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
+      }
+    },
+    "/api/admin/orders/{orderId}/cancel": {
+      "patch": {
+        "tags": [
+          "Admin Orders"
+        ],
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfOrderResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
+      }
+    },
     "/api/orders": {
       "get": {
         "tags": [
@@ -2938,7 +3323,7 @@
             "name": "Status",
             "in": "query",
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/OrderStatus"
             }
           },
           {
@@ -3254,6 +3639,132 @@
   },
   "components": {
     "schemas": {
+      "AdminOrderSummaryResponse": {
+        "required": [
+          "orderId",
+          "orderNo",
+          "userId",
+          "userName",
+          "nickname",
+          "phone",
+          "sessionId",
+          "totalAmount",
+          "discountAmount",
+          "ticketCount",
+          "orderStatus",
+          "expireTime",
+          "createTime"
+        ],
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "orderNo": {
+            "type": "string"
+          },
+          "userId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "userName": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "phone": {
+            "type": "string"
+          },
+          "sessionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "totalAmount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "discountAmount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "ticketCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "orderStatus": {
+            "$ref": "#/components/schemas/OrderStatus"
+          },
+          "expireTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponseOfIEnumerableOfCategoryResponse": {
+        "required": [
+          "success",
+          "data",
+          "code",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CategoryResponse"
+            }
+          },
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "ApiResponseOfIEnumerableOfPricingStrategyDto": {
         "required": [
           "success",
@@ -3458,6 +3969,39 @@
               },
               {
                 "$ref": "#/components/schemas/OrderResponse"
+              }
+            ]
+          },
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseOfPagedAdminOrderResponse": {
+        "required": [
+          "success",
+          "data",
+          "code",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PagedAdminOrderResponse"
               }
             ]
           },
@@ -4066,6 +4610,45 @@
           }
         }
       },
+      "CategoryResponse": {
+        "required": [
+          "categoryId",
+          "categoryName",
+          "parentId",
+          "sortOrder"
+        ],
+        "type": "object",
+        "properties": {
+          "categoryId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "categoryName": {
+            "type": "string"
+          },
+          "parentId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "sortOrder": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "CreateOrderItemRequest": {
         "required": [
           "seatId",
@@ -4161,7 +4744,7 @@
             ]
           },
           "priceType": {
-            "type": "string"
+            "$ref": "#/components/schemas/PriceType"
           },
           "price": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
@@ -4251,7 +4834,6 @@
       },
       "CreateShowSessionRequest": {
         "required": [
-          "sessionId",
           "startTime",
           "endTime",
           "saleStartTime",
@@ -4260,14 +4842,6 @@
         ],
         "type": "object",
         "properties": {
-          "sessionId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
           "startTime": {
             "type": "string",
             "format": "date-time"
@@ -4293,6 +4867,15 @@
             "format": "int64"
           }
         }
+      },
+      "ETicketStatus": {
+        "enum": [
+          "UNUSED",
+          "USED",
+          "REFUNDED",
+          "EXCHANGED"
+        ],
+        "type": "string"
       },
       "ETicketSummaryResponse": {
         "required": [
@@ -4323,7 +4906,7 @@
             "format": "int64"
           },
           "ticketStatus": {
-            "type": "string"
+            "$ref": "#/components/schemas/ETicketStatus"
           }
         }
       },
@@ -4387,10 +4970,10 @@
         "type": "object",
         "properties": {
           "payChannel": {
-            "type": "string"
+            "$ref": "#/components/schemas/PaymentChannel"
           },
           "result": {
-            "type": "string"
+            "$ref": "#/components/schemas/PaymentResult"
           }
         }
       },
@@ -4447,9 +5030,19 @@
             "format": "double"
           },
           "itemStatus": {
-            "type": "string"
+            "$ref": "#/components/schemas/OrderItemStatus"
           }
         }
+      },
+      "OrderItemStatus": {
+        "enum": [
+          "NORMAL",
+          "REFUNDING",
+          "REFUNDED",
+          "EXCHANGING",
+          "EXCHANGED"
+        ],
+        "type": "string"
       },
       "OrderResponse": {
         "required": [
@@ -4467,7 +5060,8 @@
           "remark",
           "items",
           "payments",
-          "tickets"
+          "tickets",
+          "createTime"
         ],
         "type": "object",
         "properties": {
@@ -4515,7 +5109,7 @@
             "format": "int32"
           },
           "orderStatus": {
-            "type": "string"
+            "$ref": "#/components/schemas/OrderStatus"
           },
           "expireTime": {
             "type": "string",
@@ -4561,8 +5155,23 @@
             "items": {
               "$ref": "#/components/schemas/ETicketSummaryResponse"
             }
+          },
+          "createTime": {
+            "type": "string",
+            "format": "date-time"
           }
         }
+      },
+      "OrderStatus": {
+        "enum": [
+          "PENDING_PAY",
+          "PAID",
+          "ISSUED",
+          "PART_REFUND",
+          "REFUNDED",
+          "CANCELLED"
+        ],
+        "type": "string"
       },
       "OrderSummaryResponse": {
         "required": [
@@ -4622,7 +5231,7 @@
             "format": "int32"
           },
           "orderStatus": {
-            "type": "string"
+            "$ref": "#/components/schemas/OrderStatus"
           },
           "expireTime": {
             "type": "string",
@@ -4631,6 +5240,47 @@
           "createTime": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "PagedAdminOrderResponse": {
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalCount"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminOrderSummaryResponse"
+            }
+          },
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -4880,6 +5530,15 @@
           }
         }
       },
+      "PaymentChannel": {
+        "enum": [
+          "ALIPAY",
+          "WECHAT",
+          "UNIONPAY",
+          "BALANCE"
+        ],
+        "type": "string"
+      },
       "PaymentResponse": {
         "required": [
           "paymentId",
@@ -4922,10 +5581,10 @@
             "format": "double"
           },
           "payChannel": {
-            "type": "string"
+            "$ref": "#/components/schemas/PaymentChannel"
           },
           "payStatus": {
-            "type": "string"
+            "$ref": "#/components/schemas/PaymentStatus"
           },
           "tradeNo": {
             "type": [
@@ -4948,6 +5607,39 @@
             "format": "date-time"
           }
         }
+      },
+      "PaymentResult": {
+        "enum": [
+          "SUCCESS",
+          "FAIL"
+        ],
+        "type": "string"
+      },
+      "PaymentStatus": {
+        "enum": [
+          "PENDING",
+          "SUCCESS",
+          "FAIL",
+          "CLOSED"
+        ],
+        "type": "string"
+      },
+      "PriceStrategyStatus": {
+        "enum": [
+          "ENABLED",
+          "DISABLED"
+        ],
+        "type": "string"
+      },
+      "PriceType": {
+        "enum": [
+          "EARLY_BIRD",
+          "PRESALE",
+          "STANDARD",
+          "VIP",
+          "MEMBER"
+        ],
+        "type": "string"
       },
       "PricingStrategyDto": {
         "required": [
@@ -4976,7 +5668,7 @@
             "format": "int64"
           },
           "priceType": {
-            "type": "string"
+            "$ref": "#/components/schemas/PriceType"
           },
           "price": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
@@ -4987,45 +5679,7 @@
             "format": "double"
           },
           "status": {
-            "type": "string"
-          }
-        }
-      },
-      "ProblemDetails": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "title": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "status": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "detail": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "instance": {
-            "type": [
-              "null",
-              "string"
-            ]
+            "$ref": "#/components/schemas/PriceStrategyStatus"
           }
         }
       },
@@ -5906,7 +6560,7 @@
             "format": "date-time"
           },
           "sessionStatus": {
-            "type": "string"
+            "$ref": "#/components/schemas/SessionStatus"
           },
           "seatMap": {
             "$ref": "#/components/schemas/SessionSeatMapMapDto"
@@ -6145,6 +6799,24 @@
           }
         }
       },
+      "SessionStatus": {
+        "enum": [
+          "UPCOMING",
+          "PRESALE",
+          "ONSALE",
+          "SOLD_OUT",
+          "ENDED"
+        ],
+        "type": "string"
+      },
+      "ShowAuditStatus": {
+        "enum": [
+          "PENDING",
+          "APPROVED",
+          "REJECTED"
+        ],
+        "type": "string"
+      },
       "ShowDto": {
         "required": [
           "showId",
@@ -6200,10 +6872,10 @@
             ]
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/ShowStatus"
           },
           "auditStatus": {
-            "type": "string"
+            "$ref": "#/components/schemas/ShowAuditStatus"
           },
           "createTime": {
             "type": "string",
@@ -6218,6 +6890,7 @@
           "startTime",
           "endTime",
           "saleStartTime",
+          "saleEndTime",
           "sessionStatus",
           "seatMapId"
         ],
@@ -6251,8 +6924,12 @@
             "type": "string",
             "format": "date-time"
           },
+          "saleEndTime": {
+            "type": "string",
+            "format": "date-time"
+          },
           "sessionStatus": {
-            "type": "string"
+            "$ref": "#/components/schemas/SessionStatus"
           },
           "seatMapId": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -6264,6 +6941,14 @@
           }
         }
       },
+      "ShowStatus": {
+        "enum": [
+          "DRAFT",
+          "PUBLISHED",
+          "UNPUBLISHED"
+        ],
+        "type": "string"
+      },
       "UpdateSessionStatusRequest": {
         "required": [
           "status"
@@ -6271,7 +6956,7 @@
         "type": "object",
         "properties": {
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/SessionStatus"
           }
         }
       },
@@ -6319,7 +7004,7 @@
             ]
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/ShowStatus"
           }
         }
       },
@@ -6386,6 +7071,9 @@
       "name": "Auth"
     },
     {
+      "name": "Categories"
+    },
+    {
       "name": "ShowSessionClient"
     },
     {
@@ -6411,6 +7099,9 @@
     },
     {
       "name": "Sessions"
+    },
+    {
+      "name": "Admin Orders"
     },
     {
       "name": "Orders"
