@@ -137,6 +137,23 @@ export interface SessionSeatMapSeatDto {
   sectionColor?: string;
 }
 
+export interface SeatLockBatchResponse {
+  sessionId: number;
+  expireTime: string;
+  locks: SeatLockItemResponse[];
+}
+
+export interface SeatLockItemResponse {
+  seatId: number;
+  lockToken: string;
+  expireTime: string;
+}
+
+export interface SeatLockReleaseResponse {
+  sessionId: number;
+  releasedCount: number;
+}
+
 // ========== 订单相关 ==========
 export interface CreateOrderRequest {
   sessionId: number;
@@ -148,6 +165,7 @@ export interface CreateOrderItemRequest {
   seatId: number;
   priceStrategyId: number;
   realNameId: number | null;
+  lockToken: string;
 }
 
 export interface OrderResponse {

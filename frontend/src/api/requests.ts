@@ -15,6 +15,8 @@ import type {
   MockPaymentRequest,
   PagedResponse,
   ShowDto,
+  SeatLockBatchResponse,
+  SeatLockReleaseResponse
 } from '@/types/api';
 
 // ========== Auth API ==========
@@ -88,4 +90,19 @@ export const paymentAPI = {
   // 模拟支付
   mockPayment: (orderId: number, data: MockPaymentRequest) =>
     apiClient.post<ApiResponse<PaymentResponse>>(`/api/orders/${orderId}/payments/mock`, data),
+};
+
+// ========== 座位锁 API ==========
+export const seatLockAPI = {
+  // 锁定座位
+  lockSeats: (sessionId: number, seatIds: number[]) =>
+    apiClient.post<ApiResponse<SeatLockBatchResponse>>(`/api/sessions/${sessionId}/seat-locks`, {
+      seatIds,
+    }),
+
+  // 释放座位
+  releaseSeats: (sessionId: number, lockTokens: string[]) =>
+    apiClient.post<ApiResponse<SeatLockReleaseResponse>>(`/api/sessions/${sessionId}/seat-locks/release`, {
+      lockTokens,
+    }),
 };
