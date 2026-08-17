@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';  // ← 加 useRef
-import { useUser } from '@/context/UserContext';     // ← 新增
+import { useState, useEffect, useRef } from 'react';
+import { useUser } from '@/context/UserContext';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Menu, Avatar, Typography, Button, Form, Input, Modal, message, Table, Tag, Divider, Card } from 'antd';
 import {
@@ -16,7 +16,6 @@ import {
   CloseCircleOutlined,
 } from '@ant-design/icons';
 import type { Address } from '@/mock/user';
-import { mockOrders } from '@/mock/orders';
 import './UserCenter.css';
 
 const { Sider, Content } = Layout;
@@ -224,7 +223,6 @@ const UserCenter = () => {
       </div>
       <Divider />
       <Table
-        dataSource={mockOrders}
         columns={[
           { title: '订单号', dataIndex: 'id', key: 'id', width: 160 },
           { title: '演出名称', dataIndex: 'eventName', key: 'eventName', width: 200 },

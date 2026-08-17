@@ -1,9 +1,8 @@
-// src/pages/Login/index.tsx
 import { useState } from 'react';
 import { Form, Input, Button, Card, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { client } from '@/api/request';
+import { authAPI } from '@/api/requests';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -12,25 +11,27 @@ const Login = () => {
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      const { data, error } = await client.POST('/api/auth/login', {
-        body: {
-          account: values.username,
-          password: values.password,
-        },
+      const response: any = await authAPI.login({
+        account: values.username,
+        password: values.password,
       });
 
-      if (error || !data?.success || !data.data?.accessToken) {
-        message.error(data?.message || '登录失败，请检查用户名或密码');
-        return;
-      }
+      const result = response.data ? response.data : response;
 
-      localStorage.setItem('token', data.data.accessToken);
-      message.success('登录成功！');
-      setTimeout(() => {
-        navigate('/');
-      }, 500);
-    } catch {
-      message.error('登录失败，请检查网络连接');
+      if (result.success && result.data) {
+        const loginData = result.data;
+        localStorage.setItem('accessToken', loginData.accessToken);
+        localStorage.setItem('user', JSON.stringify(loginData.user));
+        message.success('登录成功！');
+        setTimeout(() => {
+          navigate('/');
+        }, 500);
+      } else {
+        message.error(result.message || '登录失败');
+      }
+    } catch (error: any) {
+      console.error('登录异常:', error);
+      message.error(error.response?.data?.message || '登录失败，请检查网络连接');
     } finally {
       setLoading(false);
     }
@@ -53,7 +54,7 @@ const Login = () => {
       <Card
         title="票务系统登录"
         style={{ width: 400, boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }}
-        headStyle={{ textAlign: 'center', fontSize: '20px' }}
+        styles={{ header: { textAlign: 'center', fontSize: '20px' } }}
       >
         <Form
           name="login"

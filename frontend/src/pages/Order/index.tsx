@@ -10,17 +10,19 @@ const { Title, Text } = Typography;
 
 // 订单状态映射
 const STATUS_MAP: Record<string, { color: string; text: string }> = {
-  Pending: { color: 'orange', text: '待支付' },
-  Paid: { color: 'green', text: '已支付' },
-  Cancelled: { color: 'red', text: '已取消' },
-  Expired: { color: 'default', text: '已过期' },
+  PENDING_PAY: { color: 'orange', text: '待支付' },
+  PAID: { color: 'green', text: '已支付' },
+  ISSUED: { color: 'blue', text: '已出票' },
+  PART_REFUND: { color: 'purple', text: '部分退款' },
+  REFUNDED: { color: 'red', text: '已退款' },
+  CANCELLED: { color: 'red', text: '已取消' },
 };
-
 // 支付状态映射
 const PAYMENT_STATUS_MAP: Record<string, { color: string; text: string }> = {
-  Pending: { color: 'orange', text: '支付中' },
-  Success: { color: 'green', text: '支付成功' },
-  Failed: { color: 'red', text: '支付失败' },
+  PENDING: { color: 'orange', text: '支付中' },
+  SUCCESS: { color: 'green', text: '支付成功' },
+  FAIL: { color: 'red', text: '支付失败' },
+  CLOSED: { color: 'default', text: '已关闭' },
 };
 
 const Order = () => {
@@ -212,7 +214,7 @@ const Order = () => {
       render: (_: any, record: OrderSummaryResponse) => {
         const status = record.orderStatus;
 
-        if (status === 'Pending') {
+        if (status === 'PENDING_PAY') {
           return (
             <div style={{ display: 'flex', gap: 8 }}>
               <Button
@@ -229,7 +231,7 @@ const Order = () => {
           );
         }
 
-        if (status === 'Paid') {
+        if (status === 'PAID' || status === 'ISSUED') {
           return (
             <Button type="link" size="small" onClick={() => navigate(`/order/${record.orderId}`)}>
               查看详情
@@ -243,7 +245,7 @@ const Order = () => {
   ];
 
   // ========== 待支付统计 ==========
-  const pendingOrders = orders.filter((o) => o.orderStatus === 'Pending');
+  const pendingOrders = orders.filter((o) => o.orderStatus === 'PENDING_PAY');
   const totalPendingAmount = pendingOrders.reduce((sum, o) => sum + o.totalAmount, 0);
 
   return (

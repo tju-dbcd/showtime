@@ -27,7 +27,7 @@ const Home = () => {
       const response: any = await showAPI.getShows({
         PageIndex: 1,
         PageSize: 20,
-        Status: 'Published', // 只获取已发布的演出
+        Status: 'PUBLISHED',
       });
 
       const result = response.data ? response.data : response;

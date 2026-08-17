@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, message, Typography, Spin, Radio } from 'antd';
-import { sessionAPI, showSessionAPI, orderAPI } from '@/api/requests';
+import { sessionAPI, showSessionAPI, orderAPI, seatLockAPI } from '@/api/requests';
 import type { SessionSeatMapDto, SessionSeatMapSeatDto, PricingStrategyDto } from '@/types/api';
 import './SeatSelection.css';
 
@@ -9,10 +9,10 @@ const { Title, Text } = Typography;
 
 // 座位状态映射（后端返回 -> 前端显示）
 const SEAT_STATUS_MAP: Record<string, { label: string; className: string }> = {
-  Available: { label: '可选', className: 'available' },
-  Locked: { label: '锁定中', className: 'locked' },
-  Sold: { label: '已售', className: 'sold' },
-  Unavailable: { label: '不可用', className: 'unavailable' },
+  AVAILABLE: { label: '可选', className: 'available' },
+  LOCKED: { label: '锁定中', className: 'locked' },
+  SOLD: { label: '已售', className: 'sold' },
+  UNAVAILABLE: { label: '不可用', className: 'unavailable' },
 };
 
 // 场次信息
@@ -124,10 +124,10 @@ const SeatSelection = () => {
   // 座位点击处理
   const handleSeatClick = (seat: SessionSeatMapSeatDto) => {
     // 不可选状态
-    if (seat.availabilityStatus !== 'Available' || !seat.isSellable) {
-      if (seat.availabilityStatus === 'Sold') {
+    if (seat.availabilityStatus !== 'AVAILABLE' || !seat.isSellable) {
+      if (seat.availabilityStatus === 'SOLD') {
         message.warning('该座位已被选走');
-      } else if (seat.availabilityStatus === 'Locked') {
+      } else if (seat.availabilityStatus === 'LOCKED') {
         message.warning('该座位已被锁定');
       } else {
         message.warning('该座位不可用');
@@ -180,7 +180,22 @@ const SeatSelection = () => {
 
     setSubmitting(true);
     try {
-      // 构建订单请求
+      // 1. 先锁座
+      const lockResponse: any = await seatLockAPI.lockSeats(selectedSessionId, selectedSeats);
+      const lockResult = lockResponse.data ? lockResponse.data : lockResponse;
+
+      if (!lockResult.success || !lockResult.data) {
+        message.error(lockResult.message || '锁定座位失败，请重试');
+        return;
+      }
+
+      // 获取锁座令牌映射
+      const lockMap: Record<number, string> = {};
+      lockResult.data.locks.forEach((item: any) => {
+        lockMap[item.seatId] = item.lockToken;
+      });
+
+      // 2. 构建订单请求（带上 lockToken）
       const orderItems = selectedSeats.map((seatId) => {
         const seat = seats.find((s) => s.seatId === seatId);
         const strategy = pricingStrategies.find(
@@ -190,26 +205,29 @@ const SeatSelection = () => {
           seatId: seatId,
           priceStrategyId: strategy?.priceStrategyId || 0,
           realNameId: null,
+          lockToken: lockMap[seatId] || '',
         };
       });
 
-      const response: any = await orderAPI.createOrder({
+      const orderResponse: any = await orderAPI.createOrder({
         sessionId: selectedSessionId,
         items: orderItems,
         remark: null,
       });
 
-      const result = response.data ? response.data : response;
-      if (result.success && result.data) {
+      const orderResult = orderResponse.data ? orderResponse.data : orderResponse;
+      if (orderResult.success && orderResult.data) {
         message.success('订单创建成功！');
-        // 跳转到订单页
         navigate('/order');
       } else {
-        message.error(result.message || '创建订单失败');
+        // 创建订单失败，释放锁
+        const tokens = lockResult.data.locks.map((item: any) => item.lockToken);
+        await seatLockAPI.releaseSeats(selectedSessionId, tokens);
+        message.error(orderResult.message || '创建订单失败');
       }
     } catch (error: any) {
-      console.error('创建订单失败:', error);
-      message.error(error.response?.data?.message || '创建订单失败，请重试');
+      console.error('操作失败:', error);
+      message.error(error.response?.data?.message || '操作失败，请重试');
     } finally {
       setSubmitting(false);
     }

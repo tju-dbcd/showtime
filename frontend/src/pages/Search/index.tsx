@@ -42,7 +42,7 @@ const Search = () => {
       const params: any = {
         PageIndex: page,
         PageSize: pageSize,
-        Status: 'Published',
+        Status: 'PUBLISHED',
       };
 
       // 关键词
@@ -76,8 +76,8 @@ const Search = () => {
 
   // ========== 初始加载 ==========
   useEffect(() => {
-    fetchShows(initialQuery);
-  }, [page, selectedCategory]);
+    fetchShows(searchText);
+  }, [page, selectedCategory, searchText]);
 
   // ========== 搜索按钮 ==========
   const handleSearch = () => {
@@ -209,7 +209,7 @@ const Search = () => {
                           <div>
                             <div>{show.description?.slice(0, 30) || '暂无简介'}</div>
                             <div style={{ marginTop: 8 }}>
-                              <Tag color={show.status === 'Published' ? 'green' : 'orange'}>
+                              <Tag color={show.status === 'PUBLISHED' ? 'green' : 'orange'}>
                                 {show.status || '未知'}
                               </Tag>
                             </div>

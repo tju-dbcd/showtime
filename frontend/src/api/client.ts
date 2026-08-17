@@ -4,6 +4,9 @@ import { message } from 'antd';
 // API 基础地址
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
+console.log('BASE_URL:', BASE_URL);
+console.log('import.meta.env.VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL);
+
 // 创建 axios 实例
 const apiClient: AxiosInstance = axios.create({
   baseURL: BASE_URL,
