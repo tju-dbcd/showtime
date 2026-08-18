@@ -369,7 +369,8 @@ public sealed class ShowAdminControllerTests
 
     private static ShowSessionClientController CreateClientController(AppDbContext db)
     {
-        var sessionService = new ShowSessionService(db);
+        // <fix> 补充 TimeProvider.System 
+        var sessionService = new ShowSessionService(db, TimeProvider.System);
         var showService = new ClientShowService(db);
         return new ShowSessionClientController(sessionService, showService)
         {
