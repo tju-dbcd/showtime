@@ -118,7 +118,7 @@ public sealed class ShowSessionClientControllersTests
 
     private static ShowSessionClientController CreateClientController(AppDbContext db)
     {
-        var sessionService = new ShowSessionService(db);
+        var sessionService = new ShowSessionService(db,, TimeProvider.System);
         var showService = new ClientShowService(db);
 
         // 传入两个依赖项：ShowSessionService 和 ClientShowService，解决 CS7036 报错
