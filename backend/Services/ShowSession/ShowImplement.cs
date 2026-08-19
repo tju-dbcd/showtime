@@ -69,7 +69,10 @@ public class AdminShowService : IAdminShowService
         if (show == null)
             throw new KeyNotFoundException($"未找到 ID 为 {showId} 的演出");
 
-        bool hasSessions = await _context.ShowSessions.AnyAsync(s => s.ShowId == showId, cancellationToken);
+        // CountAsync > 0 替代 AnyAsync：Oracle EF provider 会把 Any 翻译成包含
+        // TRUE/FALSE 字面量的 SQL，Oracle 21c 不支持，报 ORA-00904: "FALSE": invalid identifier。
+        bool hasSessions = await _context.ShowSessions
+            .CountAsync(s => s.ShowId == showId, cancellationToken) > 0;
         if (hasSessions)
             throw new InvalidOperationException("该演出下已存在关联场次，无法直接删除");
 
@@ -123,7 +126,7 @@ public class AdminShowService : IAdminShowService
     {
         bool exists = await _context.Set<ShowtimeBackend.Entities.ShowSession.Category>()
             .AsNoTracking()
-            .AnyAsync(c => c.CategoryId == categoryId, cancellationToken);
+            .CountAsync(c => c.CategoryId == categoryId, cancellationToken) > 0;
         if (!exists)
             throw new ArgumentException($"未找到 ID 为 {categoryId} 的演出分类");
     }

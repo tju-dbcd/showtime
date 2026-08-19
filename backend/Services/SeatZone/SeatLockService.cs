@@ -110,12 +110,15 @@ public sealed class SeatLockService(
             .ToListAsync(cancellationToken);
 
         // 活动预留表示座位已经进入订单流程，不能再生成新的临时锁。
+        // 使用 CountAsync 而非 AnyAsync：Oracle EF provider 会把 Any 翻译成
+        // CASE WHEN EXISTS(...) THEN True ELSE False END，而 Oracle 21c 的 SQL
+        // 不支持 TRUE/FALSE 布尔字面量，导致 ORA-00904: "FALSE": invalid identifier。
         var hasActiveReservation = await dbContext.SeatReservations
-            .AnyAsync(
+            .CountAsync(
                 item => item.SessionId == sessionId &&
                         seatIds.Contains(item.SeatId) &&
                         item.ReservationStatus == "ACTIVE",
-                cancellationToken);
+                cancellationToken) > 0;
         if (existingLocks.Any(item => item.ExpireTime > now) || hasActiveReservation)
         {
             return SeatZoneResult<SeatLockBatchResponse>.Fail(
