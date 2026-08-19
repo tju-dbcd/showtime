@@ -102,6 +102,80 @@ public sealed class ShowSessionClientControllersTests
         Assert.All(strategies, s => Assert.Equal(PriceStrategyStatus.ENABLED, s.Status));
     }
 
+    /// <summary>
+    /// 只显示窗口内的座位为正确情况
+    /// </summary>
+    [Fact]
+    public async Task GetOnSaleSessions_WithTimeWindowValidation_ReturnsOnlyTrulyOnSaleSessions()
+    {
+        await using var db = CreateDbContext();
+        long targetShowId = 1;
+
+        // 模拟固定当时间 2026-08-01 12:00:00 UTC
+        var fakeTimeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero));
+        var now = fakeTimeProvider.GetUtcNow().UtcDateTime;
+
+        db.ShowSessions.AddRange(
+            // ONSALE 且处于开售时间窗口内
+            new ShowSession
+            {
+                ShowId = targetShowId,
+                SeatMapId = 1,
+                StartTime = now.AddDays(2),
+                EndTime = now.AddDays(2).AddHours(2),
+                SaleStartTime = now.AddDays(-1),
+                SaleEndTime = now.AddDays(1),
+                SessionStatus = "ONSALE"
+            },
+            // ONSALE 但当前时间早于 SaleStartTime
+            new ShowSession
+            {
+                ShowId = targetShowId,
+                SeatMapId = 1,
+                StartTime = now.AddDays(5),
+                EndTime = now.AddDays(5).AddHours(2),
+                SaleStartTime = now.AddHours(1),
+                SaleEndTime = now.AddDays(4),
+                SessionStatus = "ONSALE"
+            },
+            // ONSALE 但当前时间晚于 SaleEndTime
+            new ShowSession
+            {
+                ShowId = targetShowId,
+                SeatMapId = 1,
+                StartTime = now.AddHours(2),
+                EndTime = now.AddHours(4),
+                SaleStartTime = now.AddDays(-2),
+                SaleEndTime = now.AddHours(-1),
+                SessionStatus = "ONSALE"
+            },
+            // 状态非 ONSALE
+            new ShowSession
+            {
+                ShowId = targetShowId,
+                SeatMapId = 1,
+                StartTime = now.AddDays(2),
+                EndTime = now.AddDays(2).AddHours(2),
+                SaleStartTime = now.AddDays(-1),
+                SaleEndTime = now.AddDays(1),
+                SessionStatus = "UPCOMING"
+            }
+        );
+        await db.SaveChangesAsync();
+
+        var controller = CreateClientController(db, fakeTimeProvider);
+
+        var actionResult = await controller.GetOnSaleSessions(targetShowId, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<IEnumerable<ShowSessionDto>>>(okResult.Value);
+        Assert.True(apiResponse.Success);
+
+        var sessions = apiResponse.Data!.ToList();
+        Assert.Single(sessions);
+        Assert.Equal(SessionStatus.ONSALE, sessions[0].SessionStatus);
+    }
+
     // ==========================================
     // Helper Methods
     // ==========================================
@@ -116,20 +190,18 @@ public sealed class ShowSessionClientControllersTests
         return new AppDbContext(options);
     }
 
-    private static ShowSessionClientController CreateClientController(AppDbContext db)
+    private static ShowSessionClientController CreateClientController(AppDbContext db, TimeProvider? timeProvider = null)
     {
-        var sessionService = new ShowSessionService(db);
+        var sessionService = new ShowSessionService(db, timeProvider ?? TimeProvider.System);
         var showService = new ClientShowService(db);
 
-        // 传入两个依赖项：ShowSessionService 和 ClientShowService，解决 CS7036 报错
-        var controller = new ShowSessionClientController(sessionService, showService)
+        return new ShowSessionClientController(sessionService, showService)
         {
             ControllerContext = new ControllerContext
             {
                 HttpContext = new DefaultHttpContext()
             }
         };
-        return controller;
     }
 
     private static ShowSession CreateSessionEntity(long showId, string status, DateTime startTime)
@@ -145,5 +217,22 @@ public sealed class ShowSessionClientControllersTests
             SessionStatus = status,
             CreateTime = DateTime.UtcNow
         };
+    }
+}
+
+public sealed class FakeTimeProvider : TimeProvider
+{
+    private DateTimeOffset _now;
+
+    public FakeTimeProvider(DateTimeOffset initialTime)
+    {
+        _now = initialTime;
+    }
+
+    public override DateTimeOffset GetUtcNow() => _now;
+
+    public void Advance(TimeSpan timeSpan)
+    {
+        _now = _now.Add(timeSpan);
     }
 }
