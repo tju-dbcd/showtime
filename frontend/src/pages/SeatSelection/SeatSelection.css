@@ -1,0 +1,296 @@
+/* ========== 容器 ========== */
+.seat-selection-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px 120px;
+}
+
+/* ========== 场次选择 ========== */
+.session-selector {
+  text-align: center;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 12px;
+}
+
+.session-selector .ant-radio-button-wrapper {
+  border-radius: 6px !important;
+  margin: 0 4px;
+}
+
+/* ========== 座位网格 ========== */
+.seat-grid-wrapper {
+  background: #fafafa;
+  border-radius: 16px;
+  padding: 24px 16px 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  overflow-x: auto;
+}
+
+.seat-grid {
+  display: inline-block;
+  min-width: 100%;
+}
+
+.seat-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.row-label {
+  width: 36px;
+  font-weight: 600;
+  color: #888;
+  font-size: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ========== 单个座位 ========== */
+.seat {
+  width: 44px;
+  height: 44px;
+  margin: 0 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px 8px 4px 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  font-size: 11px;
+  border: 1px solid transparent;
+  position: relative;
+}
+
+.seat .seat-number {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.seat .seat-price {
+  font-size: 9px;
+  color: inherit;
+  opacity: 0.8;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+/* 可选 */
+.seat.available {
+  background-color: #e8f5e9;
+  border-color: #a5d6a7;
+  color: #2e7d32;
+}
+.seat.available:hover {
+  background-color: #c8e6c9;
+  transform: scale(1.08);
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+}
+
+/* 已选 */
+.seat.selected {
+  background-color: #1976d2;
+  border-color: #1976d2;
+  color: #fff;
+  transform: scale(1.02);
+}
+.seat.selected .seat-number {
+  color: #fff;
+}
+
+/* 锁定中 */
+.seat.locked {
+  background-color: #fff3e0;
+  border-color: #ffcc80;
+  color: #e65100;
+  cursor: not-allowed;
+}
+.seat.locked .seat-number {
+  color: #e65100;
+}
+
+/* 已售 */
+.seat.sold {
+  background-color: #eeeeee;
+  border-color: #ddd;
+  color: #bdbdbd;
+  cursor: not-allowed;
+}
+.seat.sold .seat-number {
+  color: #bdbdbd;
+}
+
+/* 不可用 */
+.seat.unavailable {
+  background-color: #f5f5f5;
+  border: 1px dashed #d9d9d9;
+  color: #d9d9d9;
+  cursor: not-allowed;
+}
+.seat.unavailable .seat-number {
+  color: #d9d9d9;
+}
+
+/* 未知状态 */
+.seat.unknown {
+  background-color: #f5f5f5;
+  border-color: #ddd;
+  color: #999;
+  cursor: not-allowed;
+}
+
+/* ========== 图例 ========== */
+.seat-legend {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  margin: 20px 0 16px;
+  flex-wrap: wrap;
+}
+.seat-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #555;
+}
+.legend-box {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px 6px 2px 2px;
+  border: 1px solid #ddd;
+}
+.legend-box.available {
+  background-color: #e8f5e9;
+  border-color: #a5d6a7;
+}
+.legend-box.selected {
+  background-color: #1976d2;
+  border-color: #1976d2;
+}
+.legend-box.locked {
+  background-color: #fff3e0;
+  border-color: #ffcc80;
+}
+.legend-box.sold {
+  background-color: #eeeeee;
+  border-color: #ddd;
+}
+.legend-box.unavailable {
+  background-color: #f5f5f5;
+  border: 1px dashed #d9d9d9;
+}
+
+/* ========== 底部操作栏 ========== */
+.seat-actions {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: #141414;
+  padding: 16px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 100;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  box-sizing: border-box;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.seat-summary {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 16px;
+}
+
+.seat-summary strong {
+  color: #fff;
+  font-size: 18px;
+}
+
+.seat-summary .total-price {
+  color: #ff4d4f;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.seat-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.seat-buttons .ant-btn-primary {
+  background: #ff4d4f !important;
+  border-color: #ff4d4f !important;
+  font-weight: 600;
+  padding: 0 32px;
+  height: 44px;
+  font-size: 16px;
+}
+
+.seat-buttons .ant-btn-primary:hover:not(:disabled) {
+  background: #ff7875 !important;
+  border-color: #ff7875 !important;
+}
+
+.seat-buttons .ant-btn-primary:disabled {
+  opacity: 0.4;
+}
+
+/* ========== 响应式 ========== */
+@media (max-width: 768px) {
+  .seat-selection-container {
+    padding: 16px 8px 140px;
+  }
+  .seat {
+    width: 32px;
+    height: 32px;
+    margin: 0 2px;
+  }
+  .seat .seat-number {
+    font-size: 9px;
+  }
+  .seat .seat-price {
+    font-size: 7px;
+  }
+  .row-label {
+    width: 24px;
+    font-size: 12px;
+  }
+  .seat-actions {
+    padding: 12px 16px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .seat-summary {
+    justify-content: center;
+    font-size: 14px;
+    gap: 12px;
+  }
+  .seat-buttons {
+    justify-content: center;
+  }
+  .seat-buttons .ant-btn-primary {
+    padding: 0 20px;
+    height: 40px;
+    font-size: 14px;
+  }
+  .seat-legend {
+    gap: 12px;
+    font-size: 12px;
+  }
+  .legend-box {
+    width: 20px;
+    height: 20px;
+  }
+}

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';  // ← 加 useRef
-import { useUser } from '@/context/UserContext';     // ← 新增
+import { useState, useEffect, useRef } from 'react';
+import { useUser } from '@/context/UserContext';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Menu, Avatar, Typography, Button, Form, Input, Modal, message, Table, Tag, Divider, Card } from 'antd';
 import {
@@ -16,7 +16,6 @@ import {
   CloseCircleOutlined,
 } from '@ant-design/icons';
 import type { Address } from '@/mock/user';
-import { mockOrders } from '@/mock/orders';
 import './UserCenter.css';
 
 const { Sider, Content } = Layout;
@@ -45,7 +44,7 @@ const UserCenter = () => {
 
   // 检查登录状态
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('accessToken');
     if (!token) {
       navigate('/login');
     }
@@ -100,7 +99,7 @@ const UserCenter = () => {
         <div className="profile-details">
           <div className="detail-row">
             <span className="label">昵称</span>
-            <span className="value">{user.nickname}</span>
+            <span className="value">{user.nickname || user.username || '用户'}</span>
             <Button type="link" size="small" onClick={() => setIsEditModalOpen(true)}>
               编辑
             </Button>
@@ -224,7 +223,6 @@ const UserCenter = () => {
       </div>
       <Divider />
       <Table
-        dataSource={mockOrders}
         columns={[
           { title: '订单号', dataIndex: 'id', key: 'id', width: 160 },
           { title: '演出名称', dataIndex: 'eventName', key: 'eventName', width: 200 },
@@ -389,7 +387,7 @@ const UserCenter = () => {
         <Sider theme="dark" width={240} className="uc-sider">
           <div className="uc-user-info">
             <Avatar src={user.avatar} size={56} />
-            <div className="uc-user-name">{user.nickname}</div>
+            <div className="uc-user-name">{user.nickname || user.username || '用户'}</div>
             <div className="uc-user-id">ID: {user.username}</div>
           </div>
           <Menu
