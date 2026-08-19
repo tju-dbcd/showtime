@@ -121,13 +121,18 @@ const SeatSelection = () => {
     }
   }, [selectedSessionId]);
 
-  // 座位点击处理
   const handleSeatClick = (seat: SessionSeatMapSeatDto) => {
-    // 不可选状态
-    if (seat.availabilityStatus !== 'AVAILABLE' || !seat.isSellable) {
-      if (seat.availabilityStatus === 'SOLD') {
+    // 如果不可售，直接提示并返回
+    if (!seat.isSellable) {
+      message.warning('该座位暂不可售');
+      return;
+    }
+
+    const status = (seat.availabilityStatus || '').toUpperCase();
+    if (status !== 'AVAILABLE') {
+      if (status === 'SOLD') {
         message.warning('该座位已被选走');
-      } else if (seat.availabilityStatus === 'LOCKED') {
+      } else if (status === 'LOCKED') {
         message.warning('该座位已被锁定');
       } else {
         message.warning('该座位不可用');
@@ -137,10 +142,8 @@ const SeatSelection = () => {
 
     const seatId = seat.seatId;
     if (selectedSeats.includes(seatId)) {
-      // 取消选中
       setSelectedSeats(selectedSeats.filter((id) => id !== seatId));
     } else {
-      // 选中
       setSelectedSeats([...selectedSeats, seatId]);
     }
   };
@@ -264,7 +267,8 @@ const SeatSelection = () => {
   // 渲染座位矩阵
   const renderSeats = () => {
     if (!seatMap) return null;
-
+  console.log('=== 座位数据 ===', seats);
+  console.log('第一个座位:', seats[0]);
     // 按行分组
     const rows: Record<string, SessionSeatMapSeatDto[]> = {};
     seats.forEach((seat) => {
@@ -288,10 +292,17 @@ const SeatSelection = () => {
               <span className="row-label">{rowKey}</span>
               {rows[rowKey].map((seat) => {
                 const isSelected = selectedSeats.includes(seat.seatId);
-                const statusInfo = SEAT_STATUS_MAP[seat.availabilityStatus || seat.seatStatus] || {
-                  label: '未知',
-                  className: 'unknown',
-                };
+                const seatStatus = seat.availabilityStatus || seat.seatStatus || '';
+                const statusKey = seatStatus.toUpperCase();
+                let statusInfo;
+
+                if (seatStatus === 'AVAILABLE' && seat.isSellable) {
+                  statusInfo = SEAT_STATUS_MAP['AVAILABLE'];
+                } else if (seatStatus === 'AVAILABLE' && !seat.isSellable) {
+                  statusInfo = { label: '不可售', className: 'unavailable' };
+                } else {
+                  statusInfo = SEAT_STATUS_MAP[statusKey] || { label: '未知', className: 'unknown' };
+                }
                 const price = getSeatPrice(seat);
 
                 return (

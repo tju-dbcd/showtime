@@ -3,7 +3,7 @@ import type { components, paths } from './types';
 import { message } from 'antd';
 
 const client = createClient<paths>({
-  baseUrl: import.meta.env.VITE_API_BASE_URL || 'http://120.27.157.163:5146',
+  baseUrl: import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'http://120.27.157.163:5146'),
   headers: {
     'Content-Type': 'application/json',
   },
@@ -12,7 +12,7 @@ const client = createClient<paths>({
 // 请求拦截器：加token
 const authMiddleware: Middleware = {
   async onRequest({ request }) {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('accessToken');
     if (token) {
       request.headers.set('Authorization', `Bearer ${token}`);
     }
