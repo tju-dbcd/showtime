@@ -29,4 +29,13 @@
    - 尽可能遵守项目时间线的规定，如果有困难可以大家讨论调整时间线。如果无法遵守也没有及时告知大家，会拖慢整个项目的进度。
    - 如果数据库有什么问题或者有什么需要，请及时说出来，大家讨论解决。
 4. 运行/配置：
+   - 数据库连接串 `ConnectionStrings:Oracle`（完整连接串，如 `User Id=liborui;Password=liborui;Data Source=120.27.157.163:1521/XEPDB1`）**不提交仓库**：
+     - 本地开发：用 `dotnet user-secrets` 注入（Development 环境自动加载，只存在你本机 `~/.microsoft/usersecrets` 下）：
+       ```bash
+       cd backend
+       dotnet user-secrets set "ConnectionStrings:Oracle" "User Id=你的姓名全拼;Password=你的密码;Data Source=120.27.157.163:1521/XEPDB1"
+       ```
+     - 生产环境：通过环境变量 `ConnectionStrings__Oracle`（或 KMS/Docker secret）注入，不要写进 `appsettings.json` 或任何提交进仓库的文件。
+     - 新增成员参考 `backend/appsettings.example.json` 模板了解需要配置哪些项。
+   - 前端环境变量：`frontend/.env.production`、`frontend/.env.development` 已移出版本控制，真实值由 CI/部署注入；仓库内只保留 `frontend/.env.example` 占位模板。
    - JWT 签名密钥 `Jwt:Key` 在 `backend/appsettings.Development.json` 中配置了一个**仅限本地开发（DEV-ONLY）**的随机密钥，保证本地可直接启动。该值仅用于 Development 环境，**生产环境严禁复用**，必须通过环境变量 `Jwt__Key`（或其他密钥管理机制）覆盖，切勿把开发密钥写入 `appsettings.json` 或生产配置。

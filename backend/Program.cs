@@ -24,16 +24,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-    var userId = configuration["Oracle_UserId"]
+    options.UseOracle(
+        configuration.GetConnectionString("Oracle")
         ?? throw new InvalidOperationException(
-            "Environment variable 'Oracle_UserId' is not set.");
-    var password = configuration["Oracle_Password"]
-        ?? throw new InvalidOperationException(
-            "Environment variable 'Oracle_Password' is not set.");
-    var connectionString =
-        $"User Id={userId};Password={password};Data Source=120.27.157.163:1521/XEPDB1";
-
-    options.UseOracle(connectionString);
+            "Connection string 'Oracle' is not set."));
 });
 
 builder.Services
