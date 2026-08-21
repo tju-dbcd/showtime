@@ -97,8 +97,10 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Oracle_UserId"] = "tests",
-                ["Oracle_Password"] = "tests",
+                // 测试环境不使用真实数据库（AppDbContext 在下方被替换为 SQLite），
+                // 这里只提供合法的连接串占位，保证 Program.cs 的配置读取不会抛异常。
+                ["ConnectionStrings:Oracle"] =
+                    "User Id=tests;Password=tests;Data Source=localhost:1521/XEPDB1",
                 ["Jwt:Key"] = _jwtKey,
                 ["Jwt:Issuer"] = TestIssuer,
                 ["Jwt:Audience"] = TestAudience,
