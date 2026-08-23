@@ -31,6 +31,11 @@ public sealed class PaymentsController(IPaymentService paymentService) : OrderTi
 
     [HttpPost("mock")]
     [ProducesResponseType(typeof(ApiResponse<PaymentProcessResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PaymentProcessResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<PaymentProcessResponse>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<PaymentProcessResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<PaymentProcessResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiResponse<PaymentProcessResponse>), StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<ApiResponse<PaymentProcessResponse>>> MockPay(
         long orderId,
         [FromBody] MockPaymentRequest request,

@@ -81,6 +81,9 @@ public sealed class AdminOrdersController(
     [ProducesResponseType(
         typeof(ApiResponse<TicketIssuanceResponse>),
         StatusCodes.Status409Conflict)]
+    [ProducesResponseType(
+        typeof(ApiResponse<TicketIssuanceResponse>),
+        StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<ApiResponse<TicketIssuanceResponse>>> Issue(
         long orderId,
         CancellationToken cancellationToken)

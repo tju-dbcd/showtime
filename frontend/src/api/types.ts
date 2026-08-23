@@ -2187,6 +2187,17 @@ export interface paths {
                         "text/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
                     };
                 };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -2469,6 +2480,61 @@ export interface paths {
             responses: {
                 /** @description OK */
                 200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
                     headers: {
                         [name: string]: unknown;
                     };

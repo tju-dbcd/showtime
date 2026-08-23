@@ -68,9 +68,12 @@ public sealed class OpenApiTests
         Assert.True(paths.TryGetProperty("/api/orders/{orderId}/tickets", out var tickets));
         Assert.True(tickets.TryGetProperty("get", out _));
         Assert.True(paths.TryGetProperty("/api/admin/orders/{orderId}/issue", out var issue));
-        Assert.True(issue.TryGetProperty("post", out _));
+        Assert.True(issue.TryGetProperty("post", out var issuePost));
         Assert.True(paths.TryGetProperty("/api/orders/{orderId}/payments/mock", out var payment));
-        Assert.True(payment.TryGetProperty("post", out _));
+        Assert.True(payment.TryGetProperty("post", out var paymentPost));
+
+        AssertResponseCodes(issuePost, "200", "401", "403", "404", "409", "500");
+        AssertResponseCodes(paymentPost, "200", "400", "401", "404", "409", "500");
 
         AssertSchemaProperties(
             schemas,
@@ -228,6 +231,19 @@ public sealed class OpenApiTests
             Assert.True(
                 properties.TryGetProperty(propertyName, out _),
                 $"Property '{schemaName}.{propertyName}' should exist.");
+        }
+    }
+
+    private static void AssertResponseCodes(
+        JsonElement operation,
+        params string[] statusCodes)
+    {
+        var responses = operation.GetProperty("responses");
+        foreach (var statusCode in statusCodes)
+        {
+            Assert.True(
+                responses.TryGetProperty(statusCode, out _),
+                $"Response status '{statusCode}' should be declared.");
         }
     }
 }

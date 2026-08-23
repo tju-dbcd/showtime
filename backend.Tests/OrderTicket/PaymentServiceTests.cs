@@ -14,7 +14,7 @@ namespace ShowtimeBackend.Tests.OrderTicket;
 public sealed class PaymentServiceTests
 {
     [Fact]
-    public async Task PayAsync_SuccessCreatesPaymentAndMarksOrderPaid()
+    public async Task PayAsync_SuccessCreatesPaymentAndMarksOrderIssued()
     {
         await using var connection = await CreateConnectionAsync();
         await using var db = await CreateDbContextAsync(connection);
