@@ -40,6 +40,8 @@ public sealed class OpenApiTests
         AssertSecurityApplied(paths, "/api/orders", "get", expectApplied: true);
         AssertSecurityApplied(paths, "/api/admin/orders", "get", expectApplied: true);
         AssertSecurityApplied(paths, "/api/admin/orders/{orderId}/cancel", "patch", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/orders/{orderId}/tickets", "get", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/admin/orders/{orderId}/issue", "post", expectApplied: true);
         AssertSecurityApplied(paths, "/api/admin/seat-maps", "get", expectApplied: true);
         AssertSecurityApplied(paths, "/api/admin/seat-rules", "post", expectApplied: true);
 
@@ -47,6 +49,53 @@ public sealed class OpenApiTests
         AssertSecurityApplied(paths, "/api/auth/login", "post", expectApplied: false);
         AssertSecurityApplied(paths, "/api/sessions/{sessionId}/seat-map", "get", expectApplied: false);
         AssertSecurityApplied(paths, "/api/client/shows/{showId}/sessions", "get", expectApplied: false);
+    }
+
+    [Fact]
+    public async Task OpenApiDocument_DeclaresTicketIssuanceContracts()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+
+        var response = await client.GetAsync("/openapi/v1.json");
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+        var root = document.RootElement;
+        var paths = root.GetProperty("paths");
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+
+        Assert.True(paths.TryGetProperty("/api/orders/{orderId}/tickets", out var tickets));
+        Assert.True(tickets.TryGetProperty("get", out _));
+        Assert.True(paths.TryGetProperty("/api/admin/orders/{orderId}/issue", out var issue));
+        Assert.True(issue.TryGetProperty("post", out _));
+        Assert.True(paths.TryGetProperty("/api/orders/{orderId}/payments/mock", out var payment));
+        Assert.True(payment.TryGetProperty("post", out _));
+
+        AssertSchemaProperties(
+            schemas,
+            "TicketResponse",
+            "eTicketId",
+            "eTicketNo",
+            "orderItemId",
+            "ticketStatus",
+            "qrCode");
+        AssertSchemaProperties(
+            schemas,
+            "PaymentProcessResponse",
+            "payment",
+            "orderStatus",
+            "issuedTicketCount");
+        AssertSchemaProperties(
+            schemas,
+            "TicketIssuanceResponse",
+            "orderId",
+            "orderStatus",
+            "createdTicketCount",
+            "existingTicketCount",
+            "totalTicketCount",
+            "issueTime");
+        AssertSchemaProperties(schemas, "OrderResponse", "issueTime");
     }
 
     private static void AssertSecurityApplied(
@@ -166,5 +215,19 @@ public sealed class OpenApiTests
             expectedValues.OrderBy(value => value),
             actual);
         Assert.Equal("string", property.GetProperty("type").GetString());
+    }
+
+    private static void AssertSchemaProperties(
+        JsonElement schemas,
+        string schemaName,
+        params string[] propertyNames)
+    {
+        var properties = schemas.GetProperty(schemaName).GetProperty("properties");
+        foreach (var propertyName in propertyNames)
+        {
+            Assert.True(
+                properties.TryGetProperty(propertyName, out _),
+                $"Property '{schemaName}.{propertyName}' should exist.");
+        }
     }
 }

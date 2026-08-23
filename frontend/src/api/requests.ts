@@ -12,7 +12,9 @@ import type {
   OrderResponse,
   PagedOrderResponse,
   PaymentResponse,
+  PaymentProcessResponse,
   MockPaymentRequest,
+  TicketResponse,
   PagedResponse,
   ShowDto,
   SeatLockBatchResponse,
@@ -81,6 +83,13 @@ export const orderAPI = {
     apiClient.patch<ApiResponse<OrderResponse>>(`/api/orders/${orderId}/cancel`),
 };
 
+// ========== Ticket API ==========
+export const ticketAPI = {
+  // 获取当前用户订单的电子票凭证
+  getTickets: (orderId: number) =>
+    apiClient.get<ApiResponse<TicketResponse[]>>(`/api/orders/${orderId}/tickets`),
+};
+
 // ========== Payment API ==========
 export const paymentAPI = {
   // 获取订单的支付记录
@@ -89,7 +98,7 @@ export const paymentAPI = {
 
   // 模拟支付
   mockPayment: (orderId: number, data: MockPaymentRequest) =>
-    apiClient.post<ApiResponse<PaymentResponse>>(`/api/orders/${orderId}/payments/mock`, data),
+    apiClient.post<ApiResponse<PaymentProcessResponse>>(`/api/orders/${orderId}/payments/mock`, data),
 };
 
 // ========== 座位锁 API ==========
