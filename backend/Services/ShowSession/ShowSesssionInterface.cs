@@ -45,7 +45,7 @@ public interface IAdminShowSessionService
     /// <summary>
     /// 为场次批量配置区域票价策略
     /// </summary>
-    Task<bool> ConfigurePriceStrategiesAsync(long sessionId, IEnumerable<CreatePriceStrategyRequest> requests, CancellationToken cancellationToken = default);
+    Task ConfigurePriceStrategiesAsync(long sessionId, IEnumerable<CreatePriceStrategyRequest> requests, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 手动变更场次状态

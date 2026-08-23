@@ -106,7 +106,7 @@ public sealed class EnumBindingTests
         Assert.Equal("VALIDATION_FAILED", apiResponse.Code);
     }
 
-    /// <summary>植入场次及外键链（分类→演出→场馆→座位图→场次），满足 SQLite 外键约束。</summary>
+    /// <summary>植入场次及外键链（分类→演出→场馆→座位图→座位区域→场次），满足 SQLite 外键约束。</summary>
     private static Task<bool> SeedSessionAsync(AppDbContext dbContext, SessionStatus status)
     {
         dbContext.Set<Category>().Add(new Category
@@ -135,6 +135,16 @@ public sealed class EnumBindingTests
             MapVersion = "V1",
             IsDefault = true,
             MapStatus = "ENABLED",
+            CreateBy = "tests",
+            UpdateBy = "tests"
+        });
+        // 补齐 SeatSection 实体
+        dbContext.Set<SeatSection>().Add(new SeatSection
+        {
+            SeatSectionId = 1,
+            SeatMapId = 100,
+            SectionCode = "VIP",
+            SectionName = "VIP区",
             CreateBy = "tests",
             UpdateBy = "tests"
         });

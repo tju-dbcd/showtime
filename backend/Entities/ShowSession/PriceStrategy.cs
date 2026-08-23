@@ -1,5 +1,7 @@
 using System;
 using ShowtimeBackend.Entities.Base;
+using ShowtimeBackend.Entities.SeatZone;
+using System.Text.Json.Serialization;
 
 namespace ShowtimeBackend.Entities.ShowSession
 {
@@ -74,6 +76,6 @@ namespace ShowtimeBackend.Entities.ShowSession
         /// <summary>
         /// TODO:关联的看台/区域实体待联合
         /// </summary>
-        //public virtual SeatSection SeatSection { get; set; } = null!;
+        public virtual SeatSection SeatSection { get; set; } = null!;
     }
 }

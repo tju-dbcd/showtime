@@ -79,8 +79,6 @@ public class AdminShowSessionController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<object>>> ConfigurePriceStrategies(
         [FromRoute] long sessionId,
         [FromBody] IEnumerable<CreatePriceStrategyRequest> requests,

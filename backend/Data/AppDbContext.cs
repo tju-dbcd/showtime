@@ -25,9 +25,20 @@ public class AppDbContext : DbContext
     public DbSet<Venue> Venues => Set<Venue>();
     public DbSet<PriceStrategy> PriceStrategy => Set<PriceStrategy>();
     public DbSet<Show> Shows => Set<Show>();
+    public DbSet<DynamicPricingRule> DynamicPricingRules => Set<DynamicPricingRule>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("APP_OWNER");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        modelBuilder.Entity<PriceStrategy>(entity =>
+        {
+            entity
+                  .HasOne(p => p.SeatSection)
+                  .WithMany(s => s.PriceStrategies)
+                  .HasForeignKey(p => p.SeatSectionId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
     }
 }

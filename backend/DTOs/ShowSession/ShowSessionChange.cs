@@ -20,7 +20,7 @@ public record CreatePriceStrategyRequest(
     long SeatSectionId,
     string? StrategyName,  // 策略名称，若为空则后端按 PriceType 自动生成
     PriceType PriceType,   // 取值见 Common.Enums.PriceType（与 DDL CK_PRICE_TYPE 一致）
-    decimal Price,
+    decimal Price, 
     DateTime? SaleStartTime, // 若为空则默认继承场次的 SaleStartTime
     DateTime? SaleEndTime,   // 若为空则默认继承场次的 SaleEndTime
     int Priority = 0,

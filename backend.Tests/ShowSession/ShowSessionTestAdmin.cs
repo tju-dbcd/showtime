@@ -25,7 +25,7 @@ public sealed class ShowSessionAdminControllersTests
         db.ShowSessions.AddRange(
             CreateSessionEntity(targetShowId, "ONSALE", DateTime.UtcNow.AddDays(1)),
             CreateSessionEntity(targetShowId, "UPCOMING", DateTime.UtcNow.AddDays(2)),
-            CreateSessionEntity(showId: 99, "ONSALE", DateTime.UtcNow.AddDays(1)) // 其他演出的场次
+            CreateSessionEntity(showId: 99, "ONSALE", DateTime.UtcNow.AddDays(1))
         );
         await db.SaveChangesAsync();
 
@@ -73,7 +73,7 @@ public sealed class ShowSessionAdminControllersTests
         var controller = CreateAdminController(db);
         var invalidRequest = CreateValidSessionRequest(
             startTime: DateTime.UtcNow.AddDays(10),
-            endTime: DateTime.UtcNow.AddDays(10).AddHours(-1)); // 结束时间早于开始时间
+            endTime: DateTime.UtcNow.AddDays(10).AddHours(-1));
 
         var actionResult = await controller.CreateSession(1, invalidRequest, CancellationToken.None);
 
@@ -89,7 +89,6 @@ public sealed class ShowSessionAdminControllersTests
         await using var db = CreateDbContext();
         var baseTime = DateTime.UtcNow.AddDays(5);
 
-        // 在数据库中插入已有排期场次
         db.ShowSessions.Add(new ShowSession
         {
             ShowId = 1,
@@ -103,7 +102,6 @@ public sealed class ShowSessionAdminControllersTests
         await db.SaveChangesAsync();
 
         var controller = CreateAdminController(db);
-        // 创建时间重叠的场次请求 
         var conflictRequest = CreateValidSessionRequest(
             startTime: baseTime.AddHours(1),
             endTime: baseTime.AddHours(3),
@@ -122,9 +120,17 @@ public sealed class ShowSessionAdminControllersTests
     {
         await using var db = CreateDbContext();
         var controller = CreateAdminController(db);
+
+        // 使用具名参数，显式传参
         var requests = new[]
         {
-            new CreatePriceStrategyRequest(1, "VIP策略", PriceType.VIP, 580m, null, null)
+            new CreatePriceStrategyRequest(
+                SeatSectionId: 1,
+                StrategyName: "VIP策略",
+                PriceType: PriceType.VIP,
+                Price: 580m,
+                SaleStartTime: null,
+                SaleEndTime: null)
         };
 
         var actionResult = await controller.ConfigurePriceStrategies(999, requests, CancellationToken.None);
@@ -157,7 +163,6 @@ public sealed class ShowSessionAdminControllersTests
         await using var db = CreateDbContext();
         var session = SeedShowSession(db, 1, 10);
 
-        // 添加一条旧策略
         db.PriceStrategy.Add(new PriceStrategy
         {
             SessionId = session.SessionId,
@@ -170,10 +175,24 @@ public sealed class ShowSessionAdminControllersTests
         await db.SaveChangesAsync();
 
         var controller = CreateAdminController(db);
+
+        // 使用具名参数，显式传参 OriginalPrice
         var newRequests = new[]
         {
-            new CreatePriceStrategyRequest(1, "VIP票策略", PriceType.VIP, 880m, null, null),
-            new CreatePriceStrategyRequest(2, "早鸟票策略", PriceType.EARLY_BIRD, 280m, null, null)
+            new CreatePriceStrategyRequest(
+                SeatSectionId: 1,
+                StrategyName: "VIP票策略",
+                PriceType: PriceType.VIP,
+                Price: 880m,
+                SaleStartTime: null,
+                SaleEndTime: null),
+            new CreatePriceStrategyRequest(
+                SeatSectionId: 2,
+                StrategyName: "早鸟票策略",
+                PriceType: PriceType.EARLY_BIRD,
+                Price: 280m,
+                SaleStartTime: null,
+                SaleEndTime: null)
         };
 
         var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, newRequests, CancellationToken.None);
@@ -182,7 +201,6 @@ public sealed class ShowSessionAdminControllersTests
         var apiResponse = Assert.IsType<ApiResponse<object>>(okResult.Value);
         Assert.True(apiResponse.Success);
 
-        // 验证数据库：旧策略被覆盖，保存了 2 条新策略
         var strategiesInDb = await db.PriceStrategy.Where(p => p.SessionId == session.SessionId).ToListAsync();
         Assert.Equal(2, strategiesInDb.Count);
         Assert.Contains(strategiesInDb, p => p.PriceType == "VIP" && p.Price == 880m);

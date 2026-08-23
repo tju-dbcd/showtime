@@ -53,21 +53,42 @@ public class ShowSessionService : IClientShowSessionService
     }
 
     public async Task<IEnumerable<PricingStrategyDto>> GetPricingStrategiesAsync(
-        long sessionId,
-        CancellationToken cancellationToken = default)
+     long sessionId,
+     CancellationToken cancellationToken = default)
     {
+        // 查出基础票价策略
         var strategies = await _context.PriceStrategy
             .AsNoTracking()
             .Where(p => p.SessionId == sessionId && p.Status == PriceStrategyStatus.ENABLED.ToDbString())
             .OrderBy(p => p.SeatSectionId)
             .ToListAsync(cancellationToken);
 
-        return strategies.Select(p => new PricingStrategyDto(
-            p.PriceStrategyId,
-            p.SeatSectionId,
-            p.PriceType.ToEnum<PriceType>(),
-            p.Price,
-            p.Status.ToEnum<PriceStrategyStatus>()));
+        if (!strategies.Any()) return [];
+
+        var session = await _context.ShowSessions.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.SessionId == sessionId, cancellationToken);
+
+        var dynamicRules = await _context.DynamicPricingRules
+            .AsNoTracking()
+            .Where(r => r.SessionId == sessionId && r.Status == "ENABLED")
+            .ToListAsync(cancellationToken);
+
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+
+        // 组装返回结果
+        return strategies.Select(p =>
+        {
+            decimal finalPrice = session != null
+                ? PricingChange.CalculateRealtimePrice(p.Price, session.StartTime, nowUtc, p.SeatSectionId, dynamicRules)
+                : p.Price;
+
+            return new PricingStrategyDto(
+                p.PriceStrategyId,
+                p.SeatSectionId,
+                p.PriceType.ToEnum<PriceType>(),
+                finalPrice,
+                p.Status.ToEnum<PriceStrategyStatus>());
+        });
     }
 
     internal static ShowSessionDto ToDto(ShowtimeBackend.Entities.ShowSession.ShowSession s) => new(
@@ -130,61 +151,58 @@ public class AdminShowSessionService : IAdminShowSessionService
         return ToDto(sessionEntity);
     }
 
-    public async Task<bool> ConfigurePriceStrategiesAsync(
-        long sessionId,
-        IEnumerable<CreatePriceStrategyRequest> requests,
-        CancellationToken cancellationToken = default)
+    public async Task ConfigurePriceStrategiesAsync(
+    long sessionId,
+    IEnumerable<CreatePriceStrategyRequest> requests,
+    CancellationToken cancellationToken = default)
     {
-        var session = await _context.ShowSessions.FindAsync(new object[] { sessionId }, cancellationToken);
+        var requestList = requests?.ToList();
+        if (requestList == null || requestList.Count == 0)
+        {
+            throw new ArgumentException("策略配置不能为空");
+        }
+
+        var session = await _context.ShowSessions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.SessionId == sessionId, cancellationToken);
+
         if (session == null)
-            throw new KeyNotFoundException($"未找到ID为 {sessionId} 的场次");
-
-        var requestList = requests.ToList();
-        if (!requestList.Any())
-            throw new ArgumentException("票价策略不能为空");
-
-        // PriceType 已由 DTO 枚举 + JSON 模型绑定保证合法（取值与 DDL CK_PRICE_TYPE 一致）
-
-        using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
-        try
         {
-            // 清理旧策略
-            var oldStrategies = await _context.PriceStrategy
-                .Where(p => p.SessionId == sessionId)
-                .ToListAsync(cancellationToken);
+            throw new KeyNotFoundException("演出场次不存在");
+        }
+
+        var oldStrategies = await _context.PriceStrategy
+            .Where(p => p.SessionId == sessionId)
+            .ToListAsync(cancellationToken);
+
+        if (oldStrategies.Count > 0)
+        {
             _context.PriceStrategy.RemoveRange(oldStrategies);
-
-            // 构建新策略实体，补齐所有 NOT NULL 字段
-            var newEntities = requestList.Select(r => new PriceStrategy
-            {
-                SessionId = sessionId,
-                SeatSectionId = r.SeatSectionId,
-                StrategyName = string.IsNullOrWhiteSpace(r.StrategyName)
-                    ? $"{r.PriceType}_STRATEGY"
-                    : r.StrategyName,
-                PriceType = r.PriceType.ToDbString(),
-                Price = r.Price,
-                SaleStartTime = r.SaleStartTime ?? session.SaleStartTime,
-                SaleEndTime = r.SaleEndTime ?? session.SaleEndTime,
-                Priority = r.Priority,
-                Quota = r.Quota,
-                Status = PriceStrategyStatus.ENABLED.ToDbString(),
-                CreateTime = DateTime.UtcNow
-            }).ToList();
-
-            _context.PriceStrategy.AddRange(newEntities);
-            session.UpdateTime = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-
-            return true;
         }
-        catch
+
+        var now = DateTime.UtcNow;
+        var newStrategies = requestList.Select(req => new PriceStrategy
         {
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
-        }
+            SessionId = sessionId,
+            SeatSectionId = req.SeatSectionId,
+            StrategyName = string.IsNullOrWhiteSpace(req.StrategyName)
+                ? $"{req.PriceType}策略"
+                : req.StrategyName,
+            PriceType = req.PriceType.ToDbString(),
+            Price = req.Price,
+            SaleStartTime = req.SaleStartTime ?? session.SaleStartTime,
+            SaleEndTime = req.SaleEndTime ?? session.SaleEndTime,
+            Priority = req.Priority,
+            Quota = req.Quota,
+            Status = PriceStrategyStatus.ENABLED.ToDbString(),
+            CreateBy = "admin",
+            UpdateBy = "admin",
+            CreateTime = now,
+            UpdateTime = now
+        }).ToList();
+
+        _context.PriceStrategy.AddRange(newStrategies);
+        await _context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<bool> UpdateSessionStatusAsync(
