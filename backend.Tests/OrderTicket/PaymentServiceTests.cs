@@ -144,7 +144,8 @@ public sealed class PaymentServiceTests
             new FixedTimeProvider(now),
             new TicketIssuanceService(
                 new ThrowOnSecondGenerateTokenService(CreateTokenService())),
-            NullLogger<PaymentService>.Instance);
+            NullLogger<PaymentService>.Instance,
+            new NullOrderTicketAuditSink());
 
         var result = await service.PayAsync(
             7,
@@ -162,6 +163,30 @@ public sealed class PaymentServiceTests
         Assert.Null(savedOrder.IssueTime);
         Assert.Empty(await verificationDb.Set<Payment>().AsNoTracking().ToListAsync());
         Assert.Empty(await verificationDb.Set<ETicket>().AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
+    public async Task PayAsync_WhenAuditSinkFails_KeepsCommittedIssuanceSuccessful()
+    {
+        await using var connection = await CreateConnectionAsync();
+        await using var db = await CreateDbContextAsync(connection);
+        db.Add(CreateOrder(expireTime: new DateTime(2026, 8, 2, 12, 30, 0)));
+        await db.SaveChangesAsync();
+        var service = CreateService(
+            db,
+            new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero),
+            new ThrowingAuditSink());
+
+        var result = await service.PayAsync(
+            7,
+            "alice",
+            1,
+            new MockPaymentRequest(PaymentChannel.ALIPAY, PaymentResult.SUCCESS),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("ISSUED", (await db.Set<Order>().SingleAsync()).OrderStatus);
+        Assert.Single(await db.Set<ETicket>().ToListAsync());
     }
 
     private static async Task<SqliteConnection> CreateConnectionAsync()
@@ -185,11 +210,13 @@ public sealed class PaymentServiceTests
 
     private static PaymentService CreateService(
         AppDbContext db,
-        DateTimeOffset now) => new(
+        DateTimeOffset now,
+        IOrderTicketAuditSink? auditSink = null) => new(
             db,
             new FixedTimeProvider(now),
             new TicketIssuanceService(CreateTokenService()),
-            NullLogger<PaymentService>.Instance);
+            NullLogger<PaymentService>.Instance,
+            auditSink ?? new NullOrderTicketAuditSink());
 
     private static HmacTicketTokenService CreateTokenService() => new(
         Options.Create(new TicketSecurityOptions
@@ -246,6 +273,15 @@ public sealed class PaymentServiceTests
             string qrCode,
             out TicketTokenPayload? payload) =>
             inner.TryValidate(qrCode, out payload);
+    }
+
+    private sealed class ThrowingAuditSink : IOrderTicketAuditSink
+    {
+        public ValueTask WriteAsync(
+            OrderTicketAuditEvent auditEvent,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromException(
+                new InvalidOperationException("Simulated audit failure."));
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

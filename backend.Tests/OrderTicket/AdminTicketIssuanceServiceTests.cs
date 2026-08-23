@@ -121,17 +121,89 @@ public sealed class AdminTicketIssuanceServiceTests
         Assert.Equal("TICKET_ORDER_NOT_FOUND", result.ErrorCode);
     }
 
-    private static AdminTicketIssuanceService CreateService(AppDbContext db) => new(
+    [Fact]
+    public async Task IssueAsync_WhenTicketNumberCollides_RegeneratesOnceAndSucceeds()
+    {
+        await using var connection = await CreateConnectionAsync();
+        await using var db = await CreateDbContextAsync(connection);
+        db.Add(CreateOrder("PAID", itemCount: 1, includeSuccessfulPayment: true));
+        db.Add(new ETicket
+        {
+            ETicketId = 999,
+            ETicketNo = "TKT-COLLISION",
+            OrderItemId = 999,
+            UserId = 99,
+            QrCode = "qr-existing",
+            AntiFakeCode = "anti-existing",
+            TicketStatus = "UNUSED",
+        });
+        await db.SaveChangesAsync();
+        var tokenService = new SequenceTokenService(
+            new TicketCredential("TKT-COLLISION", "anti-first", "qr-first"),
+            new TicketCredential("TKT-NEW", "anti-second", "qr-second"));
+        var service = CreateService(db, tokenService);
+
+        var result = await service.IssueAsync("admin", 10, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, tokenService.GenerateCount);
+        var created = await db.Set<ETicket>()
+            .SingleAsync(ticket => ticket.OrderItemId == 1);
+        Assert.Equal("TKT-NEW", created.ETicketNo);
+        Assert.Equal("ISSUED", (await db.Set<Order>().SingleAsync()).OrderStatus);
+    }
+
+    [Fact]
+    public async Task IssueAsync_WhenGeneratedIdentifierCollidesTwice_ReturnsFailure()
+    {
+        await using var connection = await CreateConnectionAsync();
+        await using var db = await CreateDbContextAsync(connection);
+        db.Add(CreateOrder("PAID", itemCount: 1, includeSuccessfulPayment: true));
+        db.Add(new ETicket
+        {
+            ETicketId = 999,
+            ETicketNo = "TKT-COLLISION",
+            OrderItemId = 999,
+            UserId = 99,
+            QrCode = "qr-existing",
+            AntiFakeCode = "anti-existing",
+            TicketStatus = "UNUSED",
+        });
+        await db.SaveChangesAsync();
+        var tokenService = new SequenceTokenService(
+            new TicketCredential("TKT-COLLISION", "anti-first", "qr-first"),
+            new TicketCredential("TKT-COLLISION", "anti-second", "qr-second"));
+
+        var result = await CreateService(db, tokenService).IssueAsync(
+            "admin",
+            10,
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.Internal, result.Failure);
+        Assert.Equal("TICKET_ISSUANCE_FAILED", result.ErrorCode);
+        Assert.Equal(2, tokenService.GenerateCount);
+        await using var verificationDb = await CreateDbContextAsync(connection);
+        Assert.Equal("PAID", (await verificationDb.Set<Order>().SingleAsync()).OrderStatus);
+        Assert.Empty(await verificationDb.Set<ETicket>()
+            .Where(ticket => ticket.OrderItemId == 1)
+            .ToListAsync());
+    }
+
+    private static AdminTicketIssuanceService CreateService(
+        AppDbContext db,
+        ITicketTokenService? tokenService = null) => new(
         db,
         new FixedTimeProvider(OperationTime),
         new TicketIssuanceService(
-            new HmacTicketTokenService(
+            tokenService ?? new HmacTicketTokenService(
                 Options.Create(new TicketSecurityOptions
                 {
                     SigningKeyBase64 =
                         "ERERERERERERERERERERERERERERERERERERERERERE=",
                 }))),
-        NullLogger<AdminTicketIssuanceService>.Instance);
+        NullLogger<AdminTicketIssuanceService>.Instance,
+        new NullOrderTicketAuditSink());
 
     private static async Task<SqliteConnection> CreateConnectionAsync()
     {
@@ -223,5 +295,25 @@ public sealed class AdminTicketIssuanceServiceTests
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class SequenceTokenService(params TicketCredential[] credentials)
+        : ITicketTokenService
+    {
+        private readonly Queue<TicketCredential> _credentials = new(credentials);
+
+        public int GenerateCount { get; private set; }
+
+        public TicketCredential Generate(DateTimeOffset issuedAt)
+        {
+            GenerateCount++;
+            return _credentials.Dequeue();
+        }
+
+        public bool TryValidate(string qrCode, out TicketTokenPayload? payload)
+        {
+            payload = null;
+            return false;
+        }
     }
 }

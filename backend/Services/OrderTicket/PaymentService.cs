@@ -10,7 +10,8 @@ public sealed class PaymentService(
     AppDbContext dbContext,
     TimeProvider timeProvider,
     ITicketIssuanceService ticketIssuanceService,
-    ILogger<PaymentService> logger) : IPaymentService
+    ILogger<PaymentService> logger,
+    IOrderTicketAuditSink auditSink) : IPaymentService
 {
     public async Task<OrderTicketResult<IReadOnlyList<PaymentResponse>>> ListAsync(
         long userId,
@@ -50,120 +51,267 @@ public sealed class PaymentService(
         // PayChannel / Result 已由 DTO 枚举 + JSON 模型绑定保证合法（取值与 CHK_PAYMENT_CHANNEL 一致）
         var channel = request.PayChannel.ToDbString();
         var mockResult = request.Result.ToDbString();
-
-        var order = await dbContext.Set<Order>()
-            .Include(item => item.Payments)
-            .Include(item => item.Items)
-                .ThenInclude(item => item.ETicket)
-            .SingleOrDefaultAsync(item => item.OrderId == orderId && item.UserId == userId, cancellationToken);
-        if (order is null)
-        {
-            return NotFound("ORDER_NOT_FOUND", "The order does not exist.");
-        }
-
-        if (order.Payments.Any(item => item.PayStatus == PaymentStatus.SUCCESS.ToDbString()))
-        {
-            return Conflict("PAYMENT_ALREADY_SUCCEEDED", "The order already has a successful payment.");
-        }
-
-        if (order.OrderStatus != OrderStatus.PENDING_PAY.ToDbString())
-        {
-            return Conflict("ORDER_CANNOT_PAY", "Only pending-payment orders can be paid.");
-        }
-
         var operationTime = timeProvider.GetUtcNow();
         var now = operationTime.UtcDateTime;
-        if (order.ExpireTime <= now)
+
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            order.OrderStatus = OrderStatus.CANCELLED.ToDbString();
-            order.CancelTime = now;
-            order.UpdateBy = actor;
-            try
+            var order = await LoadTrackedOrderAsync(userId, orderId, cancellationToken);
+            if (order is null)
             {
-                await dbContext.SaveChangesAsync(cancellationToken);
+                return NotFound("ORDER_NOT_FOUND", "The order does not exist.");
             }
-            catch (DbUpdateConcurrencyException)
+
+            if (order.Payments.Any(item =>
+                item.PayStatus == PaymentStatus.SUCCESS.ToDbString()))
+            {
+                return Conflict(
+                    "PAYMENT_ALREADY_SUCCEEDED",
+                    "The order already has a successful payment.");
+            }
+
+            if (order.OrderStatus != OrderStatus.PENDING_PAY.ToDbString())
             {
                 return Conflict(
                     "ORDER_CANNOT_PAY",
-                    "The order status changed and it can no longer be paid.");
+                    "Only pending-payment orders can be paid.");
             }
-            return Conflict("ORDER_EXPIRED", "The order has expired and was cancelled.");
-        }
 
-        var payment = new Payment
-        {
-            PaymentNo = CreateBusinessNumber("PAY", now),
-            OrderId = order.OrderId,
-            UserId = userId,
-            PayAmount = order.TotalAmount - order.DiscountAmount,
-            PayChannel = channel,
-            PayStatus = mockResult,
-            TradeNo = request.Result == PaymentResult.SUCCESS ? CreateBusinessNumber("MOCK", now) : null,
-            CallbackData = $"{{\"mockResult\":\"{mockResult}\"}}",
-            CallbackTime = now,
-            PayTime = request.Result == PaymentResult.SUCCESS ? now : null,
-            RefundAmount = 0m,
-            CreateBy = actor,
-            UpdateBy = actor
-        };
+            if (order.ExpireTime <= now)
+            {
+                order.OrderStatus = OrderStatus.CANCELLED.ToDbString();
+                order.CancelTime = now;
+                order.UpdateBy = actor;
+                try
+                {
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    dbContext.ChangeTracker.Clear();
+                    return Conflict(
+                        "ORDER_CANNOT_PAY",
+                        "The order status changed and it can no longer be paid.");
+                }
+                return Conflict(
+                    "ORDER_EXPIRED",
+                    "The order has expired and was cancelled.");
+            }
 
-        order.Payments.Add(payment);
-        TicketIssuanceOutcome? issuance = null;
-        if (request.Result == PaymentResult.SUCCESS)
-        {
-            order.PayTime = now;
-            order.UpdateBy = actor;
-            OrderTicketResult<TicketIssuanceOutcome> issuanceResult;
+            var payment = new Payment
+            {
+                PaymentNo = CreateBusinessNumber("PAY", now),
+                OrderId = order.OrderId,
+                UserId = userId,
+                PayAmount = order.TotalAmount - order.DiscountAmount,
+                PayChannel = channel,
+                PayStatus = mockResult,
+                TradeNo = request.Result == PaymentResult.SUCCESS
+                    ? CreateBusinessNumber("MOCK", now)
+                    : null,
+                CallbackData = $"{{\"mockResult\":\"{mockResult}\"}}",
+                CallbackTime = now,
+                PayTime = request.Result == PaymentResult.SUCCESS ? now : null,
+                RefundAmount = 0m,
+                CreateBy = actor,
+                UpdateBy = actor,
+            };
+
+            order.Payments.Add(payment);
+            TicketIssuanceOutcome? issuance = null;
+            if (request.Result == PaymentResult.SUCCESS)
+            {
+                order.PayTime = now;
+                order.UpdateBy = actor;
+                OrderTicketResult<TicketIssuanceOutcome> issuanceResult;
+                try
+                {
+                    issuanceResult = ticketIssuanceService.Issue(
+                        order,
+                        TicketIssuanceContext.Payment,
+                        actor,
+                        operationTime);
+                }
+                catch (Exception exception)
+                {
+                    logger.LogError(
+                        exception,
+                        "Ticket issuance failed before saving payment for order {OrderId}.",
+                        order.OrderId);
+                    dbContext.ChangeTracker.Clear();
+                    return TicketIssuanceFailed();
+                }
+
+                if (!issuanceResult.IsSuccess)
+                {
+                    dbContext.ChangeTracker.Clear();
+                    return OrderTicketResult<PaymentProcessResponse>.Fail(
+                        issuanceResult.Failure,
+                        issuanceResult.ErrorCode!,
+                        issuanceResult.Message!);
+                }
+
+                issuance = issuanceResult.Value;
+            }
+
             try
             {
-                issuanceResult = ticketIssuanceService.Issue(
-                    order,
-                    TicketIssuanceContext.Payment,
-                    actor,
-                    operationTime);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                if (issuance is not null)
+                {
+                    await WriteAuditSafelyAsync(
+                        new OrderTicketAuditEvent(
+                            "PAYMENT_TICKET_ISSUED",
+                            order.OrderId,
+                            actor,
+                            issuance.TotalTicketCount,
+                            now),
+                        cancellationToken);
+                }
+                return OrderTicketResult<PaymentProcessResponse>.Success(
+                    new PaymentProcessResponse(
+                        ToResponse(payment),
+                        order.OrderStatus.ToEnum<OrderStatus>(),
+                        issuance?.TotalTicketCount ??
+                            order.Items.Count(item => item.ETicket is not null)));
             }
-            catch (Exception exception)
+            catch (DbUpdateConcurrencyException exception)
             {
+                logger.LogWarning(
+                    exception,
+                    "Concurrent payment detected for order {OrderId}.",
+                    orderId);
+                return await RecoverSuccessfulPaymentAsync(
+                    userId,
+                    orderId,
+                    cancellationToken);
+            }
+            catch (DbUpdateException exception)
+            {
+                var constraint = TicketConstraintClassifier.Classify(exception);
+                if (attempt == 0 && constraint is
+                    TicketUniqueConstraint.TicketNumber or
+                    TicketUniqueConstraint.QrCode or
+                    TicketUniqueConstraint.AntiFakeCode)
+                {
+                    logger.LogWarning(
+                        exception,
+                        "Generated ticket identifier collided during payment for order {OrderId}; retrying once.",
+                        orderId);
+                    dbContext.ChangeTracker.Clear();
+                    continue;
+                }
+
+                if (constraint == TicketUniqueConstraint.OrderItem)
+                {
+                    logger.LogWarning(
+                        exception,
+                        "Concurrent ticket creation detected during payment for order {OrderId}.",
+                        orderId);
+                    return await RecoverSuccessfulPaymentAsync(
+                        userId,
+                        orderId,
+                        cancellationToken);
+                }
+
                 logger.LogError(
                     exception,
-                    "Ticket issuance failed before saving payment for order {OrderId}.",
-                    order.OrderId);
+                    "Payment persistence failed for order {OrderId}.",
+                    orderId);
                 dbContext.ChangeTracker.Clear();
-                return OrderTicketResult<PaymentProcessResponse>.Fail(
-                    OrderTicketFailure.Internal,
-                    "TICKET_ISSUANCE_FAILED",
-                    "Ticket issuance failed.");
+                return constraint == TicketUniqueConstraint.Other
+                    ? PaymentFailed()
+                    : TicketIssuanceFailed();
             }
-            if (!issuanceResult.IsSuccess)
-            {
-                dbContext.ChangeTracker.Clear();
-                return OrderTicketResult<PaymentProcessResponse>.Fail(
-                    issuanceResult.Failure,
-                    issuanceResult.ErrorCode!,
-                    issuanceResult.Message!);
-            }
-
-            issuance = issuanceResult.Value;
         }
 
+        return TicketIssuanceFailed();
+    }
+
+    private Task<Order?> LoadTrackedOrderAsync(
+        long userId,
+        long orderId,
+        CancellationToken cancellationToken) => dbContext.Set<Order>()
+        .Include(item => item.Payments)
+        .Include(item => item.Items)
+            .ThenInclude(item => item.ETicket)
+        .SingleOrDefaultAsync(
+            item => item.OrderId == orderId && item.UserId == userId,
+            cancellationToken);
+
+    private async Task<OrderTicketResult<PaymentProcessResponse>> RecoverSuccessfulPaymentAsync(
+        long userId,
+        long orderId,
+        CancellationToken cancellationToken)
+    {
+        dbContext.ChangeTracker.Clear();
+        var order = await dbContext.Set<Order>()
+            .AsNoTracking()
+            .Include(item => item.Payments)
+            .Include(item => item.Items)
+                .ThenInclude(item => item.ETicket)
+            .SingleOrDefaultAsync(
+                item => item.OrderId == orderId && item.UserId == userId,
+                cancellationToken);
+        var successfulPayment = order?.Payments
+            .Where(payment => payment.PayStatus == "SUCCESS")
+            .OrderBy(payment => payment.PaymentId)
+            .FirstOrDefault();
+        if (order is not null && successfulPayment is not null &&
+            IsCompleteIssuedOrder(order))
+        {
+            return OrderTicketResult<PaymentProcessResponse>.Success(
+                new PaymentProcessResponse(
+                    ToResponse(successfulPayment),
+                    OrderStatus.ISSUED,
+                    order.Items.Count));
+        }
+
+        return Conflict(
+            "TICKET_ISSUANCE_CONFLICT",
+            "Payment or ticket issuance conflicted with another request.");
+    }
+
+    private static bool IsCompleteIssuedOrder(Order order) =>
+        order.OrderStatus == "ISSUED" &&
+        order.IssueTime.HasValue &&
+        order.Items.Count > 0 &&
+        order.TicketCount == order.Items.Count &&
+        order.Items.All(item =>
+            item.ItemStatus == "NORMAL" &&
+            item.ETicket is not null &&
+            item.ETicket.OrderItemId == item.OrderItemId &&
+            item.ETicket.UserId == order.UserId &&
+            item.ETicket.TicketStatus == "UNUSED");
+
+    private async ValueTask WriteAuditSafelyAsync(
+        OrderTicketAuditEvent auditEvent,
+        CancellationToken cancellationToken)
+    {
         try
         {
-            await dbContext.SaveChangesAsync(cancellationToken);
+            await auditSink.WriteAsync(auditEvent, cancellationToken);
         }
-        catch (DbUpdateConcurrencyException)
+        catch (Exception exception)
         {
-            return Conflict(
-                "ORDER_CANNOT_PAY",
-                "The order status changed and it can no longer be paid.");
+            logger.LogWarning(
+                exception,
+                "Order-ticket audit sink failed for order {OrderId}.",
+                auditEvent.OrderId);
         }
-        return OrderTicketResult<PaymentProcessResponse>.Success(
-            new PaymentProcessResponse(
-                ToResponse(payment),
-                order.OrderStatus.ToEnum<OrderStatus>(),
-                issuance?.TotalTicketCount ??
-                    order.Items.Count(item => item.ETicket is not null)));
     }
+
+    private static OrderTicketResult<PaymentProcessResponse> TicketIssuanceFailed() =>
+        OrderTicketResult<PaymentProcessResponse>.Fail(
+            OrderTicketFailure.Internal,
+            "TICKET_ISSUANCE_FAILED",
+            "Ticket issuance failed.");
+
+    private static OrderTicketResult<PaymentProcessResponse> PaymentFailed() =>
+        OrderTicketResult<PaymentProcessResponse>.Fail(
+            OrderTicketFailure.Internal,
+            "PAYMENT_PROCESSING_FAILED",
+            "Payment processing failed.");
 
     private static string CreateBusinessNumber(string prefix, DateTime now) =>
         $"{prefix}{now:yyyyMMddHHmmssfff}{Guid.NewGuid():N}"[..28].ToUpperInvariant();
