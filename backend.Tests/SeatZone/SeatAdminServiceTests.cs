@@ -34,6 +34,27 @@ public sealed class SeatAdminServiceTests
     }
 
     [Fact]
+    public async Task UpdateSeatsAsync_UpdatesAllEditableFields()
+    {
+        await using var db = CreateDbContext();
+        await SeedSeatSectionAsync(db, 40);
+        await SeedSeatAsync(db, 401, 40, "A", "1", 0, 0);
+        var service = new SeatAdminService(db);
+
+        var result = await service.UpdateSeatsAsync(
+            40,
+            new SeatBatchUpdateRequest([401], "ACCESSIBLE", "MAINTENANCE", true, false),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var seat = Assert.Single(result.Data!.Seats);
+        Assert.Equal("ACCESSIBLE", seat.SeatType);
+        Assert.Equal("MAINTENANCE", seat.SeatStatus);
+        Assert.True(seat.IsAisleSide);
+        Assert.False(seat.IsSellable);
+    }
+
+    [Fact]
     public async Task UpdateSeatsAsync_RejectsEmptyIdsAndDoesNotChangeData()
     {
         await using var db = CreateDbContext();
@@ -84,6 +105,39 @@ public sealed class SeatAdminServiceTests
         var result = await service.UpdateSeatsAsync(
             40,
             new SeatBatchUpdateRequest([401, 401], null, "DISABLED", null, null),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("SEAT_BATCH_UPDATE_INVALID_REQUEST", result.Title);
+    }
+
+    [Fact]
+    public async Task UpdateSeatsAsync_RejectsNonPositiveIds()
+    {
+        await using var db = CreateDbContext();
+        var service = new SeatAdminService(db);
+
+        var result = await service.UpdateSeatsAsync(
+            40,
+            new SeatBatchUpdateRequest([0], null, "DISABLED", null, null),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("SEAT_BATCH_UPDATE_INVALID_REQUEST", result.Title);
+    }
+
+    [Fact]
+    public async Task UpdateSeatsAsync_RejectsMoreThan999Ids()
+    {
+        await using var db = CreateDbContext();
+        var service = new SeatAdminService(db);
+        var seatIds = Enumerable.Range(1, 1000).Select(id => (long)id).ToArray();
+
+        var result = await service.UpdateSeatsAsync(
+            40,
+            new SeatBatchUpdateRequest(seatIds, null, "DISABLED", null, null),
             CancellationToken.None);
 
         Assert.False(result.IsSuccess);
