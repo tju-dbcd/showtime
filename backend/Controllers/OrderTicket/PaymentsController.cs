@@ -30,20 +30,20 @@ public sealed class PaymentsController(IPaymentService paymentService) : OrderTi
     }
 
     [HttpPost("mock")]
-    [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<PaymentResponse>>> MockPay(
+    [ProducesResponseType(typeof(ApiResponse<PaymentProcessResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PaymentProcessResponse>>> MockPay(
         long orderId,
         [FromBody] MockPaymentRequest request,
         CancellationToken cancellationToken)
     {
         if (!TryGetCurrentUser(out var userId, out var actor))
         {
-            return UnauthorizedResponse<PaymentResponse>();
+            return UnauthorizedResponse<PaymentProcessResponse>();
         }
 
         var result = await paymentService.PayAsync(userId, actor, orderId, request, cancellationToken);
         return result.IsSuccess
-            ? Ok(ApiResponse<PaymentResponse>.Ok(result.Value!, "Mock payment processed."))
+            ? Ok(ApiResponse<PaymentProcessResponse>.Ok(result.Value!, "Mock payment processed."))
             : FailureResponse(result);
     }
 }

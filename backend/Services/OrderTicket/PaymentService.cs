@@ -6,7 +6,11 @@ using ShowtimeBackend.Entities.OrderTicket;
 
 namespace ShowtimeBackend.Services.OrderTicket;
 
-public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProvider) : IPaymentService
+public sealed class PaymentService(
+    AppDbContext dbContext,
+    TimeProvider timeProvider,
+    ITicketIssuanceService ticketIssuanceService,
+    ILogger<PaymentService> logger) : IPaymentService
 {
     public async Task<OrderTicketResult<IReadOnlyList<PaymentResponse>>> ListAsync(
         long userId,
@@ -36,7 +40,7 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
         return OrderTicketResult<IReadOnlyList<PaymentResponse>>.Success(items);
     }
 
-    public async Task<OrderTicketResult<PaymentResponse>> PayAsync(
+    public async Task<OrderTicketResult<PaymentProcessResponse>> PayAsync(
         long userId,
         string actor,
         long orderId,
@@ -49,6 +53,8 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
 
         var order = await dbContext.Set<Order>()
             .Include(item => item.Payments)
+            .Include(item => item.Items)
+                .ThenInclude(item => item.ETicket)
             .SingleOrDefaultAsync(item => item.OrderId == orderId && item.UserId == userId, cancellationToken);
         if (order is null)
         {
@@ -65,7 +71,8 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
             return Conflict("ORDER_CANNOT_PAY", "Only pending-payment orders can be paid.");
         }
 
-        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var operationTime = timeProvider.GetUtcNow();
+        var now = operationTime.UtcDateTime;
         if (order.ExpireTime <= now)
         {
             order.OrderStatus = OrderStatus.CANCELLED.ToDbString();
@@ -102,11 +109,42 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
         };
 
         order.Payments.Add(payment);
+        TicketIssuanceOutcome? issuance = null;
         if (request.Result == PaymentResult.SUCCESS)
         {
-            order.OrderStatus = OrderStatus.PAID.ToDbString();
             order.PayTime = now;
             order.UpdateBy = actor;
+            OrderTicketResult<TicketIssuanceOutcome> issuanceResult;
+            try
+            {
+                issuanceResult = ticketIssuanceService.Issue(
+                    order,
+                    TicketIssuanceContext.Payment,
+                    actor,
+                    operationTime);
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(
+                    exception,
+                    "Ticket issuance failed before saving payment for order {OrderId}.",
+                    order.OrderId);
+                dbContext.ChangeTracker.Clear();
+                return OrderTicketResult<PaymentProcessResponse>.Fail(
+                    OrderTicketFailure.Internal,
+                    "TICKET_ISSUANCE_FAILED",
+                    "Ticket issuance failed.");
+            }
+            if (!issuanceResult.IsSuccess)
+            {
+                dbContext.ChangeTracker.Clear();
+                return OrderTicketResult<PaymentProcessResponse>.Fail(
+                    issuanceResult.Failure,
+                    issuanceResult.ErrorCode!,
+                    issuanceResult.Message!);
+            }
+
+            issuance = issuanceResult.Value;
         }
 
         try
@@ -119,7 +157,12 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
                 "ORDER_CANNOT_PAY",
                 "The order status changed and it can no longer be paid.");
         }
-        return OrderTicketResult<PaymentResponse>.Success(ToResponse(payment));
+        return OrderTicketResult<PaymentProcessResponse>.Success(
+            new PaymentProcessResponse(
+                ToResponse(payment),
+                order.OrderStatus.ToEnum<OrderStatus>(),
+                issuance?.TotalTicketCount ??
+                    order.Items.Count(item => item.ETicket is not null)));
     }
 
     private static string CreateBusinessNumber(string prefix, DateTime now) =>
@@ -136,12 +179,12 @@ public sealed class PaymentService(AppDbContext dbContext, TimeProvider timeProv
         payment.CallbackTime,
         payment.PayTime);
 
-    private static OrderTicketResult<PaymentResponse> Invalid(string code, string message) =>
-        OrderTicketResult<PaymentResponse>.Fail(OrderTicketFailure.InvalidRequest, code, message);
+    private static OrderTicketResult<PaymentProcessResponse> Invalid(string code, string message) =>
+        OrderTicketResult<PaymentProcessResponse>.Fail(OrderTicketFailure.InvalidRequest, code, message);
 
-    private static OrderTicketResult<PaymentResponse> NotFound(string code, string message) =>
-        OrderTicketResult<PaymentResponse>.Fail(OrderTicketFailure.NotFound, code, message);
+    private static OrderTicketResult<PaymentProcessResponse> NotFound(string code, string message) =>
+        OrderTicketResult<PaymentProcessResponse>.Fail(OrderTicketFailure.NotFound, code, message);
 
-    private static OrderTicketResult<PaymentResponse> Conflict(string code, string message) =>
-        OrderTicketResult<PaymentResponse>.Fail(OrderTicketFailure.Conflict, code, message);
+    private static OrderTicketResult<PaymentProcessResponse> Conflict(string code, string message) =>
+        OrderTicketResult<PaymentProcessResponse>.Fail(OrderTicketFailure.Conflict, code, message);
 }

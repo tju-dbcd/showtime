@@ -26,6 +26,7 @@ public sealed record OrderResponse(
     OrderStatus OrderStatus,
     DateTime ExpireTime,
     DateTime? PayTime,
+    DateTime? IssueTime,
     DateTime? CancelTime,
     string Source,
     string? Remark,
