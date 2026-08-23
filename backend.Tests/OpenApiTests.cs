@@ -49,6 +49,43 @@ public sealed class OpenApiTests
         AssertSecurityApplied(paths, "/api/client/shows/{showId}/sessions", "get", expectApplied: false);
     }
 
+    [Fact]
+    public async Task OpenApiDocument_DeclaresSeatBatchUpdateContract()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+
+        var response = await client.GetAsync("/openapi/v1.json");
+
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+        var operation = document.RootElement
+            .GetProperty("paths")
+            .GetProperty("/api/admin/seat-sections/{seatSectionId}/seats")
+            .GetProperty("patch");
+
+        var requestSchema = operation
+            .GetProperty("requestBody")
+            .GetProperty("content")
+            .GetProperty("application/json")
+            .GetProperty("schema");
+        Assert.Equal(
+            "#/components/schemas/SeatBatchUpdateRequest",
+            requestSchema.GetProperty("$ref").GetString());
+
+        var responses = operation.GetProperty("responses");
+        Assert.True(responses.TryGetProperty("200", out _));
+        Assert.True(responses.TryGetProperty("400", out _));
+        Assert.True(responses.TryGetProperty("404", out _));
+
+        AssertSecurityApplied(
+            document.RootElement.GetProperty("paths"),
+            "/api/admin/seat-sections/{seatSectionId}/seats",
+            "patch",
+            expectApplied: true);
+    }
+
     private static void AssertSecurityApplied(
         JsonElement paths,
         string path,
