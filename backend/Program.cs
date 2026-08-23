@@ -118,6 +118,7 @@ builder.Services.AddSingleton<ITicketTokenService, HmacTicketTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<ITicketIssuanceService, TicketIssuanceService>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
 builder.Services.AddScoped<ISeatLockService, SeatLockService>();
