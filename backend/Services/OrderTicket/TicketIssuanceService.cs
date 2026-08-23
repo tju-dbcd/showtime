@@ -85,11 +85,11 @@ public sealed class TicketIssuanceService(ITicketTokenService ticketTokenService
     private static bool IsIssuableState(
         string orderStatus,
         TicketIssuanceContext context) => context switch
-    {
-        TicketIssuanceContext.Payment => orderStatus == "PENDING_PAY",
-        TicketIssuanceContext.Compensation => orderStatus is "PAID" or "ISSUED",
-        _ => false,
-    };
+        {
+            TicketIssuanceContext.Payment => orderStatus == "PENDING_PAY",
+            TicketIssuanceContext.Compensation => orderStatus is "PAID" or "ISSUED",
+            _ => false,
+        };
 
     private static OrderTicketResult<TicketIssuanceOutcome> Conflict(
         string code,
