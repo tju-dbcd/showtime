@@ -40,13 +40,27 @@ public sealed class RefundPolicyEngine
 {
     public RefundPolicyQuote? Quote(RefundQuoteInput input)
     {
-        var policy = SelectPolicy(input);
-        if (policy is null)
-            return null;
-
         var denominator = input.AllItems.Sum(item => item.UnitPrice);
         if (denominator <= 0m)
             throw new ArgumentException("Order item total must be positive.", nameof(input));
+
+        var allItemIds = input.AllItems.Select(item => item.OrderItemId).ToHashSet();
+        if (allItemIds.Count != input.AllItems.Count)
+            throw new ArgumentException("Order item IDs must be unique.", nameof(input));
+
+        if (input.SelectedOrderItemIds.Count == 0)
+            throw new ArgumentException("At least one order item must be selected.", nameof(input));
+
+        var selectedItemIds = input.SelectedOrderItemIds.ToHashSet();
+        if (selectedItemIds.Count != input.SelectedOrderItemIds.Count)
+            throw new ArgumentException("Selected order item IDs must be unique.", nameof(input));
+
+        if (!selectedItemIds.IsSubsetOf(allItemIds))
+            throw new ArgumentException("Selected order item IDs must belong to the order.", nameof(input));
+
+        var policy = SelectPolicy(input);
+        if (policy is null)
+            return null;
 
         var allocated = input.AllItems
             .Select(item => new
@@ -69,7 +83,7 @@ public sealed class RefundPolicyEngine
             .Select(item => item.OrderItemId)
             .ToHashSet();
         var lines = allocated
-            .Where(item => input.SelectedOrderItemIds.Contains(item.OrderItemId))
+            .Where(item => selectedItemIds.Contains(item.OrderItemId))
             .Select(item => new RefundQuoteLine(
                 item.OrderItemId,
                 item.Floor + (bonusIds.Contains(item.OrderItemId) ? 0.01m : 0m)))
@@ -82,7 +96,7 @@ public sealed class RefundPolicyEngine
 
         return new RefundPolicyQuote(
             input.ApplicationTime,
-            input.SelectedOrderItemIds.Count == input.AllItems.Count ? RefundType.FULL : RefundType.PART,
+            selectedItemIds.SetEquals(allItemIds) ? RefundType.FULL : RefundType.PART,
             policy.PolicyId,
             policy.PolicyName,
             refundAmount,

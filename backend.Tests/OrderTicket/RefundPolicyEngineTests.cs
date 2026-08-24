@@ -146,11 +146,66 @@ public sealed class RefundPolicyEngineTests
     }
 
     [Fact]
+    public void Quote_DerivesFullRefundFromAllValidatedSelectedOrderItemIds()
+    {
+        var result = new RefundPolicyEngine().Quote(RefundFixtures.QuoteInput())!;
+
+        Assert.Equal(RefundType.FULL, result.RefundType);
+        Assert.Equal(2, result.Items.Count);
+        Assert.Equal(210m, result.RefundAmount);
+    }
+
+    [Fact]
     public void Quote_ThrowsArgumentExceptionWhenOrderItemTotalIsZero()
     {
         var input = RefundFixtures.QuoteInput(
             items: [new(101, 0m), new(102, 0m)],
             selectedIds: [101L, 102L]);
+
+        Assert.Throws<ArgumentException>(() => new RefundPolicyEngine().Quote(input));
+    }
+
+    [Fact]
+    public void Quote_ThrowsArgumentExceptionForZeroOrderItemTotalWhenNoPolicyMatches()
+    {
+        var input = RefundFixtures.QuoteInput(
+            items: [new(101, 0m), new(102, 0m)],
+            selectedIds: [101L, 102L],
+            policies: [new(1, null, "全局96小时", 96, 1m, 0m, 1, 1)]);
+
+        Assert.Throws<ArgumentException>(() => new RefundPolicyEngine().Quote(input));
+    }
+
+    [Fact]
+    public void Quote_ThrowsArgumentExceptionWhenNoOrderItemIsSelected()
+    {
+        var input = RefundFixtures.QuoteInput(selectedIds: Array.Empty<long>());
+
+        Assert.Throws<ArgumentException>(() => new RefundPolicyEngine().Quote(input));
+    }
+
+    [Fact]
+    public void Quote_ThrowsArgumentExceptionWhenSelectedOrderItemIdsContainDuplicates()
+    {
+        var input = RefundFixtures.QuoteInput(selectedIds: [101L, 101L]);
+
+        Assert.Throws<ArgumentException>(() => new RefundPolicyEngine().Quote(input));
+    }
+
+    [Fact]
+    public void Quote_ThrowsArgumentExceptionWhenSelectedOrderItemIdsContainUnknownItem()
+    {
+        var input = RefundFixtures.QuoteInput(selectedIds: [999L]);
+
+        Assert.Throws<ArgumentException>(() => new RefundPolicyEngine().Quote(input));
+    }
+
+    [Fact]
+    public void Quote_ThrowsArgumentExceptionWhenAllItemsContainDuplicateOrderItemIds()
+    {
+        var input = RefundFixtures.QuoteInput(
+            items: [new(101, 105m), new(101, 105m)],
+            selectedIds: [101L]);
 
         Assert.Throws<ArgumentException>(() => new RefundPolicyEngine().Quote(input));
     }
