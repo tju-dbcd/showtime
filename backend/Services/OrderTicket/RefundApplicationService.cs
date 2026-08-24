@@ -282,6 +282,16 @@ public sealed class RefundApplicationService : IRefundApplicationService
                 "Concurrent refund application detected for order {OrderId}.",
                 orderId);
             await RollbackAndClearAsync(transaction, cancellationToken);
+            if (await HasExistingRefundItemForOrderAsync(
+                    orderId,
+                    request.OrderItemIds,
+                    cancellationToken))
+            {
+                return Conflict<RefundResponse>(
+                    "REFUND_ITEM_ALREADY_REQUESTED",
+                    "An order item already belongs to a refund request.");
+            }
+
             return Conflict<RefundResponse>(
                 "REFUND_CREATE_CONFLICT",
                 "The refund request conflicted with another operation.");
@@ -290,7 +300,11 @@ public sealed class RefundApplicationService : IRefundApplicationService
         {
             var constraint = RefundConstraintClassifier.Classify(exception);
             await RollbackAndClearAsync(transaction, cancellationToken);
-            if (constraint == RefundUniqueConstraint.OrderItem)
+            var hasExistingRefundItem = await HasExistingRefundItemForOrderAsync(
+                orderId,
+                request.OrderItemIds,
+                cancellationToken);
+            if (constraint == RefundUniqueConstraint.OrderItem || hasExistingRefundItem)
             {
                 logger.LogWarning(
                     exception,

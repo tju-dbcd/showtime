@@ -336,10 +336,12 @@ public sealed class RefundReviewService(
                     cancellationToken);
             if (paymentRows != 1)
             {
-                await RollbackAndClearAsync(transaction, cancellationToken);
-                return Conflict<RefundResponse>(
+                return await RecoverReviewConflictAsync(
+                    transaction,
+                    refundId,
                     "REFUND_PAYMENT_AMOUNT_CONFLICT",
-                    "Payment refund amount changed.");
+                    "Payment refund amount changed.",
+                    cancellationToken);
             }
 
             var releasedRows = await dbContext.Set<SeatReservation>()
@@ -354,10 +356,12 @@ public sealed class RefundReviewService(
                     cancellationToken);
             if (releasedRows != orderItemIds.Length)
             {
-                await RollbackAndClearAsync(transaction, cancellationToken);
-                return Conflict<RefundResponse>(
+                return await RecoverReviewConflictAsync(
+                    transaction,
+                    refundId,
                     "REFUND_RESERVATION_DATA_INCONSISTENT",
-                    "Seat reservation release count changed.");
+                    "Seat reservation release count changed.",
+                    cancellationToken);
             }
 
             foreach (var refundItem in refundItems)
@@ -413,10 +417,12 @@ public sealed class RefundReviewService(
                 exception,
                 "Concurrent refund approval detected for refund {RefundId}.",
                 refundId);
-            await RollbackAndClearAsync(transaction, cancellationToken);
-            return Conflict<RefundResponse>(
+            return await RecoverReviewConflictAsync(
+                transaction,
+                refundId,
                 "REFUND_REVIEW_CONFLICT",
-                "The refund request conflicted with another operation.");
+                "The refund request conflicted with another operation.",
+                cancellationToken);
         }
         catch (Exception exception)
         {
@@ -594,10 +600,12 @@ public sealed class RefundReviewService(
                 exception,
                 "Concurrent refund rejection detected for refund {RefundId}.",
                 refundId);
-            await RollbackAndClearAsync(transaction, cancellationToken);
-            return Conflict<RefundResponse>(
+            return await RecoverReviewConflictAsync(
+                transaction,
+                refundId,
                 "REFUND_REVIEW_CONFLICT",
-                "The refund request conflicted with another operation.");
+                "The refund request conflicted with another operation.",
+                cancellationToken);
         }
         catch (DbUpdateException exception)
         {
@@ -639,6 +647,36 @@ public sealed class RefundReviewService(
     {
         await transaction.RollbackAsync(cancellationToken);
         dbContext.ChangeTracker.Clear();
+    }
+
+    private async Task<OrderTicketResult<RefundResponse>> RecoverReviewConflictAsync(
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,
+        long refundId,
+        string fallbackCode,
+        string fallbackMessage,
+        CancellationToken cancellationToken)
+    {
+        await RollbackAndClearAsync(transaction, cancellationToken);
+        var latest = await dbContext.Set<RefundRequest>()
+            .AsNoTracking()
+            .Where(item => item.RefundId == refundId)
+            .Select(item => new
+            {
+                item.ApproveStatus,
+                item.RefundStatus,
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (latest is not null &&
+            (latest.ApproveStatus != "PENDING" || latest.RefundStatus != "PENDING"))
+        {
+            return Conflict<RefundResponse>(
+                "REFUND_ALREADY_REVIEWED",
+                "The refund request has already been reviewed.");
+        }
+
+        return Conflict<RefundResponse>(
+            fallbackCode,
+            fallbackMessage);
     }
 
     private async ValueTask WriteAuditSafelyAsync(

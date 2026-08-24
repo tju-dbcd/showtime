@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.IdentityModel.Tokens;
 using ShowtimeBackend.Data;
+using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
@@ -37,6 +38,7 @@ internal sealed class RefundTestData : IAsyncDisposable
     public long UserId { get; private init; }
     public long OrderId { get; private init; }
     public long RefundId { get; private set; }
+    public IReadOnlyList<long> RefundIds { get; private init; } = [];
     public IReadOnlyList<long> OrderItemIds { get; private init; } = [];
 
     public static async Task<RefundTestData> CreateAsync()
@@ -50,7 +52,8 @@ internal sealed class RefundTestData : IAsyncDisposable
         decimal discountAmount = 0m,
         decimal? payAmount = null,
         IReadOnlyList<decimal>? itemPrices = null,
-        IOrderTicketAuditSink? auditSink = null)
+        IOrderTicketAuditSink? auditSink = null,
+        IReadOnlyList<long>? refundIds = null)
     {
         var (connection, db) = await CreateDatabaseAsync();
         var prices = itemPrices ?? [105m, 105m];
@@ -65,6 +68,7 @@ internal sealed class RefundTestData : IAsyncDisposable
             UserId = userId,
             OrderId = orderId,
             OrderItemIds = orderItemIds,
+            RefundIds = refundIds ?? [],
         };
 
         fixture.Db.Add(new ShowSession
@@ -316,6 +320,153 @@ internal sealed class RefundTestData : IAsyncDisposable
         return fixture;
     }
 
+    public static async Task<RefundTestData> CreateTwoPendingRefundsAsync()
+    {
+        var fixture = await CreateIssuedOrderAsync(refundIds: [401, 402]);
+        fixture.RefundId = 401;
+
+        var orderItems = await fixture.Db.Set<OrderItem>()
+            .Include(item => item.ETicket)
+            .OrderBy(item => item.OrderItemId)
+            .ToListAsync();
+        foreach (var orderItem in orderItems)
+        {
+            orderItem.ItemStatus = "REFUNDING";
+            orderItem.ETicket!.TicketStatus = "REFUNDING";
+        }
+
+        for (var index = 0; index < orderItems.Count; index++)
+        {
+            var orderItem = orderItems[index];
+            fixture.Db.Add(new RefundRequest
+            {
+                RefundId = fixture.RefundIds[index],
+                RefundNo = $"REF{fixture.RefundIds[index]:000000}",
+                OrderId = fixture.OrderId,
+                UserId = fixture.UserId,
+                RefundType = "PART",
+                RefundReason = $"分项退票 {index + 1}",
+                RefundAmount = orderItem.UnitPrice,
+                ActualRefund = 84m,
+                FeeRate = 0.8m,
+                AppliedServiceFee = 0m,
+                ApproveStatus = "PENDING",
+                RefundStatus = "PENDING",
+                CreateTime = FixedUtcNow.AddHours(-1),
+                CreateBy = "alice",
+                UpdateBy = "alice",
+                Items =
+                [
+                    new RefundItem
+                    {
+                        RefundItemId = 501 + index,
+                        OrderItemId = orderItem.OrderItemId,
+                        RefundBaseAmount = orderItem.UnitPrice,
+                        CreateBy = "alice",
+                        UpdateBy = "alice",
+                    },
+                ],
+            });
+        }
+
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+        return fixture;
+    }
+
+    public static async Task<SharedRefundDatabase> CreateSharedSqliteAsync()
+    {
+        var database = await SharedRefundDatabase.CreateAsync();
+        try
+        {
+            await using var db = database.CreateContext();
+            await db.Database.OpenConnectionAsync();
+            await db.Database.EnsureCreatedAsync();
+            await db.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = OFF;");
+
+            db.Add(new ShowSession
+            {
+                SessionId = 21,
+                ShowId = 90,
+                SeatMapId = 30,
+                StartTime = FixedUtcNow.AddDays(3),
+                EndTime = FixedUtcNow.AddDays(3).AddHours(2),
+                SaleStartTime = FixedUtcNow.AddMonths(-1),
+                SaleEndTime = FixedUtcNow.AddDays(2),
+                SessionStatus = "ONSALE",
+            });
+            db.Add(new Order
+            {
+                OrderId = 11,
+                OrderNo = "ORD000011",
+                UserId = 7,
+                SessionId = 21,
+                TotalAmount = 105m,
+                TicketCount = 1,
+                OrderStatus = "ISSUED",
+                ExpireTime = FixedUtcNow.AddHours(-1),
+                PayTime = FixedUtcNow.AddHours(-2),
+                IssueTime = FixedUtcNow.AddHours(-1),
+                Source = "WEB",
+            });
+            db.Add(new OrderItem
+            {
+                OrderItemId = 101,
+                OrderId = 11,
+                SeatId = 501,
+                PriceStrategyId = 601,
+                UnitPrice = 105m,
+                ItemStatus = "REFUNDING",
+            });
+            db.Add(new ETicket
+            {
+                ETicketId = 201,
+                ETicketNo = "TKT000201",
+                OrderItemId = 101,
+                UserId = 7,
+                QrCode = "qr-201",
+                AntiFakeCode = "anti-201",
+                TicketStatus = "REFUNDING",
+            });
+            db.Add(new RefundRequest
+            {
+                RefundId = 401,
+                RefundNo = "REF000401",
+                OrderId = 11,
+                UserId = 7,
+                RefundType = "FULL",
+                RefundReason = "并发测试",
+                RefundAmount = 105m,
+                ActualRefund = 84m,
+                FeeRate = 0.8m,
+                AppliedServiceFee = 0m,
+                ApproveStatus = "PENDING",
+                RefundStatus = "PENDING",
+                CreateTime = FixedUtcNow.AddHours(-1),
+                CreateBy = "alice",
+                UpdateBy = "alice",
+                Items =
+                [
+                    new RefundItem
+                    {
+                        RefundItemId = 501,
+                        OrderItemId = 101,
+                        RefundBaseAmount = 105m,
+                        CreateBy = "alice",
+                        UpdateBy = "alice",
+                    },
+                ],
+            });
+            await db.SaveChangesAsync();
+            return database;
+        }
+        catch
+        {
+            await database.DisposeAsync();
+            throw;
+        }
+    }
+
     public static async Task SeedIssuedOrderAsync(AuthTestFactory factory)
     {
         await factory.ResetDatabaseAsync();
@@ -440,6 +591,23 @@ internal sealed class RefundTestData : IAsyncDisposable
         return new SqliteAuthDbContext(options);
     }
 
+    public async Task<OrderTicketResult<RefundResponse>> ApproveWithFreshContextAsync(
+        long refundId)
+    {
+        await using var db = CreateDbContext();
+        var service = new RefundReviewService(
+            db,
+            TimeProvider,
+            new TestRefundLockCoordinator(db),
+            NullLogger<RefundReviewService>.Instance,
+            AuditSink);
+        return await service.ApproveAsync(
+            "admin",
+            refundId,
+            new ApproveRefundRequest(null),
+            CancellationToken.None);
+    }
+
     public async Task MarkRefundReviewedAsync(string approveStatus, string refundStatus)
     {
         var refund = await Db.Set<RefundRequest>()
@@ -472,6 +640,12 @@ internal sealed class RefundTestData : IAsyncDisposable
         .AsNoTracking()
         .Where(item => item.OrderId == OrderId && item.PayStatus == "SUCCESS")
         .Select(item => item.RefundAmount)
+        .SingleAsync();
+
+    public Task<string> OrderStatusAsync() => Db.Set<Order>()
+        .AsNoTracking()
+        .Where(item => item.OrderId == OrderId)
+        .Select(item => item.OrderStatus)
         .SingleAsync();
 
     public Task<string> RefundApproveStatusAsync() => Db.Set<RefundRequest>()
@@ -514,4 +688,32 @@ internal sealed class RefundTestData : IAsyncDisposable
             return new DateTimeOffset(utcNow);
         }
     }
+}
+
+internal sealed class SharedRefundDatabase : IAsyncDisposable
+{
+    private readonly string _connectionString;
+    private readonly SqliteConnection _anchor;
+
+    private SharedRefundDatabase(string connectionString, SqliteConnection anchor)
+    {
+        _connectionString = connectionString;
+        _anchor = anchor;
+    }
+
+    public static async Task<SharedRefundDatabase> CreateAsync()
+    {
+        var name = $"refund-{Guid.NewGuid():N}";
+        var connectionString = $"Data Source={name};Mode=Memory;Cache=Shared";
+        var anchor = new SqliteConnection(connectionString);
+        await anchor.OpenAsync();
+        return new SharedRefundDatabase(connectionString, anchor);
+    }
+
+    public SqliteAuthDbContext CreateContext() => new(
+        new DbContextOptionsBuilder<SqliteAuthDbContext>()
+            .UseSqlite(_connectionString)
+            .Options);
+
+    public ValueTask DisposeAsync() => _anchor.DisposeAsync();
 }
