@@ -105,7 +105,7 @@ public sealed class RefundApplicationServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(OrderTicketFailure.InvalidRequest, result.Failure);
-        Assert.Equal("REFUND_ITEMS_REQUIRED", result.ErrorCode);
+        Assert.Equal("REFUND_ITEM_IDS_REQUIRED", result.ErrorCode);
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public sealed class RefundApplicationServiceTests
     }
 
     [Fact]
-    public async Task QuoteAsync_HidesItemOutsideOrder()
+    public async Task QuoteAsync_RejectsItemOutsideOrderAsNotEligible()
     {
         await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
 
@@ -137,8 +137,8 @@ public sealed class RefundApplicationServiceTests
             CancellationToken.None);
 
         Assert.False(result.IsSuccess);
-        Assert.Equal(OrderTicketFailure.NotFound, result.Failure);
-        Assert.Equal("REFUND_ORDER_ITEM_NOT_FOUND", result.ErrorCode);
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_ITEM_NOT_ELIGIBLE", result.ErrorCode);
     }
 
     [Theory]
@@ -155,7 +155,7 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_ORDER_STATUS_INVALID");
+        AssertConflict(result, "REFUND_ORDER_NOT_ELIGIBLE");
     }
 
     [Fact]
@@ -196,7 +196,7 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_ORDER_ITEM_STATUS_INVALID");
+        AssertConflict(result, "REFUND_ITEM_NOT_ELIGIBLE");
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_TICKET_STATUS_INVALID");
+        AssertConflict(result, "REFUND_TICKET_NOT_UNUSED");
     }
 
     [Fact]
@@ -224,7 +224,7 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_TICKET_STATUS_INVALID");
+        AssertConflict(result, "REFUND_TICKET_NOT_UNUSED");
     }
 
     [Theory]
@@ -247,7 +247,7 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_SEAT_RESERVATION_INVALID");
+        AssertConflict(result, "REFUND_RESERVATION_DATA_INCONSISTENT");
     }
 
     [Fact]
@@ -288,7 +288,7 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_ITEM_ALREADY_RELATED");
+        AssertConflict(result, "REFUND_ITEM_ALREADY_REQUESTED");
     }
 
     [Fact]
@@ -306,7 +306,7 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_ITEM_ALREADY_RELATED");
+        AssertConflict(result, "REFUND_ITEM_EXCHANGE_CONFLICT");
     }
 
     [Fact]
@@ -324,7 +324,7 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_ITEM_ALREADY_RELATED");
+        AssertConflict(result, "REFUND_ITEM_EXCHANGE_CONFLICT");
     }
 
     [Fact]
@@ -436,6 +436,22 @@ public sealed class RefundApplicationServiceTests
     }
 
     [Fact]
+    public async Task QuoteAsync_InvalidOrderPrecedesItemConflict()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        var order = await fixture.Db.Set<Order>().SingleAsync();
+        var item = await fixture.Db.Set<OrderItem>()
+            .SingleAsync(x => x.OrderItemId == fixture.OrderItemIds[0]);
+        order.OrderStatus = "CANCELLED";
+        item.ItemStatus = "REFUNDED";
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_ORDER_NOT_ELIGIBLE");
+    }
+
+    [Fact]
     public async Task QuoteAsync_ItemConflictPrecedesTicketConflict()
     {
         await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
@@ -449,7 +465,7 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_ORDER_ITEM_STATUS_INVALID");
+        AssertConflict(result, "REFUND_ITEM_NOT_ELIGIBLE");
     }
 
     [Fact]
@@ -466,7 +482,7 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_TICKET_STATUS_INVALID");
+        AssertConflict(result, "REFUND_TICKET_NOT_UNUSED");
     }
 
     [Fact]
@@ -481,7 +497,7 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_SEAT_RESERVATION_INVALID");
+        AssertConflict(result, "REFUND_RESERVATION_DATA_INCONSISTENT");
     }
 
     [Fact]
@@ -494,7 +510,26 @@ public sealed class RefundApplicationServiceTests
 
         var result = await QuoteFirstItemAsync(fixture);
 
-        AssertConflict(result, "REFUND_ITEM_ALREADY_RELATED");
+        AssertConflict(result, "REFUND_ITEM_ALREADY_REQUESTED");
+    }
+
+    [Fact]
+    public async Task QuoteAsync_RefundRelationPrecedesExchangeConflict()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(RefundRelation(fixture.OrderItemIds[0]));
+        fixture.Db.Add(new ExchangeItem
+        {
+            ExchangeItemId = 603,
+            ExchangeId = 703,
+            OrderItemId = fixture.OrderItemIds[0],
+            NewOrderItemId = 999,
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_ITEM_ALREADY_REQUESTED");
     }
 
     [Fact]

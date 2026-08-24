@@ -34,7 +34,7 @@ public sealed class RefundApplicationService(
         if (request?.OrderItemIds is null || request.OrderItemIds.Count == 0)
         {
             return Invalid<RefundQuoteResponse>(
-                "REFUND_ITEMS_REQUIRED",
+                "REFUND_ITEM_IDS_REQUIRED",
                 "At least one order item is required.");
         }
 
@@ -49,7 +49,7 @@ public sealed class RefundApplicationService(
         if (order.OrderStatus is not ("ISSUED" or "PART_REFUND"))
         {
             return Conflict<RefundQuoteResponse>(
-                "REFUND_ORDER_STATUS_INVALID",
+                "REFUND_ORDER_NOT_ELIGIBLE",
                 "The order status does not allow a refund.");
         }
 
@@ -76,16 +76,16 @@ public sealed class RefundApplicationService(
             .ToList();
         if (selectedItems.Count != selectedItemIds.Count)
         {
-            return NotFound<RefundQuoteResponse>(
-                "REFUND_ORDER_ITEM_NOT_FOUND",
-                "An order item does not belong to the order.");
+            return Conflict<RefundQuoteResponse>(
+                "REFUND_ITEM_NOT_ELIGIBLE",
+                "An order item is not eligible for a refund.");
         }
 
         if (selectedItems.Any(item => item.ItemStatus != "NORMAL"))
         {
             return Conflict<RefundQuoteResponse>(
-                "REFUND_ORDER_ITEM_STATUS_INVALID",
-                "An order item status does not allow a refund.");
+                "REFUND_ITEM_NOT_ELIGIBLE",
+                "An order item is not eligible for a refund.");
         }
 
         var tickets = await dbContext.Set<ETicket>()
@@ -96,7 +96,7 @@ public sealed class RefundApplicationService(
             tickets.Any(item => item.TicketStatus != "UNUSED"))
         {
             return Conflict<RefundQuoteResponse>(
-                "REFUND_TICKET_STATUS_INVALID",
+                "REFUND_TICKET_NOT_UNUSED",
                 "Each order item must have one unused ticket.");
         }
 
@@ -121,24 +121,31 @@ public sealed class RefundApplicationService(
         if (activeOrderReservationCounts.Values.Any(count => count != 1))
         {
             return Conflict<RefundQuoteResponse>(
-                "REFUND_SEAT_RESERVATION_INVALID",
+                "REFUND_RESERVATION_DATA_INCONSISTENT",
                 "Each order item must have one active order reservation.");
         }
 
         var hasRefundRelation = await dbContext.Set<RefundItem>()
             .AsNoTracking()
             .AnyAsync(item => selectedItemIds.Contains(item.OrderItemId), cancellationToken);
+        if (hasRefundRelation)
+        {
+            return Conflict<RefundQuoteResponse>(
+                "REFUND_ITEM_ALREADY_REQUESTED",
+                "An order item already belongs to a refund request.");
+        }
+
         var hasExchangeRelation = await dbContext.Set<ExchangeItem>()
             .AsNoTracking()
             .AnyAsync(item =>
                 selectedItemIds.Contains(item.OrderItemId) ||
                 selectedItemIds.Contains(item.NewOrderItemId),
                 cancellationToken);
-        if (hasRefundRelation || hasExchangeRelation)
+        if (hasExchangeRelation)
         {
             return Conflict<RefundQuoteResponse>(
-                "REFUND_ITEM_ALREADY_RELATED",
-                "An order item already belongs to a refund or exchange.");
+                "REFUND_ITEM_EXCHANGE_CONFLICT",
+                "An order item already belongs to an exchange.");
         }
 
         var successfulPayments = await dbContext.Set<Payment>()
