@@ -3,6 +3,8 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.IdentityModel.Tokens;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.OrderTicket;
@@ -34,7 +36,7 @@ internal sealed class RefundTestData : IAsyncDisposable
     public CountingTimeProvider TimeProvider { get; } = new(FixedUtcNow);
     public long UserId { get; private init; }
     public long OrderId { get; private init; }
-    public long RefundId { get; private init; }
+    public long RefundId { get; private set; }
     public IReadOnlyList<long> OrderItemIds { get; private init; } = [];
 
     public static async Task<RefundTestData> CreateAsync()
@@ -264,6 +266,56 @@ internal sealed class RefundTestData : IAsyncDisposable
         return fixture;
     }
 
+    public static async Task<RefundTestData> CreatePendingRefundAsync(int itemCount = 1)
+    {
+        var fixture = await CreateIssuedOrderAsync(
+            itemPrices: Enumerable.Repeat(105m, itemCount).ToArray());
+        fixture.RefundId = 401;
+
+        var orderItems = await fixture.Db.Set<OrderItem>()
+            .Include(item => item.ETicket)
+            .OrderBy(item => item.OrderItemId)
+            .ToListAsync();
+        foreach (var orderItem in orderItems)
+        {
+            orderItem.ItemStatus = "REFUNDING";
+            orderItem.ETicket!.TicketStatus = "REFUNDING";
+        }
+
+        fixture.Db.Add(new RefundRequest
+        {
+            RefundId = fixture.RefundId,
+            RefundNo = "REF000401",
+            OrderId = fixture.OrderId,
+            UserId = fixture.UserId,
+            RefundType = "FULL",
+            RefundReason = "行程变更",
+            RefundAmount = itemCount * 105m,
+            ActualRefund = itemCount * 84m,
+            FeeRate = 0.8m,
+            AppliedServiceFee = 0m,
+            ApproveStatus = "PENDING",
+            RefundStatus = "PENDING",
+            CreateTime = FixedUtcNow.AddHours(-1),
+            CreateBy = "alice",
+            UpdateBy = "alice",
+            Items = orderItems
+                .Select((item, index) => new RefundItem
+                {
+                    RefundItemId = 501 + index,
+                    OrderItemId = item.OrderItemId,
+                    RefundBaseAmount = item.UnitPrice,
+                    CreateBy = "alice",
+                    UpdateBy = "alice",
+                })
+                .ToList(),
+        });
+
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+        return fixture;
+    }
+
     public static async Task SeedIssuedOrderAsync(AuthTestFactory factory)
     {
         await factory.ResetDatabaseAsync();
@@ -371,6 +423,62 @@ internal sealed class RefundTestData : IAsyncDisposable
         Db,
         new RefundPolicyEngine(),
         TimeProvider);
+
+    public RefundReviewService CreateReviewService() => new(
+        Db,
+        TimeProvider,
+        new TestRefundLockCoordinator(Db),
+        NullLogger<RefundReviewService>.Instance,
+        AuditSink);
+
+    public AppDbContext CreateDbContext(params IInterceptor[] interceptors)
+    {
+        var options = new DbContextOptionsBuilder<SqliteAuthDbContext>()
+            .UseSqlite(_connection)
+            .AddInterceptors(interceptors)
+            .Options;
+        return new SqliteAuthDbContext(options);
+    }
+
+    public async Task MarkRefundReviewedAsync(string approveStatus, string refundStatus)
+    {
+        var refund = await Db.Set<RefundRequest>()
+            .SingleAsync(item => item.RefundId == RefundId);
+        refund.ApproveStatus = approveStatus;
+        refund.RefundStatus = refundStatus;
+        await Db.SaveChangesAsync();
+        Db.ChangeTracker.Clear();
+    }
+
+    public Task<string> ItemStatusAsync() => Db.Set<OrderItem>()
+        .AsNoTracking()
+        .Where(item => item.OrderItemId == OrderItemIds[0])
+        .Select(item => item.ItemStatus)
+        .SingleAsync();
+
+    public Task<string> TicketStatusAsync() => Db.Set<ETicket>()
+        .AsNoTracking()
+        .Where(item => item.OrderItemId == OrderItemIds[0])
+        .Select(item => item.TicketStatus)
+        .SingleAsync();
+
+    public Task<string> ReservationStatusAsync() => Db.Set<SeatReservation>()
+        .AsNoTracking()
+        .Where(item => item.OrderItemId == OrderItemIds[0])
+        .Select(item => item.ReservationStatus)
+        .SingleAsync();
+
+    public Task<decimal> PaymentRefundAmountAsync() => Db.Set<Payment>()
+        .AsNoTracking()
+        .Where(item => item.OrderId == OrderId && item.PayStatus == "SUCCESS")
+        .Select(item => item.RefundAmount)
+        .SingleAsync();
+
+    public Task<string> RefundApproveStatusAsync() => Db.Set<RefundRequest>()
+        .AsNoTracking()
+        .Where(item => item.RefundId == RefundId)
+        .Select(item => item.ApproveStatus)
+        .SingleAsync();
 
     public static string CreateToken(long userId, string userName, string role)
     {

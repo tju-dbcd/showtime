@@ -125,6 +125,7 @@ builder.Services.AddScoped<IRefundPolicyAdminService, RefundPolicyAdminService>(
 builder.Services.AddSingleton<RefundPolicyEngine>();
 builder.Services.AddScoped<IRefundLockCoordinator, OracleRefundLockCoordinator>();
 builder.Services.AddScoped<IRefundApplicationService, RefundApplicationService>();
+builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();
 builder.Services.AddSingleton<IOrderTicketAuditSink, NullOrderTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();

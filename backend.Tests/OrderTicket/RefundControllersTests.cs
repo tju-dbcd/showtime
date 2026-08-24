@@ -63,6 +63,44 @@ public sealed class RefundControllersTests
             "200",
             "401",
             "404");
+        AssertOperationResponses(
+            paths,
+            "/api/admin/refunds",
+            "get",
+            "200",
+            "400",
+            "401",
+            "403");
+        AssertOperationResponses(
+            paths,
+            "/api/admin/refunds/{refundId}",
+            "get",
+            "200",
+            "401",
+            "403",
+            "404");
+        AssertOperationResponses(
+            paths,
+            "/api/admin/refunds/{refundId}/approve",
+            "post",
+            "200",
+            "400",
+            "401",
+            "403",
+            "404",
+            "409",
+            "500");
+        AssertOperationResponses(
+            paths,
+            "/api/admin/refunds/{refundId}/reject",
+            "post",
+            "200",
+            "400",
+            "401",
+            "403",
+            "404",
+            "409",
+            "500");
     }
 
     [Fact]
@@ -350,6 +388,117 @@ public sealed class RefundControllersTests
     }
 
     [Fact]
+    public async Task AdminList_WithAdminRole_ReturnsFilteredOkEnvelope()
+    {
+        using var factory = new AuthTestFactory();
+        await SeedLegacyRefundAsync(factory, appliedPolicyId: null);
+        using var client = factory.CreateApiClient();
+        AuthenticateAdmin(client);
+
+        var response = await client.GetAsync(
+            "/api/admin/refunds?approveStatus=PENDING&refundStatus=PENDING&orderId=10&userId=7&refundNo=REF000401");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadEnumResponseAsync<PagedRefundResponse>(response);
+        Assert.True(body.Success);
+        Assert.Equal(1, body.Data!.TotalCount);
+        Assert.Equal(401, Assert.Single(body.Data.Items).RefundId);
+    }
+
+    [Fact]
+    public async Task AdminGet_WithAdminRole_ReturnsMappedDetail()
+    {
+        using var factory = new AuthTestFactory();
+        await SeedLegacyRefundAsync(factory, appliedPolicyId: null);
+        using var client = factory.CreateApiClient();
+        AuthenticateAdmin(client);
+
+        var response = await client.GetAsync("/api/admin/refunds/401");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadEnumResponseAsync<RefundResponse>(response);
+        Assert.True(body.Success);
+        Assert.Null(body.Data!.PolicyName);
+    }
+
+    [Fact]
+    public async Task AdminList_WithNonAdminRole_ReturnsForbidden()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+        Authenticate(client, 7);
+
+        var response = await client.GetAsync("/api/admin/refunds");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AdminReject_WithAdminRole_ReturnsOkEnvelope()
+    {
+        using var factory = new AuthTestFactory();
+        await SeedLegacyRefundAsync(factory, appliedPolicyId: null);
+        using var refundFactory = CreateRefundFactory(factory);
+        using var client = CreateApiClient(refundFactory);
+        AuthenticateAdmin(client);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/admin/refunds/401/reject",
+            new RejectRefundRequest("  资料不符合要求  "));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadEnumResponseAsync<RefundResponse>(response);
+        Assert.True(body.Success);
+        Assert.Equal(RefundApproveStatus.REJECTED, body.Data!.ApproveStatus);
+        Assert.Equal(RefundStatus.FAILED, body.Data.RefundStatus);
+        Assert.Equal("资料不符合要求", body.Data.ReviewRemark);
+    }
+
+    [Fact]
+    public async Task AdminReject_WithInvalidRemark_ReturnsBadRequestEnvelope()
+    {
+        using var factory = new AuthTestFactory();
+        await SeedLegacyRefundAsync(factory, appliedPolicyId: null);
+        using var refundFactory = CreateRefundFactory(factory);
+        using var client = CreateApiClient(refundFactory);
+        AuthenticateAdmin(client);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/admin/refunds/401/reject",
+            new RejectRefundRequest("   "));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await ReadEnumResponseAsync<RefundResponse>(response);
+        Assert.False(body.Success);
+        Assert.Equal("REFUND_REVIEW_REMARK_INVALID", body.Code);
+    }
+
+    [Fact]
+    public async Task AdminApprove_TaskSevenRouteReturnsExplicitFailureWithoutMutation()
+    {
+        using var factory = new AuthTestFactory();
+        await SeedLegacyRefundAsync(factory, appliedPolicyId: null);
+        using var refundFactory = CreateRefundFactory(factory);
+        using var client = CreateApiClient(refundFactory);
+        AuthenticateAdmin(client);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/admin/refunds/401/approve",
+            new ApproveRefundRequest("通过"));
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        var body = await ReadEnumResponseAsync<RefundResponse>(response);
+        Assert.False(body.Success);
+        Assert.Equal("REFUND_APPROVAL_NOT_AVAILABLE", body.Code);
+        var approveStatus = await factory.ExecuteDbContextAsync(async db =>
+            await db.Set<RefundRequest>()
+                .Where(item => item.RefundId == 401)
+                .Select(item => item.ApproveStatus)
+                .SingleAsync());
+        Assert.Equal("PENDING", approveStatus);
+    }
+
+    [Fact]
     public async Task Create_WithoutAdminRole_ReturnsForbidden()
     {
         using var factory = new AuthTestFactory();
@@ -481,6 +630,11 @@ public sealed class RefundControllersTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             RefundTestData.CreateToken(userId, $"user-{userId}", "USER"));
+
+    private static void AuthenticateAdmin(HttpClient client) =>
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            RefundTestData.CreateToken(8, "refund-admin", "Admin"));
 
     private static WebApplicationFactory<Program> CreateRefundFactory(
         AuthTestFactory factory) => factory.WithWebHostBuilder(builder =>
