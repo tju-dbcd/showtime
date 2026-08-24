@@ -123,6 +123,7 @@ builder.Services.AddScoped<ITicketQueryService, TicketQueryService>();
 builder.Services.AddScoped<IAdminTicketIssuanceService, AdminTicketIssuanceService>();
 builder.Services.AddScoped<IRefundPolicyAdminService, RefundPolicyAdminService>();
 builder.Services.AddSingleton<RefundPolicyEngine>();
+builder.Services.AddScoped<IRefundLockCoordinator, OracleRefundLockCoordinator>();
 builder.Services.AddScoped<IRefundApplicationService, RefundApplicationService>();
 builder.Services.AddSingleton<IOrderTicketAuditSink, NullOrderTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();

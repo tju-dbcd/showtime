@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using ShowtimeBackend.Common;
+using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Entities.SeatZone;
@@ -10,6 +12,244 @@ namespace ShowtimeBackend.Tests.OrderTicket;
 
 public sealed class RefundApplicationServiceTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CreateAsync_RejectsBlankReason(string reason)
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+
+        var result = await CreateApplicationService(fixture).CreateAsync(
+            fixture.UserId,
+            "alice",
+            fixture.OrderId,
+            new CreateRefundRequest([fixture.OrderItemIds[0]], reason),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.InvalidRequest, result.Failure);
+        Assert.Equal("REFUND_REASON_INVALID", result.ErrorCode);
+        Assert.Empty(await fixture.Db.Set<RefundRequest>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task CreateAsync_RejectsReasonLongerThanFiveHundredCharacters()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+
+        var result = await CreateApplicationService(fixture).CreateAsync(
+            fixture.UserId,
+            "alice",
+            fixture.OrderId,
+            new CreateRefundRequest([fixture.OrderItemIds[0]], new string('a', 501)),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.InvalidRequest, result.Failure);
+        Assert.Equal("REFUND_REASON_INVALID", result.ErrorCode);
+        Assert.Empty(await fixture.Db.Set<RefundRequest>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task CreateAsync_AuditsCommittedRefundSnapshot()
+    {
+        var auditSink = new RecordingAuditSink();
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync(
+            auditSink: auditSink);
+        auditSink.Attach(fixture.Db);
+        fixture.Db.Add(Policy());
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await CreateApplicationService(fixture).CreateAsync(
+            fixture.UserId,
+            "alice",
+            fixture.OrderId,
+            new CreateRefundRequest([fixture.OrderItemIds[0]], "行程变更"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var auditEvent = Assert.Single(auditSink.Events);
+        Assert.Equal("REFUND_REQUESTED", auditEvent.Operation);
+        Assert.Equal(fixture.OrderId, auditEvent.OrderId);
+        Assert.Equal("alice", auditEvent.Actor);
+        Assert.Equal(1, auditEvent.TicketCount);
+        Assert.Equal(RefundTestData.FixedUtcNow, auditEvent.OccurredAt);
+        Assert.Equal(result.Value!.RefundId, auditEvent.RefundId);
+        Assert.Equal(result.Value.ActualRefund, auditEvent.ActualRefund);
+        Assert.Equal("PENDING", auditEvent.Metadata!["ApproveStatus"]);
+        Assert.Equal("PENDING", auditEvent.Metadata["RefundStatus"]);
+        Assert.Equal("801", auditEvent.Metadata["AppliedPolicyId"]);
+        Assert.True(auditSink.ObservedWithoutTransaction);
+        Assert.Equal(1, auditSink.ObservedRefundCount);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenAuditFails_KeepsCommittedRefund()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync(
+            auditSink: new ThrowingAuditSink());
+        fixture.Db.Add(Policy());
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await CreateApplicationService(fixture).CreateAsync(
+            fixture.UserId,
+            "alice",
+            fixture.OrderId,
+            new CreateRefundRequest([fixture.OrderItemIds[0]], "行程变更"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, await fixture.Db.Set<RefundRequest>().CountAsync());
+        Assert.Equal(
+            "REFUNDING",
+            (await fixture.Db.Set<OrderItem>()
+                .SingleAsync(item => item.OrderItemId == fixture.OrderItemIds[0]))
+                .ItemStatus);
+    }
+
+    [Fact]
+    public async Task CreateAsync_RejectsItemAlreadyRelatedToRefund()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(RefundRelation(fixture.OrderItemIds[0]));
+        fixture.Db.Add(Policy());
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await CreateApplicationService(fixture).CreateAsync(
+            fixture.UserId,
+            "alice",
+            fixture.OrderId,
+            new CreateRefundRequest([fixture.OrderItemIds[0]], "行程变更"),
+            CancellationToken.None);
+
+        AssertConflict(result, "REFUND_ITEM_ALREADY_REQUESTED");
+        Assert.Equal(1, await fixture.Db.Set<RefundItem>().CountAsync());
+        Assert.Equal(
+            "NORMAL",
+            (await fixture.Db.Set<OrderItem>()
+                .SingleAsync(item => item.OrderItemId == fixture.OrderItemIds[0]))
+                .ItemStatus);
+    }
+
+    [Fact]
+    public async Task CreateAsync_RejectsItemAlreadyRelatedToExchange()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(new ExchangeItem
+        {
+            ExchangeItemId = 603,
+            ExchangeId = 703,
+            OrderItemId = fixture.OrderItemIds[0],
+            NewOrderItemId = 999,
+        });
+        fixture.Db.Add(Policy());
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await CreateApplicationService(fixture).CreateAsync(
+            fixture.UserId,
+            "alice",
+            fixture.OrderId,
+            new CreateRefundRequest([fixture.OrderItemIds[0]], "行程变更"),
+            CancellationToken.None);
+
+        AssertConflict(result, "REFUND_ITEM_EXCHANGE_CONFLICT");
+        Assert.Empty(await fixture.Db.Set<RefundRequest>().ToListAsync());
+        Assert.Equal(
+            "UNUSED",
+            (await fixture.Db.Set<ETicket>()
+                .SingleAsync(item => item.OrderItemId == fixture.OrderItemIds[0]))
+                .TicketStatus);
+    }
+
+    [Fact]
+    public async Task CreateAsync_FreezesQuoteAndMovesItemAndTicketToRefunding()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(Policy(refundRate: 0.8m, serviceFee: 5m));
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await CreateApplicationService(fixture).CreateAsync(
+            fixture.UserId,
+            "alice",
+            fixture.OrderId,
+            new CreateRefundRequest([fixture.OrderItemIds[0]], "  行程变更  "),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var request = await fixture.Db.Set<RefundRequest>()
+            .Include(x => x.Items)
+            .SingleAsync();
+        Assert.Equal("PENDING", request.ApproveStatus);
+        Assert.Equal("PENDING", request.RefundStatus);
+        Assert.Equal("行程变更", request.RefundReason);
+        Assert.Equal("PART", request.RefundType);
+        Assert.NotNull(request.AppliedPolicyId);
+        Assert.Equal(request.RefundAmount, request.Items.Sum(x => x.RefundBaseAmount));
+        Assert.Equal(105m, request.RefundAmount);
+        Assert.Equal(79m, request.ActualRefund);
+        Assert.StartsWith("REF", request.RefundNo);
+        Assert.True(request.RefundNo.Length <= 30);
+        Assert.Equal(
+            "REFUNDING",
+            (await fixture.Db.Set<OrderItem>()
+                .FindAsync(fixture.OrderItemIds[0]))!.ItemStatus);
+        Assert.Equal(
+            "REFUNDING",
+            (await fixture.Db.Set<ETicket>()
+                .SingleAsync(x => x.OrderItemId == fixture.OrderItemIds[0]))
+                .TicketStatus);
+        Assert.Equal(request.RefundId, result.Value!.RefundId);
+        Assert.Equal(RefundApproveStatus.PENDING, result.Value.ApproveStatus);
+        Assert.Equal(RefundStatus.PENDING, result.Value.RefundStatus);
+        Assert.Equal(OrderItemStatus.REFUNDING, result.Value.Items[0].ItemStatus);
+        Assert.Equal(ETicketStatus.REFUNDING, result.Value.Items[0].TicketStatus);
+        Assert.Equal(1, fixture.TimeProvider.GetUtcNowCallCount);
+    }
+
+    [Fact]
+    public async Task CreateAsync_AcceptsTrimmedReasonAtFiveHundredCharacterBoundary()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(Policy());
+        await fixture.Db.SaveChangesAsync();
+        var reason = new string('a', 500);
+
+        var result = await CreateApplicationService(fixture).CreateAsync(
+            fixture.UserId,
+            "alice",
+            fixture.OrderId,
+            new CreateRefundRequest([fixture.OrderItemIds[0]], $" {reason} "),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(reason, result.Value!.RefundReason);
+    }
+
+    [Fact]
+    public async Task CreateAsync_RevalidatesFinancialInvariantsAfterOrderLock()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(Policy());
+        await fixture.Db.SaveChangesAsync();
+        var coordinator = new MutatingRefundLockCoordinator(
+            fixture.Db,
+            () => fixture.Db.Database.ExecuteSqlRawAsync(
+                "UPDATE PAYMENT SET PAY_AMOUNT = 209 WHERE PAYMENT_ID = 31;"));
+
+        var result = await CreateApplicationService(fixture, coordinator).CreateAsync(
+            fixture.UserId,
+            "alice",
+            fixture.OrderId,
+            new CreateRefundRequest([fixture.OrderItemIds[0]], "行程变更"),
+            CancellationToken.None);
+
+        AssertConflict(result, "REFUND_PAYMENT_DATA_INCONSISTENT");
+        Assert.Equal(0, await fixture.Db.Set<RefundRequest>().CountAsync());
+        Assert.Equal(
+            210m,
+            (await fixture.Db.Set<Payment>().AsNoTracking().SingleAsync()).PayAmount);
+    }
+
     [Fact]
     public async Task QuoteAsync_UsesUniqueSuccessfulPaymentAsNetPaid()
     {
@@ -622,8 +862,27 @@ public sealed class RefundApplicationServiceTests
             new RefundQuoteRequest([fixture.OrderItemIds[0]]),
             CancellationToken.None);
 
+    private static RefundApplicationService CreateApplicationService(
+        RefundTestData fixture,
+        IRefundLockCoordinator? lockCoordinator = null) => new(
+            fixture.Db,
+            new RefundPolicyEngine(),
+            fixture.TimeProvider,
+            lockCoordinator ?? new TestRefundLockCoordinator(fixture.Db),
+            NullLogger<RefundApplicationService>.Instance,
+            fixture.AuditSink);
+
     private static void AssertConflict(
         OrderTicketResult<RefundQuoteResponse> result,
+        string errorCode)
+    {
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal(errorCode, result.ErrorCode);
+    }
+
+    private static void AssertConflict(
+        OrderTicketResult<RefundResponse> result,
         string errorCode)
     {
         Assert.False(result.IsSuccess);
@@ -671,4 +930,70 @@ public sealed class RefundApplicationServiceTests
         ItemSumDoesNotMatchTotal,
         ZeroDenominator,
     }
+
+    private sealed class RecordingAuditSink : IOrderTicketAuditSink
+    {
+        private AppDbContext? dbContext;
+
+        public List<OrderTicketAuditEvent> Events { get; } = [];
+        public bool ObservedWithoutTransaction { get; private set; }
+        public int ObservedRefundCount { get; private set; }
+
+        public void Attach(AppDbContext db) => dbContext = db;
+
+        public async ValueTask WriteAsync(
+            OrderTicketAuditEvent auditEvent,
+            CancellationToken cancellationToken)
+        {
+            Events.Add(auditEvent);
+            ObservedWithoutTransaction = dbContext!.Database.CurrentTransaction is null;
+            ObservedRefundCount = await dbContext.Set<RefundRequest>()
+                .CountAsync(cancellationToken);
+        }
+    }
+
+    private sealed class ThrowingAuditSink : IOrderTicketAuditSink
+    {
+        public ValueTask WriteAsync(
+            OrderTicketAuditEvent auditEvent,
+            CancellationToken cancellationToken) => ValueTask.FromException(
+                new InvalidOperationException("audit unavailable"));
+    }
+
+    private sealed class MutatingRefundLockCoordinator(
+        AppDbContext db,
+        Func<Task> mutateAsync) : IRefundLockCoordinator
+    {
+        public Task<bool> LockRefundRequestAsync(
+            long refundId,
+            CancellationToken cancellationToken) => db.Set<RefundRequest>()
+            .AsNoTracking()
+            .AnyAsync(item => item.RefundId == refundId, cancellationToken);
+
+        public async Task<bool> LockOrderAsync(
+            long orderId,
+            CancellationToken cancellationToken)
+        {
+            var exists = await db.Set<Order>()
+                .AsNoTracking()
+                .AnyAsync(item => item.OrderId == orderId, cancellationToken);
+            await mutateAsync();
+            return exists;
+        }
+    }
+}
+
+internal sealed class TestRefundLockCoordinator(AppDbContext db) : IRefundLockCoordinator
+{
+    public Task<bool> LockRefundRequestAsync(
+        long refundId,
+        CancellationToken cancellationToken) => db.Set<RefundRequest>()
+        .AsNoTracking()
+        .AnyAsync(item => item.RefundId == refundId, cancellationToken);
+
+    public Task<bool> LockOrderAsync(
+        long orderId,
+        CancellationToken cancellationToken) => db.Set<Order>()
+        .AsNoTracking()
+        .AnyAsync(item => item.OrderId == orderId, cancellationToken);
 }

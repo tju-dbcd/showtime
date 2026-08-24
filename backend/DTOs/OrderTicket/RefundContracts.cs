@@ -21,3 +21,32 @@ public sealed record RefundQuoteResponse(
     decimal AppliedServiceFee,
     decimal ActualRefund,
     IReadOnlyList<RefundQuoteItemResponse> Items);
+
+public sealed record RefundItemResponse(
+    long RefundItemId,
+    long OrderItemId,
+    decimal RefundBaseAmount,
+    OrderItemStatus ItemStatus,
+    ETicketStatus TicketStatus);
+
+public sealed record RefundResponse(
+    long RefundId,
+    string RefundNo,
+    long OrderId,
+    long UserId,
+    RefundType RefundType,
+    string? RefundReason,
+    long? AppliedPolicyId,
+    string? PolicyName,
+    decimal RefundAmount,
+    decimal FeeRate,
+    decimal AppliedServiceFee,
+    decimal? ActualRefund,
+    RefundApproveStatus ApproveStatus,
+    RefundStatus RefundStatus,
+    string? ReviewBy,
+    DateTime? ReviewTime,
+    string? ReviewRemark,
+    DateTime? CompleteTime,
+    DateTime CreateTime,
+    IReadOnlyList<RefundItemResponse> Items);
