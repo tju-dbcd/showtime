@@ -23,6 +23,10 @@ public class RefundRequest : AuditableEntity
 
     public decimal FeeRate { get; set; }
 
+    public long? AppliedPolicyId { get; set; }
+
+    public decimal AppliedServiceFee { get; set; }
+
     public string ApproveStatus { get; set; } = "PENDING";
 
     public string? ReviewBy { get; set; }
@@ -36,6 +40,8 @@ public class RefundRequest : AuditableEntity
     public DateTime? CompleteTime { get; set; }
 
     public Order? Order { get; set; }
+
+    public RefundPolicy? AppliedPolicy { get; set; }
 
     public SysUser? User { get; set; }
 

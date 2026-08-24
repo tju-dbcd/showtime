@@ -10,6 +10,8 @@ public class RefundItem : AuditableEntity
 
     public long OrderItemId { get; set; }
 
+    public decimal RefundBaseAmount { get; set; }
+
     public RefundRequest? RefundRequest { get; set; }
 
     public OrderItem? OrderItem { get; set; }
