@@ -196,6 +196,7 @@ jobs:
         env:
           ASPNETCORE_ENVIRONMENT: Development
           ASPNETCORE_URLS: http://127.0.0.1:5000
+          TicketSecurity__SigningKeyBase64: ERERERERERERERERERERERERERERERERERERERERERE=
         run: |
           dotnet ./bin/Release/net10.0/ShowtimeBackend.dll &
           APP_PID=$!

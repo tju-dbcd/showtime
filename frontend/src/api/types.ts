@@ -2112,6 +2112,100 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/admin/orders/{orderId}/issue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketIssuanceResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/orders": {
         parameters: {
             query?: never;
@@ -2258,6 +2352,67 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/orders/{orderId}/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfIReadOnlyListOfTicketResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfIReadOnlyListOfTicketResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfIReadOnlyListOfTicketResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfIReadOnlyListOfTicketResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfIReadOnlyListOfTicketResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfIReadOnlyListOfTicketResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfIReadOnlyListOfTicketResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfIReadOnlyListOfTicketResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfIReadOnlyListOfTicketResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/orders/{orderId}/payments": {
         parameters: {
             query?: never;
@@ -2329,9 +2484,64 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ApiResponseOfPaymentResponse"];
-                        "application/json": components["schemas"]["ApiResponseOfPaymentResponse"];
-                        "text/json": components["schemas"]["ApiResponseOfPaymentResponse"];
+                        "text/plain": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPaymentProcessResponse"];
                     };
                 };
             };
@@ -2399,6 +2609,12 @@ export interface components {
             code: null | string;
             message: string;
         };
+        ApiResponseOfIReadOnlyListOfTicketResponse: {
+            success: boolean;
+            data: null | components["schemas"]["TicketResponse"][];
+            code: null | string;
+            message: string;
+        };
         ApiResponseOfLoginResponse: {
             success: boolean;
             data: null | components["schemas"]["LoginResponse"];
@@ -2459,9 +2675,9 @@ export interface components {
             code: null | string;
             message: string;
         };
-        ApiResponseOfPaymentResponse: {
+        ApiResponseOfPaymentProcessResponse: {
             success: boolean;
-            data: null | components["schemas"]["PaymentResponse"];
+            data: null | components["schemas"]["PaymentProcessResponse"];
             code: null | string;
             message: string;
         };
@@ -2528,6 +2744,12 @@ export interface components {
         ApiResponseOfShowSessionDto: {
             success: boolean;
             data: null | components["schemas"]["ShowSessionDto"];
+            code: null | string;
+            message: string;
+        };
+        ApiResponseOfTicketIssuanceResponse: {
+            success: boolean;
+            data: null | components["schemas"]["TicketIssuanceResponse"];
             code: null | string;
             message: string;
         };
@@ -2655,6 +2877,8 @@ export interface components {
             /** Format: date-time */
             payTime: null | string;
             /** Format: date-time */
+            issueTime: null | string;
+            /** Format: date-time */
             cancelTime: null | string;
             source: string;
             remark: null | string;
@@ -2749,6 +2973,12 @@ export interface components {
         };
         /** @enum {string} */
         PaymentChannel: "ALIPAY" | "WECHAT" | "UNIONPAY" | "BALANCE";
+        PaymentProcessResponse: {
+            payment: components["schemas"]["PaymentResponse"];
+            orderStatus: components["schemas"]["OrderStatus"];
+            /** Format: int32 */
+            issuedTicketCount: number | string;
+        };
         PaymentResponse: {
             /** Format: int64 */
             paymentId: number | string;
@@ -3074,6 +3304,28 @@ export interface components {
         };
         /** @enum {string} */
         ShowStatus: "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
+        TicketIssuanceResponse: {
+            /** Format: int64 */
+            orderId: number | string;
+            orderStatus: components["schemas"]["OrderStatus"];
+            /** Format: int32 */
+            createdTicketCount: number | string;
+            /** Format: int32 */
+            existingTicketCount: number | string;
+            /** Format: int32 */
+            totalTicketCount: number | string;
+            /** Format: date-time */
+            issueTime: string;
+        };
+        TicketResponse: {
+            /** Format: int64 */
+            eTicketId: number | string;
+            eTicketNo: string;
+            /** Format: int64 */
+            orderItemId: number | string;
+            ticketStatus: components["schemas"]["ETicketStatus"];
+            qrCode: string;
+        };
         UpdateSessionStatusRequest: {
             status: components["schemas"]["SessionStatus"];
         };

@@ -5,7 +5,8 @@ public enum OrderTicketFailure
     None = 0,
     InvalidRequest,
     NotFound,
-    Conflict
+    Conflict,
+    Internal,
 }
 
 public sealed class OrderTicketResult<T>

@@ -178,6 +178,7 @@ export interface OrderResponse {
   orderStatus: string;
   expireTime: string;
   payTime: string | null;
+  issueTime: string | null;
   cancelTime: string | null;
   source: string;
   remark: string | null;
@@ -232,11 +233,21 @@ export interface MockPaymentRequest {
   result: string;
 }
 
+export interface PaymentProcessResponse {
+  payment: PaymentResponse;
+  orderStatus: string;
+  issuedTicketCount: number;
+}
+
 export interface ETicketSummaryResponse {
   eTicketId: number;
   eTicketNo: string;
   orderItemId: number;
   ticketStatus: string;
+}
+
+export interface TicketResponse extends ETicketSummaryResponse {
+  qrCode: string;
 }
 
 // ========== 枚举常量 ==========
