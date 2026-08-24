@@ -310,6 +310,16 @@ public sealed class RefundReviewService(
                     "Seat reservation data is inconsistent.");
             }
 
+            string? policyName = null;
+            if (refundRequest.AppliedPolicyId is long policyId)
+            {
+                policyName = await dbContext.Set<RefundPolicy>()
+                    .AsNoTracking()
+                    .Where(item => item.PolicyId == policyId)
+                    .Select(item => item.PolicyName)
+                    .SingleOrDefaultAsync(cancellationToken);
+            }
+
             var actualRefund = refundRequest.ActualRefund.Value;
             var now = timeProvider.GetUtcNow().UtcDateTime;
             var payment = payments[0];
@@ -373,7 +383,7 @@ public sealed class RefundReviewService(
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
-            var response = RefundResponseMapper.ToResponse(refundRequest, null);
+            var response = RefundResponseMapper.ToResponse(refundRequest, policyName);
             await WriteAuditSafelyAsync(
                 new OrderTicketAuditEvent(
                     "REFUND_APPROVED",

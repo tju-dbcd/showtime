@@ -643,23 +643,30 @@ public sealed class RefundReviewServiceTests
     }
 
     [Fact]
-    public async Task ApproveAsync_AllowsNullRemarkAndUsesFrozenAmountAfterPolicyChanges()
+    public async Task ApproveAsync_ReturnsCurrentPolicyNameAndKeepsFrozenAmountsAfterPolicyChanges()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
-        fixture.Db.Add(new RefundPolicy
+        var policy = new RefundPolicy
         {
             PolicyId = 801,
-            PolicyName = "已变更策略",
-            RefundDeadlineHour = 1000,
-            RefundRate = 0.01m,
-            ServiceFee = 500m,
+            PolicyName = "申请时策略名称",
+            RefundDeadlineHour = 24,
+            RefundRate = 0.8m,
+            ServiceFee = 0m,
             Priority = 1,
-            Status = 0,
-        });
+            Status = 1,
+        };
+        fixture.Db.Add(policy);
         var refund = await fixture.Db.Set<RefundRequest>()
             .SingleAsync(item => item.RefundId == fixture.RefundId);
         refund.AppliedPolicyId = 801;
+        await fixture.Db.SaveChangesAsync();
+        policy.PolicyName = "审批时当前策略名称";
+        policy.RefundDeadlineHour = 1000;
+        policy.RefundRate = 0.01m;
+        policy.ServiceFee = 500m;
+        policy.Status = 0;
         await fixture.Db.SaveChangesAsync();
         fixture.Db.ChangeTracker.Clear();
 
@@ -671,8 +678,54 @@ public sealed class RefundReviewServiceTests
 
         Assert.True(result.IsSuccess);
         Assert.Null(result.Value!.ReviewRemark);
+        Assert.Equal(801, result.Value.AppliedPolicyId);
+        Assert.Equal("审批时当前策略名称", result.Value.PolicyName);
+        Assert.Equal(105m, result.Value.RefundAmount);
+        Assert.Equal(0.8m, result.Value.FeeRate);
+        Assert.Equal(0m, result.Value.AppliedServiceFee);
         Assert.Equal(84m, result.Value.ActualRefund);
         Assert.Equal(84m, await fixture.PaymentRefundAmountAsync());
+    }
+
+    [Fact]
+    public async Task ApproveAsync_WhenNoPolicyWasApplied_SucceedsWithNullPolicyName()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        await MakeSingleItemFinancialsConsistentAsync(fixture);
+
+        var result = await fixture.CreateReviewService().ApproveAsync(
+            "admin",
+            fixture.RefundId,
+            new ApproveRefundRequest(null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value!.AppliedPolicyId);
+        Assert.Null(result.Value.PolicyName);
+        Assert.Equal(84m, result.Value.ActualRefund);
+    }
+
+    [Fact]
+    public async Task ApproveAsync_WhenAppliedPolicyRelationIsMissing_SucceedsWithNullPolicyName()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        await MakeSingleItemFinancialsConsistentAsync(fixture);
+        var refund = await fixture.Db.Set<RefundRequest>()
+            .SingleAsync(item => item.RefundId == fixture.RefundId);
+        refund.AppliedPolicyId = 999;
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+
+        var result = await fixture.CreateReviewService().ApproveAsync(
+            "admin",
+            fixture.RefundId,
+            new ApproveRefundRequest(null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(999, result.Value!.AppliedPolicyId);
+        Assert.Null(result.Value.PolicyName);
+        Assert.Equal(84m, result.Value.ActualRefund);
     }
 
     [Fact]
