@@ -195,7 +195,15 @@ public sealed class RefundReviewServiceTests
     public async Task RejectAsync_WhenRequestChangesAfterOrderLock_RevalidatesAndReturnsConflict()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
-        var coordinator = new MutatingAfterOrderLockCoordinator(fixture.Db);
+        var coordinator = new CallbackAfterOrderLockCoordinator(
+            fixture.Db,
+            cancellationToken => fixture.Db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE REFUND_REQUEST
+                SET APPROVE_STATUS = 'APPROVED', REFUND_STATUS = 'COMPLETED'
+                WHERE REFUND_ID = {fixture.RefundId}
+                """,
+                cancellationToken));
 
         var result = await CreateService(fixture, coordinator).RejectAsync(
             "admin",
@@ -206,8 +214,93 @@ public sealed class RefundReviewServiceTests
         Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
         Assert.Equal("REFUND_ALREADY_REVIEWED", result.ErrorCode);
         Assert.Equal(["refund:401", "order:11"], coordinator.Calls);
-        Assert.Equal("PENDING", await fixture.RefundApproveStatusAsync());
-        Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
+        Assert.True(coordinator.MutationObservedTransaction);
+        Assert.Equal(1, coordinator.MutationAffectedRows);
+        await AssertPendingWorkflowStateAsync(fixture);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenItemChangesAfterOrderLock_RevalidatesAssociatedState()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        var coordinator = new CallbackAfterOrderLockCoordinator(
+            fixture.Db,
+            cancellationToken => fixture.Db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE ORDER_ITEM
+                SET ITEM_STATUS = 'EXCHANGING'
+                WHERE ORDER_ITEM_ID = {fixture.OrderItemIds[0]}
+                """,
+                cancellationToken));
+
+        var result = await CreateService(fixture, coordinator).RejectAsync(
+            "admin",
+            fixture.RefundId,
+            new RejectRefundRequest("拒绝"),
+            CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_ITEM_STATE_CONFLICT", result.ErrorCode);
+        Assert.Equal(["refund:401", "order:11"], coordinator.Calls);
+        Assert.True(coordinator.MutationObservedTransaction);
+        Assert.Equal(1, coordinator.MutationAffectedRows);
+        await AssertPendingWorkflowStateAsync(fixture);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenTicketChangesAfterOrderLock_RevalidatesAssociatedState()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        var coordinator = new CallbackAfterOrderLockCoordinator(
+            fixture.Db,
+            cancellationToken => fixture.Db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE E_TICKET
+                SET TICKET_STATUS = 'USED'
+                WHERE ORDER_ITEM_ID = {fixture.OrderItemIds[0]}
+                """,
+                cancellationToken));
+
+        var result = await CreateService(fixture, coordinator).RejectAsync(
+            "admin",
+            fixture.RefundId,
+            new RejectRefundRequest("拒绝"),
+            CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_TICKET_STATE_CONFLICT", result.ErrorCode);
+        Assert.Equal(["refund:401", "order:11"], coordinator.Calls);
+        Assert.True(coordinator.MutationObservedTransaction);
+        Assert.Equal(1, coordinator.MutationAffectedRows);
+        await AssertPendingWorkflowStateAsync(fixture);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenReservationChangesAfterOrderLock_RevalidatesAssociatedState()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        var coordinator = new CallbackAfterOrderLockCoordinator(
+            fixture.Db,
+            cancellationToken => fixture.Db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE SEAT_RESERVATION
+                SET RESERVATION_STATUS = 'CANCELLED'
+                WHERE ORDER_ITEM_ID = {fixture.OrderItemIds[0]}
+                """,
+                cancellationToken));
+
+        var result = await CreateService(fixture, coordinator).RejectAsync(
+            "admin",
+            fixture.RefundId,
+            new RejectRefundRequest("拒绝"),
+            CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_RESERVATION_DATA_INCONSISTENT", result.ErrorCode);
+        Assert.Equal(["refund:401", "order:11"], coordinator.Calls);
+        Assert.True(coordinator.MutationObservedTransaction);
+        Assert.Equal(1, coordinator.MutationAffectedRows);
+        await AssertPendingWorkflowStateAsync(fixture);
     }
 
     [Fact]
@@ -239,11 +332,23 @@ public sealed class RefundReviewServiceTests
     }
 
     [Fact]
-    public async Task RejectAsync_WhenConcurrencySaveFails_ReturnsStableConflictAndClearsTracker()
+    public async Task RejectAsync_WhenRequestTokensChangeAfterTracking_UsesEfConcurrencyCheck()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
-        await using var conflictingDb = fixture.CreateDbContext(
-            new ThrowingConcurrencyInterceptor());
+        var interceptor = new RawSqlConcurrencyInterceptor(
+            (db, cancellationToken) => db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE REFUND_REQUEST
+                SET APPROVE_STATUS = 'APPROVED', REFUND_STATUS = 'COMPLETED'
+                WHERE REFUND_ID = {fixture.RefundId}
+                """,
+                cancellationToken));
+        await using var conflictingDb = fixture.CreateDbContext(interceptor);
+        var requestType = conflictingDb.Model.FindEntityType(typeof(RefundRequest))!;
+        Assert.True(requestType.FindProperty(nameof(RefundRequest.ApproveStatus))!
+            .IsConcurrencyToken);
+        Assert.True(requestType.FindProperty(nameof(RefundRequest.RefundStatus))!
+            .IsConcurrencyToken);
         var service = new RefundReviewService(
             conflictingDb,
             fixture.TimeProvider,
@@ -259,10 +364,112 @@ public sealed class RefundReviewServiceTests
 
         Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
         Assert.Equal("REFUND_REVIEW_CONFLICT", result.ErrorCode);
+        Assert.Equal(
+            "PENDING",
+            interceptor.ConcurrencyOriginalValues[
+                $"{nameof(RefundRequest)}.{nameof(RefundRequest.ApproveStatus)}"]);
+        Assert.Equal(
+            "PENDING",
+            interceptor.ConcurrencyOriginalValues[
+                $"{nameof(RefundRequest)}.{nameof(RefundRequest.RefundStatus)}"]);
+        Assert.True(interceptor.MutationObservedTransaction);
+        Assert.Equal(1, interceptor.MutationAffectedRows);
+        Assert.Equal(1, interceptor.ConcurrencyExceptionObservedCount);
+        Assert.Equal(
+            typeof(RefundRequest),
+            Assert.Single(interceptor.ConcurrentEntityTypes));
         Assert.Empty(conflictingDb.ChangeTracker.Entries());
-        Assert.Equal("PENDING", await fixture.RefundApproveStatusAsync());
-        Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
-        Assert.Equal("REFUNDING", await fixture.TicketStatusAsync());
+        await AssertPendingWorkflowStateAsync(fixture);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenItemTokenChangesAfterTracking_UsesEfConcurrencyCheck()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        var interceptor = new RawSqlConcurrencyInterceptor(
+            (db, cancellationToken) => db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE ORDER_ITEM
+                SET ITEM_STATUS = 'EXCHANGING'
+                WHERE ORDER_ITEM_ID = {fixture.OrderItemIds[0]}
+                """,
+                cancellationToken));
+        await using var conflictingDb = fixture.CreateDbContext(interceptor);
+        var itemType = conflictingDb.Model.FindEntityType(typeof(OrderItem))!;
+        Assert.True(itemType.FindProperty(nameof(OrderItem.ItemStatus))!
+            .IsConcurrencyToken);
+        var service = new RefundReviewService(
+            conflictingDb,
+            fixture.TimeProvider,
+            new TestRefundLockCoordinator(conflictingDb),
+            NullLogger<RefundReviewService>.Instance,
+            new NullOrderTicketAuditSink());
+
+        var result = await service.RejectAsync(
+            "admin",
+            fixture.RefundId,
+            new RejectRefundRequest("拒绝"),
+            CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_REVIEW_CONFLICT", result.ErrorCode);
+        Assert.Equal(
+            "REFUNDING",
+            interceptor.ConcurrencyOriginalValues[
+                $"{nameof(OrderItem)}.{nameof(OrderItem.ItemStatus)}"]);
+        Assert.True(interceptor.MutationObservedTransaction);
+        Assert.Equal(1, interceptor.MutationAffectedRows);
+        Assert.Equal(1, interceptor.ConcurrencyExceptionObservedCount);
+        Assert.Equal(
+            typeof(OrderItem),
+            Assert.Single(interceptor.ConcurrentEntityTypes));
+        Assert.Empty(conflictingDb.ChangeTracker.Entries());
+        await AssertPendingWorkflowStateAsync(fixture);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenTicketTokenChangesAfterTracking_UsesEfConcurrencyCheck()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        var interceptor = new RawSqlConcurrencyInterceptor(
+            (db, cancellationToken) => db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE E_TICKET
+                SET TICKET_STATUS = 'USED'
+                WHERE ORDER_ITEM_ID = {fixture.OrderItemIds[0]}
+                """,
+                cancellationToken));
+        await using var conflictingDb = fixture.CreateDbContext(interceptor);
+        var ticketType = conflictingDb.Model.FindEntityType(typeof(ETicket))!;
+        Assert.True(ticketType.FindProperty(nameof(ETicket.TicketStatus))!
+            .IsConcurrencyToken);
+        var service = new RefundReviewService(
+            conflictingDb,
+            fixture.TimeProvider,
+            new TestRefundLockCoordinator(conflictingDb),
+            NullLogger<RefundReviewService>.Instance,
+            new NullOrderTicketAuditSink());
+
+        var result = await service.RejectAsync(
+            "admin",
+            fixture.RefundId,
+            new RejectRefundRequest("拒绝"),
+            CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_REVIEW_CONFLICT", result.ErrorCode);
+        Assert.Equal(
+            "REFUNDING",
+            interceptor.ConcurrencyOriginalValues[
+                $"{nameof(ETicket)}.{nameof(ETicket.TicketStatus)}"]);
+        Assert.True(interceptor.MutationObservedTransaction);
+        Assert.Equal(1, interceptor.MutationAffectedRows);
+        Assert.Equal(1, interceptor.ConcurrencyExceptionObservedCount);
+        Assert.Equal(
+            typeof(ETicket),
+            Assert.Single(interceptor.ConcurrentEntityTypes));
+        Assert.Empty(conflictingDb.ChangeTracker.Entries());
+        await AssertPendingWorkflowStateAsync(fixture);
     }
 
     [Fact]
@@ -428,6 +635,21 @@ public sealed class RefundReviewServiceTests
         NullLogger<RefundReviewService>.Instance,
         auditSink ?? new NullOrderTicketAuditSink());
 
+    private static async Task AssertPendingWorkflowStateAsync(RefundTestData fixture)
+    {
+        var requestState = await fixture.Db.Set<RefundRequest>()
+            .AsNoTracking()
+            .Where(item => item.RefundId == fixture.RefundId)
+            .Select(item => new { item.ApproveStatus, item.RefundStatus })
+            .SingleAsync();
+        Assert.Equal("PENDING", requestState.ApproveStatus);
+        Assert.Equal("PENDING", requestState.RefundStatus);
+        Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
+        Assert.Equal("REFUNDING", await fixture.TicketStatusAsync());
+        Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
+        Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
+    }
+
     private static RefundRequest Refund(
         long refundId,
         long orderId,
@@ -500,10 +722,14 @@ public sealed class RefundReviewServiceTests
         }
     }
 
-    private sealed class MutatingAfterOrderLockCoordinator(AppDbContext db)
+    private sealed class CallbackAfterOrderLockCoordinator(
+        AppDbContext db,
+        Func<CancellationToken, Task<int>> mutateAsync)
         : IRefundLockCoordinator
     {
         public List<string> Calls { get; } = [];
+        public bool MutationObservedTransaction { get; private set; }
+        public int MutationAffectedRows { get; private set; }
 
         public async Task<bool> LockRefundRequestAsync(
             long refundId,
@@ -523,13 +749,8 @@ public sealed class RefundReviewServiceTests
             var exists = await db.Set<Order>()
                 .AsNoTracking()
                 .AnyAsync(item => item.OrderId == orderId, cancellationToken);
-            await db.Database.ExecuteSqlInterpolatedAsync(
-                $"""
-                UPDATE REFUND_REQUEST
-                SET APPROVE_STATUS = 'APPROVED', REFUND_STATUS = 'COMPLETED'
-                WHERE REFUND_ID = {401L}
-                """,
-                cancellationToken);
+            MutationObservedTransaction = db.Database.CurrentTransaction is not null;
+            MutationAffectedRows += await mutateAsync(cancellationToken);
             return exists;
         }
     }
@@ -542,13 +763,45 @@ public sealed class RefundReviewServiceTests
                 new InvalidOperationException("audit unavailable"));
     }
 
-    private sealed class ThrowingConcurrencyInterceptor : SaveChangesInterceptor
+    private sealed class RawSqlConcurrencyInterceptor(
+        Func<AppDbContext, CancellationToken, Task<int>> mutateAsync)
+        : SaveChangesInterceptor
     {
-        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+        public int MutationAffectedRows { get; private set; }
+        public int ConcurrencyExceptionObservedCount { get; private set; }
+        public bool MutationObservedTransaction { get; private set; }
+        public IReadOnlyList<Type> ConcurrentEntityTypes { get; private set; } = [];
+        public IReadOnlyDictionary<string, object?> ConcurrencyOriginalValues
+            { get; private set; } = new Dictionary<string, object?>();
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData,
             InterceptionResult<int> result,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromException<InterceptionResult<int>>(
-                new DbUpdateConcurrencyException("forced concurrency failure"));
+            CancellationToken cancellationToken = default)
+        {
+            var db = (AppDbContext)eventData.Context!;
+            ConcurrencyOriginalValues = db.ChangeTracker.Entries()
+                .SelectMany(entry => entry.Properties
+                    .Where(property => property.Metadata.IsConcurrencyToken)
+                    .Select(property => new KeyValuePair<string, object?>(
+                        $"{entry.Metadata.ClrType.Name}.{property.Metadata.Name}",
+                        property.OriginalValue)))
+                .ToDictionary();
+            MutationObservedTransaction = db.Database.CurrentTransaction is not null;
+            MutationAffectedRows += await mutateAsync(db, cancellationToken);
+            return result;
+        }
+
+        public override ValueTask<InterceptionResult> ThrowingConcurrencyExceptionAsync(
+            ConcurrencyExceptionEventData eventData,
+            InterceptionResult result,
+            CancellationToken cancellationToken = default)
+        {
+            ConcurrencyExceptionObservedCount++;
+            ConcurrentEntityTypes = eventData.Exception.Entries
+                .Select(entry => entry.Metadata.ClrType)
+                .ToList();
+            return ValueTask.FromResult(result);
+        }
     }
 }
