@@ -18,6 +18,54 @@ namespace ShowtimeBackend.Tests.OrderTicket;
 public sealed class RefundControllersTests
 {
     [Fact]
+    public async Task OpenApi_DeclaresRefundOperationErrorResponseEnvelopes()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+
+        var response = await client.GetAsync("/openapi/v1.json");
+
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+        var paths = document.RootElement.GetProperty("paths");
+        AssertOperationResponses(
+            paths,
+            "/api/orders/{orderId}/refunds/quote",
+            "post",
+            "200",
+            "400",
+            "401",
+            "404",
+            "409");
+        AssertOperationResponses(
+            paths,
+            "/api/orders/{orderId}/refunds",
+            "post",
+            "201",
+            "400",
+            "401",
+            "404",
+            "409",
+            "500");
+        AssertOperationResponses(
+            paths,
+            "/api/orders/{orderId}/refunds",
+            "get",
+            "200",
+            "400",
+            "401",
+            "404");
+        AssertOperationResponses(
+            paths,
+            "/api/refunds/{refundId}",
+            "get",
+            "200",
+            "401",
+            "404");
+    }
+
+    [Fact]
     public async Task GetAsync_WhenAppliedPolicyIsMissing_ReturnsResponseWithNullPolicyName()
     {
         await using var fixture = await RefundTestData.CreateLegacyRefundAsync(
@@ -394,6 +442,40 @@ public sealed class RefundControllersTests
         RefundStatus = "PENDING",
         CreateTime = createTime,
     };
+
+    private static void AssertOperationResponses(
+        JsonElement paths,
+        string path,
+        string method,
+        string successStatus,
+        params string[] errorStatuses)
+    {
+        var responses = paths
+            .GetProperty(path)
+            .GetProperty(method)
+            .GetProperty("responses");
+        var successSchemaReference = GetJsonSchemaReference(
+            responses.GetProperty(successStatus));
+
+        foreach (var errorStatus in errorStatuses)
+        {
+            Assert.True(
+                responses.TryGetProperty(errorStatus, out var errorResponse),
+                $"{method.ToUpperInvariant()} {path} should declare {errorStatus}.");
+            Assert.Equal(
+                successSchemaReference,
+                GetJsonSchemaReference(errorResponse));
+        }
+    }
+
+    private static string GetJsonSchemaReference(JsonElement response) =>
+        response
+            .GetProperty("content")
+            .GetProperty("application/json")
+            .GetProperty("schema")
+            .GetProperty("$ref")
+            .GetString()
+        ?? throw new InvalidOperationException("OpenAPI response schema reference is missing.");
 
     private static void Authenticate(HttpClient client, long userId) =>
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(

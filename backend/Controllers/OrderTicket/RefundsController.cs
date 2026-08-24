@@ -15,6 +15,10 @@ public sealed class RefundsController(IRefundApplicationService service)
 {
     [HttpPost("orders/{orderId:long}/refunds/quote")]
     [ProducesResponseType(typeof(ApiResponse<RefundQuoteResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<RefundQuoteResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<RefundQuoteResponse>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<RefundQuoteResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<RefundQuoteResponse>), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ApiResponse<RefundQuoteResponse>>> Quote(
         long orderId,
         [FromBody] RefundQuoteRequest request,
@@ -37,6 +41,11 @@ public sealed class RefundsController(IRefundApplicationService service)
 
     [HttpPost("orders/{orderId:long}/refunds")]
     [ProducesResponseType(typeof(ApiResponse<RefundResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<RefundResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<RefundResponse>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<RefundResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<RefundResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiResponse<RefundResponse>), StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<ApiResponse<RefundResponse>>> Create(
         long orderId,
         [FromBody] CreateRefundRequest request,
@@ -62,6 +71,9 @@ public sealed class RefundsController(IRefundApplicationService service)
 
     [HttpGet("orders/{orderId:long}/refunds")]
     [ProducesResponseType(typeof(ApiResponse<PagedRefundResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedRefundResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<PagedRefundResponse>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<PagedRefundResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<PagedRefundResponse>>> List(
         long orderId,
         [FromQuery] RefundListQuery query,
@@ -80,6 +92,8 @@ public sealed class RefundsController(IRefundApplicationService service)
 
     [HttpGet("refunds/{refundId:long}")]
     [ProducesResponseType(typeof(ApiResponse<RefundResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<RefundResponse>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<RefundResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<RefundResponse>>> Get(
         long refundId,
         CancellationToken cancellationToken)
