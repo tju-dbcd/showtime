@@ -1,13 +1,306 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.OrderTicket;
+using ShowtimeBackend.Entities.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket;
 
 namespace ShowtimeBackend.Tests.OrderTicket;
 
 public sealed class RefundControllersTests
 {
+    [Fact]
+    public async Task GetAsync_WhenAppliedPolicyIsMissing_ReturnsResponseWithNullPolicyName()
+    {
+        await using var fixture = await RefundTestData.CreateLegacyRefundAsync(
+            appliedPolicyId: null);
+
+        var result = await fixture.CreateApplicationService().GetAsync(
+            fixture.UserId,
+            fixture.RefundId,
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value!.PolicyName);
+        Assert.Equal(fixture.OrderItemIds, result.Value.Items.Select(x => x.OrderItemId));
+    }
+
+    [Fact]
+    public async Task GetAsync_WhenPolicyRelationIsBroken_ReturnsResponseWithNullPolicyName()
+    {
+        await using var fixture = await RefundTestData.CreateLegacyRefundAsync(
+            appliedPolicyId: 999);
+
+        var result = await fixture.CreateApplicationService().GetAsync(
+            fixture.UserId,
+            fixture.RefundId,
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value!.PolicyName);
+    }
+
+    [Fact]
+    public async Task GetAsync_WhenOwnedByAnotherUser_ReturnsNotFound()
+    {
+        await using var fixture = await RefundTestData.CreateLegacyRefundAsync(
+            appliedPolicyId: null);
+
+        var result = await fixture.CreateApplicationService().GetAsync(
+            fixture.UserId + 1,
+            fixture.RefundId,
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.NotFound, result.Failure);
+        Assert.Equal("REFUND_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ListAsync_ReturnsOnlyOwnedOrderRefundsInStableDescendingOrder()
+    {
+        await using var fixture = await RefundTestData.CreateLegacyRefundAsync(
+            appliedPolicyId: null);
+        fixture.Db.AddRange(
+            Refund(402, fixture.OrderId, fixture.UserId, RefundTestData.FixedUtcNow),
+            Refund(403, fixture.OrderId, fixture.UserId, RefundTestData.FixedUtcNow),
+            Refund(404, fixture.OrderId, fixture.UserId + 1, RefundTestData.FixedUtcNow.AddHours(1)),
+            Refund(405, fixture.OrderId + 1, fixture.UserId, RefundTestData.FixedUtcNow.AddHours(2)));
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+
+        var firstPage = await fixture.CreateApplicationService().ListAsync(
+            fixture.UserId,
+            fixture.OrderId,
+            new RefundListQuery(null, null, 1, 2),
+            CancellationToken.None);
+        var secondPage = await fixture.CreateApplicationService().ListAsync(
+            fixture.UserId,
+            fixture.OrderId,
+            new RefundListQuery(null, null, 2, 2),
+            CancellationToken.None);
+
+        Assert.True(firstPage.IsSuccess);
+        Assert.Equal(3, firstPage.Value!.TotalCount);
+        Assert.Equal([403L, 402L], firstPage.Value.Items.Select(x => x.RefundId));
+        Assert.True(secondPage.IsSuccess);
+        Assert.Equal(3, secondPage.Value!.TotalCount);
+        Assert.Equal([fixture.RefundId], secondPage.Value.Items.Select(x => x.RefundId));
+    }
+
+    [Fact]
+    public async Task ListAsync_WhenOrderBelongsToAnotherUser_ReturnsNotFound()
+    {
+        await using var fixture = await RefundTestData.CreateLegacyRefundAsync(
+            appliedPolicyId: null);
+
+        var result = await fixture.CreateApplicationService().ListAsync(
+            fixture.UserId + 1,
+            fixture.OrderId,
+            new RefundListQuery(null, null),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.NotFound, result.Failure);
+        Assert.Equal("REFUND_ORDER_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ListAsync_WithStatusFilters_CountsOnlyMatchingRefunds()
+    {
+        await using var fixture = await RefundTestData.CreateLegacyRefundAsync(
+            appliedPolicyId: null);
+        var completed = Refund(
+            402,
+            fixture.OrderId,
+            fixture.UserId,
+            RefundTestData.FixedUtcNow);
+        completed.ApproveStatus = "APPROVED";
+        completed.RefundStatus = "COMPLETED";
+        completed.CompleteTime = RefundTestData.FixedUtcNow;
+        fixture.Db.Add(completed);
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+
+        var result = await fixture.CreateApplicationService().ListAsync(
+            fixture.UserId,
+            fixture.OrderId,
+            new RefundListQuery(
+                RefundApproveStatus.APPROVED,
+                RefundStatus.COMPLETED),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, result.Value!.TotalCount);
+        var item = Assert.Single(result.Value.Items);
+        Assert.Equal(402, item.RefundId);
+        Assert.Equal(RefundStatus.COMPLETED, item.RefundStatus);
+    }
+
+    [Theory]
+    [InlineData(0, 20)]
+    [InlineData(1, 0)]
+    [InlineData(1, 101)]
+    [InlineData(int.MaxValue, 100)]
+    public async Task ListAsync_WhenPagingIsInvalid_ReturnsInvalidRequest(int page, int pageSize)
+    {
+        await using var fixture = await RefundTestData.CreateLegacyRefundAsync(
+            appliedPolicyId: null);
+
+        var result = await fixture.CreateApplicationService().ListAsync(
+            fixture.UserId,
+            fixture.OrderId,
+            new RefundListQuery(null, null, page, pageSize),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.InvalidRequest, result.Failure);
+        Assert.Equal("REFUND_INVALID_PAGING", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Quote_WithoutAuthentication_ReturnsUnauthorized()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/orders/10/refunds/quote",
+            new RefundQuoteRequest([1L]));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Quote_WithEligibleItem_ReturnsOkEnvelope()
+    {
+        using var factory = new AuthTestFactory();
+        await RefundTestData.SeedIssuedOrderAsync(factory);
+        using var client = factory.CreateApiClient();
+        Authenticate(client, 7);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/orders/10/refunds/quote",
+            new RefundQuoteRequest([1L]));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadEnumResponseAsync<RefundQuoteResponse>(response);
+        Assert.True(body.Success);
+        Assert.Equal(84m, body.Data!.ActualRefund);
+    }
+
+    [Fact]
+    public async Task Create_WithValidUser_ReturnsCreatedAndLocation()
+    {
+        using var factory = new AuthTestFactory();
+        await RefundTestData.SeedIssuedOrderAsync(factory);
+        using var refundFactory = CreateRefundFactory(factory);
+        using var client = CreateApiClient(refundFactory);
+        Authenticate(client, 7);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/orders/10/refunds",
+            new CreateRefundRequest([1L], "行程变更"));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal("/api/refunds/1", response.Headers.Location!.ToString());
+        var body = await ReadEnumResponseAsync<RefundResponse>(response);
+        Assert.True(body.Success);
+        Assert.Equal(1, body.Data!.RefundId);
+    }
+
+    [Fact]
+    public async Task Create_WithIneligibleItem_ReturnsConflictEnvelope()
+    {
+        using var factory = new AuthTestFactory();
+        await RefundTestData.SeedIssuedOrderAsync(factory);
+        using var refundFactory = CreateRefundFactory(factory);
+        using var client = CreateApiClient(refundFactory);
+        Authenticate(client, 7);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/orders/10/refunds",
+            new CreateRefundRequest([999L], "行程变更"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await ReadEnumResponseAsync<RefundResponse>(response);
+        Assert.False(body.Success);
+        Assert.Equal("REFUND_ITEM_NOT_ELIGIBLE", body.Code);
+    }
+
+    [Fact]
+    public async Task List_WithInvalidPaging_ReturnsBadRequestEnvelope()
+    {
+        using var factory = new AuthTestFactory();
+        await RefundTestData.SeedIssuedOrderAsync(factory);
+        using var client = factory.CreateApiClient();
+        Authenticate(client, 7);
+
+        var response = await client.GetAsync(
+            "/api/orders/10/refunds?page=0&pageSize=20");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await ReadEnumResponseAsync<PagedRefundResponse>(response);
+        Assert.False(body.Success);
+        Assert.Equal("REFUND_INVALID_PAGING", body.Code);
+    }
+
+    [Fact]
+    public async Task List_WithOwnedOrder_ReturnsOkEnvelope()
+    {
+        using var factory = new AuthTestFactory();
+        await RefundTestData.SeedIssuedOrderAsync(factory);
+        using var client = factory.CreateApiClient();
+        Authenticate(client, 7);
+
+        var response = await client.GetAsync("/api/orders/10/refunds");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadEnumResponseAsync<PagedRefundResponse>(response);
+        Assert.True(body.Success);
+        Assert.Empty(body.Data!.Items);
+        Assert.Equal(0, body.Data.TotalCount);
+    }
+
+    [Fact]
+    public async Task Get_WhenOwnedByAnotherUser_ReturnsNotFound()
+    {
+        using var factory = new AuthTestFactory();
+        await SeedLegacyRefundAsync(factory, appliedPolicyId: null);
+        using var client = factory.CreateApiClient();
+        Authenticate(client, 8);
+
+        var response = await client.GetAsync("/api/refunds/401");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var body = await ReadEnumResponseAsync<RefundResponse>(response);
+        Assert.Equal("REFUND_NOT_FOUND", body.Code);
+    }
+
+    [Fact]
+    public async Task Get_WhenAppliedPolicyIsMissing_SerializesNullPolicyName()
+    {
+        using var factory = new AuthTestFactory();
+        await SeedLegacyRefundAsync(factory, appliedPolicyId: null);
+        using var client = factory.CreateApiClient();
+        Authenticate(client, 7);
+
+        var response = await client.GetAsync("/api/refunds/401");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadEnumResponseAsync<RefundResponse>(response);
+        Assert.True(body.Success);
+        Assert.Null(body.Data!.PolicyName);
+    }
+
     [Fact]
     public async Task Create_WithoutAdminRole_ReturnsForbidden()
     {
@@ -79,5 +372,97 @@ public sealed class RefundControllersTests
         var body = await response.Content.ReadFromJsonAsync<ShowtimeBackend.Common.ApiResponse<object>>();
         Assert.False(body!.Success);
         Assert.Equal("REFUND_POLICY_INVALID_STATUS", body.Code);
+    }
+
+    private static RefundRequest Refund(
+        long refundId,
+        long orderId,
+        long userId,
+        DateTime createTime) => new()
+    {
+        RefundId = refundId,
+        RefundNo = $"REF{refundId:000000}",
+        OrderId = orderId,
+        UserId = userId,
+        RefundType = "PART",
+        RefundReason = "测试申请",
+        RefundAmount = 10m,
+        ActualRefund = 8m,
+        FeeRate = 0.8m,
+        AppliedServiceFee = 0m,
+        ApproveStatus = "PENDING",
+        RefundStatus = "PENDING",
+        CreateTime = createTime,
+    };
+
+    private static void Authenticate(HttpClient client, long userId) =>
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            RefundTestData.CreateToken(userId, $"user-{userId}", "USER"));
+
+    private static WebApplicationFactory<Program> CreateRefundFactory(
+        AuthTestFactory factory) => factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IRefundLockCoordinator>();
+                services.AddScoped<IRefundLockCoordinator, TestRefundLockCoordinator>();
+            }));
+
+    private static HttpClient CreateApiClient(WebApplicationFactory<Program> factory) =>
+        factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            BaseAddress = new Uri("https://localhost"),
+        });
+
+    private static async Task<ApiResponse<T>> ReadEnumResponseAsync<T>(
+        HttpResponseMessage response)
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new JsonStringEnumConverter());
+        return await response.Content.ReadFromJsonAsync<ApiResponse<T>>(options)
+            ?? throw new InvalidOperationException("The API response body was empty.");
+    }
+
+    private static async Task SeedLegacyRefundAsync(
+        AuthTestFactory factory,
+        long? appliedPolicyId)
+    {
+        await RefundTestData.SeedIssuedOrderAsync(factory);
+        await factory.ExecuteDbContextAsync(async db =>
+        {
+            var item = await db.Set<OrderItem>().SingleAsync(x => x.OrderItemId == 1);
+            var ticket = await db.Set<ETicket>().SingleAsync(x => x.OrderItemId == 1);
+            item.ItemStatus = "REFUNDING";
+            ticket.TicketStatus = "REFUNDING";
+            db.Add(new RefundRequest
+            {
+                RefundId = 401,
+                RefundNo = "REF000401",
+                OrderId = 10,
+                UserId = 7,
+                RefundType = "FULL",
+                RefundReason = "历史申请",
+                RefundAmount = 105m,
+                ActualRefund = 84m,
+                FeeRate = 0.8m,
+                AppliedPolicyId = appliedPolicyId,
+                AppliedServiceFee = 0m,
+                ApproveStatus = "PENDING",
+                RefundStatus = "PENDING",
+                CreateTime = factory.UtcNow.UtcDateTime.AddHours(-1),
+                Items =
+                [
+                    new RefundItem
+                    {
+                        RefundItemId = 501,
+                        OrderItemId = 1,
+                        RefundBaseAmount = 105m,
+                    },
+                ],
+            });
+            await db.SaveChangesAsync();
+            return true;
+        });
     }
 }

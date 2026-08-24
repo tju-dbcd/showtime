@@ -48,6 +48,98 @@ public sealed class RefundApplicationService : IRefundApplicationService
         this.auditSink = auditSink;
     }
 
+    public async Task<OrderTicketResult<PagedRefundResponse>> ListAsync(
+        long userId,
+        long orderId,
+        RefundListQuery query,
+        CancellationToken cancellationToken)
+    {
+        var offset = ((long)query.Page - 1) * query.PageSize;
+        if (query.Page < 1 || query.PageSize is < 1 or > 100 || offset > int.MaxValue)
+        {
+            return Invalid<PagedRefundResponse>(
+                "REFUND_INVALID_PAGING",
+                "Page must be positive and pageSize must be between 1 and 100.");
+        }
+
+        var ownsOrder = await dbContext.Set<Order>()
+            .AsNoTracking()
+            .AnyAsync(
+                item => item.OrderId == orderId && item.UserId == userId,
+                cancellationToken);
+        if (!ownsOrder)
+        {
+            return NotFound<PagedRefundResponse>(
+                "REFUND_ORDER_NOT_FOUND",
+                "The order does not exist.");
+        }
+
+        var refunds = dbContext.Set<RefundRequest>()
+            .AsNoTracking()
+            .Where(item => item.OrderId == orderId && item.UserId == userId);
+        if (query.ApproveStatus.HasValue)
+        {
+            var approveStatus = query.ApproveStatus.Value.ToDbString();
+            refunds = refunds.Where(item => item.ApproveStatus == approveStatus);
+        }
+
+        if (query.RefundStatus.HasValue)
+        {
+            var refundStatus = query.RefundStatus.Value.ToDbString();
+            refunds = refunds.Where(item => item.RefundStatus == refundStatus);
+        }
+
+        var totalCount = await refunds.CountAsync(cancellationToken);
+        var entities = await refunds
+            .OrderByDescending(item => item.CreateTime)
+            .ThenByDescending(item => item.RefundId)
+            .Skip((int)offset)
+            .Take(query.PageSize)
+            .ToListAsync(cancellationToken);
+        var items = entities
+            .Select(item => new RefundSummaryResponse(
+                item.RefundId,
+                item.RefundNo,
+                item.OrderId,
+                item.RefundType.ToEnum<RefundType>(),
+                item.ActualRefund,
+                item.ApproveStatus.ToEnum<RefundApproveStatus>(),
+                item.RefundStatus.ToEnum<RefundStatus>(),
+                item.CreateTime,
+                item.CompleteTime))
+            .ToList();
+
+        return OrderTicketResult<PagedRefundResponse>.Success(
+            new PagedRefundResponse(items, query.Page, query.PageSize, totalCount));
+    }
+
+    public async Task<OrderTicketResult<RefundResponse>> GetAsync(
+        long userId,
+        long refundId,
+        CancellationToken cancellationToken)
+    {
+        var refundRequest = await dbContext.Set<RefundRequest>()
+            .AsNoTracking()
+            .Include(item => item.AppliedPolicy)
+            .Include(item => item.Items)
+                .ThenInclude(item => item.OrderItem)
+                    .ThenInclude(item => item!.ETicket)
+            .SingleOrDefaultAsync(
+                item => item.RefundId == refundId && item.UserId == userId,
+                cancellationToken);
+        if (refundRequest is null)
+        {
+            return NotFound<RefundResponse>(
+                "REFUND_NOT_FOUND",
+                "The refund request does not exist.");
+        }
+
+        return OrderTicketResult<RefundResponse>.Success(
+            RefundResponseMapper.ToResponse(
+                refundRequest,
+                refundRequest.AppliedPolicy?.PolicyName));
+    }
+
     public async Task<OrderTicketResult<RefundResponse>> CreateAsync(
         long userId,
         string actor,
@@ -157,12 +249,15 @@ public sealed class RefundApplicationService : IRefundApplicationService
 
         foreach (var quoteItem in quote.Items)
         {
+            var orderItem = selectedItems.Single(
+                item => item.OrderItemId == quoteItem.OrderItemId);
             refundRequest.Items.Add(new RefundItem
             {
                 OrderItemId = quoteItem.OrderItemId,
                 RefundBaseAmount = quoteItem.RefundBaseAmount,
                 CreateBy = actor,
                 UpdateBy = actor,
+                OrderItem = orderItem,
             });
         }
 
@@ -215,40 +310,7 @@ public sealed class RefundApplicationService : IRefundApplicationService
                 "The refund request could not be created.");
         }
 
-        var response = new RefundResponse(
-            refundRequest.RefundId,
-            refundRequest.RefundNo,
-            refundRequest.OrderId,
-            refundRequest.UserId,
-            refundRequest.RefundType.ToEnum<RefundType>(),
-            refundRequest.RefundReason,
-            refundRequest.AppliedPolicyId,
-            quote.PolicyName,
-            refundRequest.RefundAmount,
-            refundRequest.FeeRate,
-            refundRequest.AppliedServiceFee,
-            refundRequest.ActualRefund,
-            refundRequest.ApproveStatus.ToEnum<RefundApproveStatus>(),
-            refundRequest.RefundStatus.ToEnum<RefundStatus>(),
-            refundRequest.ReviewBy,
-            refundRequest.ReviewTime,
-            refundRequest.ReviewRemark,
-            refundRequest.CompleteTime,
-            refundRequest.CreateTime,
-            refundRequest.Items
-                .OrderBy(item => item.OrderItemId)
-                .Select(item =>
-                {
-                    var orderItem = selectedItems.Single(
-                        selected => selected.OrderItemId == item.OrderItemId);
-                    return new RefundItemResponse(
-                        item.RefundItemId,
-                        item.OrderItemId,
-                        item.RefundBaseAmount,
-                        orderItem.ItemStatus.ToEnum<OrderItemStatus>(),
-                        orderItem.ETicket!.TicketStatus.ToEnum<ETicketStatus>());
-                })
-                .ToList());
+        var response = RefundResponseMapper.ToResponse(refundRequest, quote.PolicyName);
 
         await WriteAuditSafelyAsync(
             new OrderTicketAuditEvent(

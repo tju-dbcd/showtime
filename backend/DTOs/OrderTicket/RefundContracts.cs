@@ -50,3 +50,26 @@ public sealed record RefundResponse(
     DateTime? CompleteTime,
     DateTime CreateTime,
     IReadOnlyList<RefundItemResponse> Items);
+
+public sealed record RefundListQuery(
+    RefundApproveStatus? ApproveStatus,
+    RefundStatus? RefundStatus,
+    int Page = 1,
+    int PageSize = 20);
+
+public sealed record RefundSummaryResponse(
+    long RefundId,
+    string RefundNo,
+    long OrderId,
+    RefundType RefundType,
+    decimal? ActualRefund,
+    RefundApproveStatus ApproveStatus,
+    RefundStatus RefundStatus,
+    DateTime CreateTime,
+    DateTime? CompleteTime);
+
+public sealed record PagedRefundResponse(
+    IReadOnlyList<RefundSummaryResponse> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);

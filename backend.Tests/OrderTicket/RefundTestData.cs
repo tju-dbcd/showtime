@@ -34,6 +34,7 @@ internal sealed class RefundTestData : IAsyncDisposable
     public CountingTimeProvider TimeProvider { get; } = new(FixedUtcNow);
     public long UserId { get; private init; }
     public long OrderId { get; private init; }
+    public long RefundId { get; private init; }
     public IReadOnlyList<long> OrderItemIds { get; private init; } = [];
 
     public static async Task<RefundTestData> CreateAsync()
@@ -138,6 +139,218 @@ internal sealed class RefundTestData : IAsyncDisposable
 
         await fixture.Db.SaveChangesAsync();
         return fixture;
+    }
+
+    public static async Task<RefundTestData> CreateLegacyRefundAsync(long? appliedPolicyId)
+    {
+        var (connection, db) = await CreateDatabaseAsync();
+        const long userId = 7;
+        const long orderId = 11;
+        const long sessionId = 21;
+        long[] orderItemIds = [101, 102];
+        const long refundId = 401;
+        var fixture = new RefundTestData(connection, db)
+        {
+            UserId = userId,
+            OrderId = orderId,
+            RefundId = refundId,
+            OrderItemIds = orderItemIds,
+        };
+
+        fixture.Db.Add(new ShowSession
+        {
+            SessionId = sessionId,
+            ShowId = 90,
+            SeatMapId = 30,
+            StartTime = FixedUtcNow.AddDays(3),
+            EndTime = FixedUtcNow.AddDays(3).AddHours(2),
+            SaleStartTime = FixedUtcNow.AddMonths(-1),
+            SaleEndTime = FixedUtcNow.AddDays(2),
+            SessionStatus = "ONSALE",
+        });
+        fixture.Db.Add(new Order
+        {
+            OrderId = orderId,
+            OrderNo = "ORD000011",
+            UserId = userId,
+            SessionId = sessionId,
+            TotalAmount = 210m,
+            TicketCount = 2,
+            OrderStatus = "PART_REFUND",
+            ExpireTime = FixedUtcNow.AddHours(-1),
+            PayTime = FixedUtcNow.AddHours(-2),
+            IssueTime = FixedUtcNow.AddHours(-1),
+            Source = "WEB",
+        });
+        fixture.Db.Add(new OrderItem
+        {
+            OrderItemId = orderItemIds[0],
+            OrderId = orderId,
+            SeatId = 501,
+            PriceStrategyId = 601,
+            UnitPrice = 105m,
+            ItemStatus = "REFUNDING",
+        });
+        fixture.Db.Add(new ETicket
+        {
+            ETicketId = 201,
+            ETicketNo = "TKT000201",
+            OrderItemId = orderItemIds[0],
+            UserId = userId,
+            QrCode = "qr-201",
+            AntiFakeCode = "anti-201",
+            TicketStatus = "REFUNDING",
+        });
+        fixture.Db.Add(new OrderItem
+        {
+            OrderItemId = orderItemIds[1],
+            OrderId = orderId,
+            SeatId = 502,
+            PriceStrategyId = 601,
+            UnitPrice = 105m,
+            ItemStatus = "REFUNDING",
+        });
+        fixture.Db.Add(new ETicket
+        {
+            ETicketId = 202,
+            ETicketNo = "TKT000202",
+            OrderItemId = orderItemIds[1],
+            UserId = userId,
+            QrCode = "qr-202",
+            AntiFakeCode = "anti-202",
+            TicketStatus = "REFUNDING",
+        });
+        fixture.Db.Add(new RefundRequest
+        {
+            RefundId = refundId,
+            RefundNo = "REF000401",
+            OrderId = orderId,
+            UserId = userId,
+            RefundType = "FULL",
+            RefundReason = "历史申请",
+            RefundAmount = 210m,
+            ActualRefund = 168m,
+            FeeRate = 0.8m,
+            AppliedPolicyId = appliedPolicyId,
+            AppliedServiceFee = 0m,
+            ApproveStatus = "PENDING",
+            RefundStatus = "PENDING",
+            CreateTime = FixedUtcNow.AddHours(-1),
+            CreateBy = "seed",
+            UpdateBy = "seed",
+            Items =
+            [
+                new RefundItem
+                {
+                    RefundItemId = 501,
+                    OrderItemId = orderItemIds[1],
+                    RefundBaseAmount = 105m,
+                    CreateBy = "seed",
+                    UpdateBy = "seed",
+                },
+                new RefundItem
+                {
+                    RefundItemId = 502,
+                    OrderItemId = orderItemIds[0],
+                    RefundBaseAmount = 105m,
+                    CreateBy = "seed",
+                    UpdateBy = "seed",
+                },
+            ],
+        });
+
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+        return fixture;
+    }
+
+    public static async Task SeedIssuedOrderAsync(AuthTestFactory factory)
+    {
+        await factory.ResetDatabaseAsync();
+        await factory.ExecuteDbContextAsync(async db =>
+        {
+            await db.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = OFF;");
+            var now = factory.UtcNow.UtcDateTime;
+            db.Add(new ShowSession
+            {
+                SessionId = 20,
+                ShowId = 90,
+                SeatMapId = 30,
+                StartTime = now.AddDays(3),
+                EndTime = now.AddDays(3).AddHours(2),
+                SaleStartTime = now.AddMonths(-1),
+                SaleEndTime = now.AddDays(2),
+                SessionStatus = "ONSALE",
+            });
+            db.Add(new Order
+            {
+                OrderId = 10,
+                OrderNo = "ORD000010",
+                UserId = 7,
+                SessionId = 20,
+                TotalAmount = 105m,
+                TicketCount = 1,
+                OrderStatus = "ISSUED",
+                ExpireTime = now.AddHours(-1),
+                PayTime = now.AddHours(-2),
+                IssueTime = now.AddHours(-1),
+                Source = "WEB",
+            });
+            db.Add(new Payment
+            {
+                PaymentId = 30,
+                PaymentNo = "PAY000030",
+                OrderId = 10,
+                UserId = 7,
+                PayAmount = 105m,
+                PayChannel = "ALIPAY",
+                PayStatus = "SUCCESS",
+                PayTime = now.AddHours(-2),
+            });
+            db.Add(new OrderItem
+            {
+                OrderItemId = 1,
+                OrderId = 10,
+                SeatId = 501,
+                PriceStrategyId = 601,
+                UnitPrice = 105m,
+                ItemStatus = "NORMAL",
+            });
+            db.Add(new ETicket
+            {
+                ETicketId = 201,
+                ETicketNo = "TKT000201",
+                OrderItemId = 1,
+                UserId = 7,
+                QrCode = "qr-201",
+                AntiFakeCode = "anti-201",
+                TicketStatus = "UNUSED",
+            });
+            db.Add(new SeatReservation
+            {
+                SeatReservationId = 301,
+                SessionId = 20,
+                SeatId = 501,
+                OrderItemId = 1,
+                ReservationType = "ORDER",
+                ReservationStatus = "ACTIVE",
+                ReserveTime = now.AddHours(-3),
+            });
+            db.Add(new RefundPolicy
+            {
+                PolicyId = 801,
+                PolicyName = "全局策略",
+                RefundDeadlineHour = 24,
+                RefundRate = 0.8m,
+                ServiceFee = 0m,
+                Priority = 1,
+                Status = 1,
+                CreateBy = "seed",
+                UpdateBy = "seed",
+            });
+            await db.SaveChangesAsync();
+            return true;
+        });
     }
 
     private static async Task<(SqliteConnection Connection, AppDbContext Db)>
