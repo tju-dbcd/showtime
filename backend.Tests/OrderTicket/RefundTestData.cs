@@ -270,7 +270,9 @@ internal sealed class RefundTestData : IAsyncDisposable
         return fixture;
     }
 
-    public static async Task<RefundTestData> CreatePendingRefundAsync(int itemCount = 1)
+    public static async Task<RefundTestData> CreatePendingRefundAsync(
+        int itemCount = 1,
+        bool reverseRefundItemSeed = false)
     {
         var fixture = await CreateIssuedOrderAsync(
             itemPrices: Enumerable.Repeat(105m, itemCount).ToArray());
@@ -303,7 +305,7 @@ internal sealed class RefundTestData : IAsyncDisposable
             CreateTime = FixedUtcNow.AddHours(-1),
             CreateBy = "alice",
             UpdateBy = "alice",
-            Items = orderItems
+            Items = (reverseRefundItemSeed ? orderItems.AsEnumerable().Reverse() : orderItems)
                 .Select((item, index) => new RefundItem
                 {
                     RefundItemId = 501 + index,

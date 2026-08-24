@@ -2,10 +2,12 @@ using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Oracle.ManagedDataAccess.Client;
 using ShowtimeBackend.Common;
@@ -159,10 +161,21 @@ public sealed class RefundConcurrencyTests
     [Fact]
     public async Task ApproveAsync_UsesRefundThenOrderLockAndStableItemOrder()
     {
-        await using var fixture = await RefundTestData.CreatePendingRefundAsync(itemCount: 2);
-        var coordinator = new RecordingRefundLockCoordinator(fixture.Db);
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync(
+            itemCount: 2,
+            reverseRefundItemSeed: true);
+        var seededOrder = await fixture.Db.Set<RefundItem>()
+            .AsNoTracking()
+            .OrderBy(item => item.RefundItemId)
+            .Select(item => item.OrderItemId)
+            .ToListAsync();
+        Assert.Equal(fixture.OrderItemIds.Reverse(), seededOrder);
+
+        var itemOrderObserver = new StableRefundItemOrderObserver();
+        await using var db = fixture.CreateDbContext(itemOrderObserver);
+        var coordinator = new RecordingRefundLockCoordinator(db);
         var service = new RefundReviewService(
-            fixture.Db,
+            db,
             fixture.TimeProvider,
             coordinator,
             NullLogger<RefundReviewService>.Instance,
@@ -177,9 +190,12 @@ public sealed class RefundConcurrencyTests
         Assert.True(result.IsSuccess);
         Assert.Equal(["refund:401", "order:11"], coordinator.Calls);
         Assert.All(coordinator.TransactionObserved, Assert.True);
-        Assert.Equal(
-            fixture.OrderItemIds,
-            result.Value!.Items.Select(item => item.OrderItemId));
+        Assert.True(
+            fixture.OrderItemIds.SequenceEqual(itemOrderObserver.ReservationOrderItemIds),
+            $"Expected [{string.Join(", ", fixture.OrderItemIds)}], observed " +
+            $"[{string.Join(", ", itemOrderObserver.ReservationOrderItemIds)}]; " +
+            $"parameters: {string.Join("; ", itemOrderObserver.ParameterValues)}; " +
+            $"SQL: {itemOrderObserver.ReservationCommandText}");
     }
 
     [Fact]
@@ -246,6 +262,19 @@ public sealed class RefundConcurrencyTests
                 transaction.GetDbTransaction()));
     }
 
+    [Theory]
+    [InlineData("APP_OWNER")]
+    [InlineData("deploy_user")]
+    [InlineData("PERSONAL_SCHEMA.T_ORDER")]
+    [InlineData("PERSONAL_SCHEMA\" WHERE 1=1 --")]
+    [InlineData("9PERSONAL")]
+    public void OracleRefundConcurrency_RejectsSharedOrUnsafeSchemaBeforeConnecting(
+        string configuredUser)
+    {
+        Assert.Throws<InvalidOperationException>(
+            () => ValidatePersonalOracleIdentifier(configuredUser));
+    }
+
     [OracleRefundFact]
     public async Task OracleRefundConcurrency_WhenPersonalSchemaIsExplicitlyConfigured()
     {
@@ -255,98 +284,117 @@ public sealed class RefundConcurrencyTests
                 "The Oracle test was enabled without an explicit connection string.");
 
         var connectionBuilder = new OracleConnectionStringBuilder(connectionString);
-        var configuredUser = connectionBuilder.UserID?.Trim();
-        if (string.IsNullOrEmpty(configuredUser) ||
-            configuredUser.Equals("APP_OWNER", StringComparison.OrdinalIgnoreCase) ||
-            configuredUser.Equals("DEPLOY_USER", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                "Oracle refund concurrency tests require an explicit personal test schema and refuse APP_OWNER or DEPLOY_USER.");
-        }
+        var configuredUser = ValidatePersonalOracleIdentifier(
+            connectionBuilder.UserID?.Trim());
 
         await using var firstConnection = new OracleConnection(connectionString);
         await using var secondConnection = new OracleConnection(connectionString);
         await firstConnection.OpenAsync();
         await secondConnection.OpenAsync();
-        var currentSchema = await ReadOracleScalarAsync<string>(
+        var firstSchema = await ValidatePersonalOracleConnectionAsync(
             firstConnection,
-            null,
-            "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL");
-        if (!configuredUser.Equals(currentSchema, StringComparison.OrdinalIgnoreCase) ||
-            currentSchema.Equals("APP_OWNER", StringComparison.OrdinalIgnoreCase))
+            configuredUser);
+        var secondSchema = await ValidatePersonalOracleConnectionAsync(
+            secondConnection,
+            configuredUser);
+        if (!firstSchema.Equals(secondSchema, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
-                "The Oracle connection did not open in the configured personal test schema.");
+                "Both Oracle test connections must use the same personal schema.");
         }
+
+        await EnsureOwnedOracleBaseTablesAsync(firstConnection);
+        await EnsureOwnedOracleBaseTablesAsync(secondConnection);
 
         await using var firstTransaction = await firstConnection.BeginTransactionAsync();
-        var orderId = await ReadOracleScalarAsync<decimal?>(
-            firstConnection,
-            firstTransaction,
-            "SELECT ORDER_ID FROM T_ORDER WHERE ROWNUM = 1 FOR UPDATE");
-        if (!orderId.HasValue)
+        try
+        {
+            var orderId = await ReadOracleScalarAsync<decimal?>(
+                firstConnection,
+                firstTransaction,
+                $"SELECT ORDER_ID FROM {firstSchema}.T_ORDER " +
+                "WHERE ROWNUM = 1 FOR UPDATE");
+            if (!orderId.HasValue)
+            {
+                throw new InvalidOperationException(
+                    "The configured personal Oracle test schema has no T_ORDER row to lock.");
+            }
+
+            await using var secondTransaction = await secondConnection.BeginTransactionAsync();
+            try
+            {
+                await using var competingLock = secondConnection.CreateCommand();
+                competingLock.BindByName = true;
+                competingLock.Transaction = (OracleTransaction)secondTransaction;
+                competingLock.CommandText =
+                    $"SELECT ORDER_ID FROM {secondSchema}.T_ORDER " +
+                    "WHERE ORDER_ID = :id FOR UPDATE NOWAIT";
+                competingLock.Parameters.Add(
+                    new OracleParameter(
+                        "id",
+                        OracleDbType.Int64,
+                        Convert.ToInt64(orderId.Value),
+                        System.Data.ParameterDirection.Input));
+                var exception = await Assert.ThrowsAsync<OracleException>(
+                    () => competingLock.ExecuteScalarAsync());
+                Assert.Equal(54, exception.Number);
+            }
+            finally
+            {
+                await secondTransaction.RollbackAsync();
+            }
+        }
+        finally
         {
             await firstTransaction.RollbackAsync();
-            throw new InvalidOperationException(
-                "The configured personal Oracle test schema has no T_ORDER row to lock.");
         }
 
-        await using (var secondTransaction = await secondConnection.BeginTransactionAsync())
-        {
-            await using var competingLock = secondConnection.CreateCommand();
-            competingLock.BindByName = true;
-            competingLock.Transaction = (OracleTransaction)secondTransaction;
-            competingLock.CommandText =
-                "SELECT ORDER_ID FROM T_ORDER WHERE ORDER_ID = :id FOR UPDATE NOWAIT";
-            competingLock.Parameters.Add(
-                new OracleParameter("id", OracleDbType.Int64, Convert.ToInt64(orderId.Value),
-                    System.Data.ParameterDirection.Input));
-            var exception = await Assert.ThrowsAsync<OracleException>(
-                () => competingLock.ExecuteScalarAsync());
-            Assert.Equal(54, exception.Number);
-            await secondTransaction.RollbackAsync();
-        }
-
-        await firstTransaction.RollbackAsync();
         await using var paymentTransaction = await firstConnection.BeginTransactionAsync();
-        await using var paymentQuery = firstConnection.CreateCommand();
-        paymentQuery.Transaction = (OracleTransaction)paymentTransaction;
-        paymentQuery.CommandText =
-            "SELECT PAYMENT_ID, REFUND_AMOUNT FROM PAYMENT " +
-            "WHERE PAY_STATUS = 'SUCCESS' " +
-            "AND REFUND_AMOUNT + 0.01 <= PAY_AMOUNT AND ROWNUM = 1 FOR UPDATE";
-        await using var paymentReader = await paymentQuery.ExecuteReaderAsync();
-        if (!await paymentReader.ReadAsync())
+        try
+        {
+            await using var paymentQuery = firstConnection.CreateCommand();
+            paymentQuery.Transaction = (OracleTransaction)paymentTransaction;
+            paymentQuery.CommandText =
+                $"SELECT PAYMENT_ID, REFUND_AMOUNT FROM {firstSchema}.PAYMENT " +
+                "WHERE PAY_STATUS = 'SUCCESS' " +
+                "AND REFUND_AMOUNT + 0.01 <= PAY_AMOUNT AND ROWNUM = 1 FOR UPDATE";
+            await using var paymentReader = await paymentQuery.ExecuteReaderAsync();
+            if (!await paymentReader.ReadAsync())
+            {
+                throw new InvalidOperationException(
+                    "The configured personal Oracle test schema has no refundable SUCCESS payment.");
+            }
+
+            var paymentId = Convert.ToInt64(paymentReader.GetValue(0));
+            var before = Convert.ToDecimal(paymentReader.GetValue(1));
+            await paymentReader.DisposeAsync();
+            await using var accumulate = firstConnection.CreateCommand();
+            accumulate.BindByName = true;
+            accumulate.Transaction = (OracleTransaction)paymentTransaction;
+            accumulate.CommandText =
+                $"UPDATE {firstSchema}.PAYMENT " +
+                "SET REFUND_AMOUNT = REFUND_AMOUNT + :amount " +
+                "WHERE PAYMENT_ID = :paymentId";
+            accumulate.Parameters.Add(
+                new OracleParameter("amount", OracleDbType.Decimal, 0.01m,
+                    System.Data.ParameterDirection.Input));
+            accumulate.Parameters.Add(
+                new OracleParameter("paymentId", OracleDbType.Int64, paymentId,
+                    System.Data.ParameterDirection.Input));
+            Assert.Equal(1, await accumulate.ExecuteNonQueryAsync());
+            var after = await ReadOracleScalarAsync<decimal>(
+                firstConnection,
+                paymentTransaction,
+                $"SELECT REFUND_AMOUNT FROM {firstSchema}.PAYMENT " +
+                "WHERE PAYMENT_ID = :paymentId",
+                new OracleParameter("paymentId", OracleDbType.Int64, paymentId,
+                    System.Data.ParameterDirection.Input));
+            Assert.Equal(before + 0.01m, after);
+        }
+        finally
         {
             await paymentTransaction.RollbackAsync();
-            throw new InvalidOperationException(
-                "The configured personal Oracle test schema has no refundable SUCCESS payment.");
         }
-
-        var paymentId = Convert.ToInt64(paymentReader.GetValue(0));
-        var before = Convert.ToDecimal(paymentReader.GetValue(1));
-        await paymentReader.DisposeAsync();
-        await using var accumulate = firstConnection.CreateCommand();
-        accumulate.BindByName = true;
-        accumulate.Transaction = (OracleTransaction)paymentTransaction;
-        accumulate.CommandText =
-            "UPDATE PAYMENT SET REFUND_AMOUNT = REFUND_AMOUNT + :amount " +
-            "WHERE PAYMENT_ID = :paymentId";
-        accumulate.Parameters.Add(
-            new OracleParameter("amount", OracleDbType.Decimal, 0.01m,
-                System.Data.ParameterDirection.Input));
-        accumulate.Parameters.Add(
-            new OracleParameter("paymentId", OracleDbType.Int64, paymentId,
-                System.Data.ParameterDirection.Input));
-        Assert.Equal(1, await accumulate.ExecuteNonQueryAsync());
-        var after = await ReadOracleScalarAsync<decimal>(
-            firstConnection,
-            paymentTransaction,
-            "SELECT REFUND_AMOUNT FROM PAYMENT WHERE PAYMENT_ID = :paymentId",
-            new OracleParameter("paymentId", OracleDbType.Int64, paymentId,
-                System.Data.ParameterDirection.Input));
-        Assert.Equal(before + 0.01m, after);
-        await paymentTransaction.RollbackAsync();
     }
 
     [Fact]
@@ -497,6 +545,76 @@ public sealed class RefundConcurrencyTests
     }
 
     [Fact]
+    public async Task CreateAsync_WhenConcurrencyRecoverySelectFails_ReturnsFallbackOnce()
+    {
+        await using var connection = await OpenConnectionAsync("Data Source=:memory:");
+        await SeedIssuedOrderAsync(connection);
+        var recovery = new RollbackRecoveryProbe();
+        var rollback = new RollbackRecordingInterceptor(recovery);
+        var selectFailure = new RecoverySelectFailureInterceptor(
+            recovery,
+            "ORDER_ITEM");
+        var concurrency = new CompetingTicketStatusInterceptor();
+        var logger = new RecordingLogger<RefundApplicationService>();
+        await using var db = CreateDbContext(
+            connection,
+            concurrency,
+            rollback,
+            selectFailure);
+
+        var result = await CreateService(db, logger: logger).CreateAsync(
+            7,
+            "alice",
+            11,
+            new CreateRefundRequest([101], "行程变更"),
+            CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_CREATE_CONFLICT", result.ErrorCode);
+        Assert.Equal(1, rollback.RollbackCount);
+        Assert.Equal(1, selectFailure.AttemptCount);
+        Assert.Equal(1, concurrency.SaveAttemptCount);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Null(db.Database.CurrentTransaction);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("recovery", StringComparison.OrdinalIgnoreCase));
+        await AssertOriginalStateAsync(connection);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenConcurrencyRecoveryTokenIsCancelled_ReturnsFallbackOnce()
+    {
+        await using var connection = await OpenConnectionAsync("Data Source=:memory:");
+        await SeedIssuedOrderAsync(connection);
+        using var cancellation = new CancellationTokenSource();
+        var recovery = new RollbackRecoveryProbe();
+        var rollback = new RollbackRecordingInterceptor(recovery, cancellation);
+        var concurrency = new CompetingTicketStatusInterceptor();
+        var logger = new RecordingLogger<RefundApplicationService>();
+        await using var db = CreateDbContext(connection, concurrency, rollback);
+
+        var result = await CreateService(db, logger: logger).CreateAsync(
+            7,
+            "alice",
+            11,
+            new CreateRefundRequest([101], "行程变更"),
+            cancellation.Token);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_CREATE_CONFLICT", result.ErrorCode);
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.Equal(1, rollback.RollbackCount);
+        Assert.Equal(1, concurrency.SaveAttemptCount);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Null(db.Database.CurrentTransaction);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("recovery", StringComparison.OrdinalIgnoreCase));
+        await AssertOriginalStateAsync(connection);
+    }
+
+    [Fact]
     public async Task ApproveAsync_WhenReviewCompletesAfterConcurrencyRollback_ReturnsLatestConflict()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
@@ -532,6 +650,118 @@ public sealed class RefundConcurrencyTests
             .SingleAsync(item => item.RefundId == fixture.RefundId);
         Assert.Equal("APPROVED", latest.ApproveStatus);
         Assert.Equal("COMPLETED", latest.RefundStatus);
+    }
+
+    [Fact]
+    public async Task ApproveAsync_WhenConcurrencyRecoverySelectFails_ReturnsFallbackOnce()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        await MakeSingleItemFinancialsConsistentAsync(fixture);
+        var recovery = new RollbackRecoveryProbe();
+        var rollback = new RollbackRecordingInterceptor(recovery);
+        var selectFailure = new RecoverySelectFailureInterceptor(
+            recovery,
+            "REFUND_REQUEST");
+        var observer = new RefundBulkUpdateObserver();
+        var concurrency = new ApproveEntityConcurrencyInterceptor("order-item");
+        var logger = new RecordingLogger<RefundReviewService>();
+        await using var db = fixture.CreateDbContext(
+            observer,
+            concurrency,
+            rollback,
+            selectFailure);
+
+        var result = await CreateReviewService(db, fixture.TimeProvider, logger)
+            .ApproveAsync(
+                "admin",
+                fixture.RefundId,
+                new ApproveRefundRequest(null),
+                CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_REVIEW_CONFLICT", result.ErrorCode);
+        Assert.Equal(1, rollback.RollbackCount);
+        Assert.Equal(1, selectFailure.AttemptCount);
+        Assert.Equal(1, concurrency.SaveAttemptCount);
+        Assert.Equal(1, observer.PaymentUpdateAttempts);
+        Assert.Equal(1, observer.ReservationUpdateAttempts);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Null(db.Database.CurrentTransaction);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("recovery", StringComparison.OrdinalIgnoreCase));
+        await AssertPendingApprovalStateAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ApproveAsync_WhenConcurrencyRecoveryTokenIsCancelled_ReturnsFallbackOnce()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        await MakeSingleItemFinancialsConsistentAsync(fixture);
+        using var cancellation = new CancellationTokenSource();
+        var recovery = new RollbackRecoveryProbe();
+        var rollback = new RollbackRecordingInterceptor(recovery, cancellation);
+        var observer = new RefundBulkUpdateObserver();
+        var concurrency = new ApproveEntityConcurrencyInterceptor("order-item");
+        var logger = new RecordingLogger<RefundReviewService>();
+        await using var db = fixture.CreateDbContext(observer, concurrency, rollback);
+
+        var result = await CreateReviewService(db, fixture.TimeProvider, logger)
+            .ApproveAsync(
+                "admin",
+                fixture.RefundId,
+                new ApproveRefundRequest(null),
+                cancellation.Token);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_REVIEW_CONFLICT", result.ErrorCode);
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.Equal(1, rollback.RollbackCount);
+        Assert.Equal(1, concurrency.SaveAttemptCount);
+        Assert.Equal(1, observer.PaymentUpdateAttempts);
+        Assert.Equal(1, observer.ReservationUpdateAttempts);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Null(db.Database.CurrentTransaction);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("recovery", StringComparison.OrdinalIgnoreCase));
+        await AssertPendingApprovalStateAsync(fixture);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenConcurrencyRecoverySelectFails_ReturnsFallbackOnce()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        var recovery = new RollbackRecoveryProbe();
+        var rollback = new RollbackRecordingInterceptor(recovery);
+        var selectFailure = new RecoverySelectFailureInterceptor(
+            recovery,
+            "REFUND_REQUEST");
+        var concurrency = new ApproveEntityConcurrencyInterceptor("order-item");
+        var logger = new RecordingLogger<RefundReviewService>();
+        await using var db = fixture.CreateDbContext(
+            concurrency,
+            rollback,
+            selectFailure);
+
+        var result = await CreateReviewService(db, fixture.TimeProvider, logger)
+            .RejectAsync(
+                "admin",
+                fixture.RefundId,
+                new RejectRefundRequest("拒绝"),
+                CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_REVIEW_CONFLICT", result.ErrorCode);
+        Assert.Equal(1, rollback.RollbackCount);
+        Assert.Equal(1, selectFailure.AttemptCount);
+        Assert.Equal(1, concurrency.SaveAttemptCount);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Null(db.Database.CurrentTransaction);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("recovery", StringComparison.OrdinalIgnoreCase));
+        await AssertPendingApprovalStateAsync(fixture);
     }
 
     [Fact]
@@ -589,6 +819,44 @@ public sealed class RefundConcurrencyTests
         Assert.Equal(1, interceptor.CallCount);
         Assert.Equal(1, recoveryObserver.RefundItemRecoveryReadCount);
         Assert.Empty(db.ChangeTracker.Entries());
+        await AssertOriginalStateAsync(connection);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenOrderItemConstraintRecoverySelectFails_ReturnsDuplicateOnce()
+    {
+        await using var connection = await OpenConnectionAsync("Data Source=:memory:");
+        await SeedIssuedOrderAsync(connection);
+        var recovery = new RollbackRecoveryProbe();
+        var rollback = new RollbackRecordingInterceptor(recovery);
+        var selectFailure = new RecoverySelectFailureInterceptor(
+            recovery,
+            "ORDER_ITEM");
+        var save = new ThrowingSaveInterceptor(
+            () => new DbUpdateException(
+                "Save failed.",
+                new InvalidOperationException(
+                    "ORA-00001: unique constraint (APP_OWNER.UK_REFUND_ORDER_ITEM) violated")));
+        var logger = new RecordingLogger<RefundApplicationService>();
+        await using var db = CreateDbContext(connection, save, rollback, selectFailure);
+
+        var result = await CreateService(db, logger: logger).CreateAsync(
+            7,
+            "alice",
+            11,
+            new CreateRefundRequest([101], "行程变更"),
+            CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_ITEM_ALREADY_REQUESTED", result.ErrorCode);
+        Assert.Equal(1, save.CallCount);
+        Assert.Equal(1, rollback.RollbackCount);
+        Assert.Equal(1, selectFailure.AttemptCount);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Null(db.Database.CurrentTransaction);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("recovery", StringComparison.OrdinalIgnoreCase));
         await AssertOriginalStateAsync(connection);
     }
 
@@ -702,6 +970,54 @@ public sealed class RefundConcurrencyTests
     }
 
     [Fact]
+    public async Task ApproveAsync_WhenReservationConflictRecoverySelectFails_ReturnsFallbackOnce()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        await MakeSingleItemFinancialsConsistentAsync(fixture);
+        await fixture.Db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TRIGGER DELETE_RESERVATION_AFTER_PAYMENT_UPDATE_RECOVERY
+            AFTER UPDATE OF REFUND_AMOUNT ON PAYMENT
+            BEGIN
+                DELETE FROM SEAT_RESERVATION WHERE ORDER_ITEM_ID = 101;
+            END;
+            """);
+        var recovery = new RollbackRecoveryProbe();
+        var rollback = new RollbackRecordingInterceptor(recovery);
+        var selectFailure = new RecoverySelectFailureInterceptor(
+            recovery,
+            "REFUND_REQUEST");
+        var observer = new RefundBulkUpdateObserver();
+        var logger = new RecordingLogger<RefundReviewService>();
+        await using var db = fixture.CreateDbContext(
+            observer,
+            rollback,
+            selectFailure);
+
+        var result = await CreateReviewService(db, fixture.TimeProvider, logger)
+            .ApproveAsync(
+                "admin",
+                fixture.RefundId,
+                new ApproveRefundRequest(null),
+                CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_RESERVATION_DATA_INCONSISTENT", result.ErrorCode);
+        Assert.Equal(1, rollback.RollbackCount);
+        Assert.Equal(1, selectFailure.AttemptCount);
+        Assert.Equal(1, observer.PaymentUpdateAttempts);
+        Assert.Equal(1, observer.ReservationUpdateAttempts);
+        Assert.Equal(1, observer.PaymentUpdateRows);
+        Assert.Equal(0, observer.ReservationUpdateRows);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Null(db.Database.CurrentTransaction);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("recovery", StringComparison.OrdinalIgnoreCase));
+        await AssertPendingApprovalStateAsync(fixture);
+    }
+
+    [Fact]
     public async Task ApproveAsync_WhenPaymentUpdateAffectsNoRows_RequeriesAfterRollback()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
@@ -727,6 +1043,54 @@ public sealed class RefundConcurrencyTests
         Assert.Equal(0, observer.ReservationUpdateRows);
         Assert.Equal(1, observer.RefundRequestRecoveryReadCount);
         Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Equal(22m, await fixture.PaymentRefundAmountAsync());
+        Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
+        Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
+        Assert.Equal("REFUNDING", await fixture.TicketStatusAsync());
+        Assert.Equal("ISSUED", await fixture.OrderStatusAsync());
+        Assert.Equal("PENDING", await fixture.RefundApproveStatusAsync());
+    }
+
+    [Fact]
+    public async Task ApproveAsync_WhenPaymentConflictRecoverySelectFails_ReturnsFallbackOnce()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        await MakeSingleItemFinancialsConsistentAsync(fixture);
+        var payment = await fixture.Db.Set<Payment>().SingleAsync();
+        payment.RefundAmount = 22m;
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+        var recovery = new RollbackRecoveryProbe();
+        var rollback = new RollbackRecordingInterceptor(recovery);
+        var selectFailure = new RecoverySelectFailureInterceptor(
+            recovery,
+            "REFUND_REQUEST");
+        var observer = new RefundBulkUpdateObserver();
+        var logger = new RecordingLogger<RefundReviewService>();
+        await using var db = fixture.CreateDbContext(
+            observer,
+            rollback,
+            selectFailure);
+
+        var result = await CreateReviewService(db, fixture.TimeProvider, logger)
+            .ApproveAsync(
+                "admin",
+                fixture.RefundId,
+                new ApproveRefundRequest(null),
+                CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_PAYMENT_AMOUNT_CONFLICT", result.ErrorCode);
+        Assert.Equal(1, rollback.RollbackCount);
+        Assert.Equal(1, selectFailure.AttemptCount);
+        Assert.Equal(1, observer.PaymentUpdateAttempts);
+        Assert.Equal(0, observer.PaymentUpdateRows);
+        Assert.Equal(0, observer.ReservationUpdateAttempts);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Null(db.Database.CurrentTransaction);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("recovery", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(22m, await fixture.PaymentRefundAmountAsync());
         Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
         Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
@@ -808,6 +1172,79 @@ public sealed class RefundConcurrencyTests
         command.CommandText = "PRAGMA foreign_keys = OFF;";
         await command.ExecuteNonQueryAsync();
         return connection;
+    }
+
+    private static string ValidatePersonalOracleIdentifier(string? identifier)
+    {
+        if (string.IsNullOrWhiteSpace(identifier) ||
+            identifier.Length > 128 ||
+            !IsAsciiLetter(identifier[0]) ||
+            identifier.Any(character =>
+                !IsAsciiLetter(character) &&
+                !char.IsAsciiDigit(character) &&
+                character is not ('_' or '$' or '#')) ||
+            identifier.Equals("APP_OWNER", StringComparison.OrdinalIgnoreCase) ||
+            identifier.Equals("DEPLOY_USER", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Oracle refund concurrency tests require a safe, explicit personal test schema and refuse APP_OWNER or DEPLOY_USER.");
+        }
+
+        return identifier;
+    }
+
+    private static bool IsAsciiLetter(char character) =>
+        character is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
+
+    private static async Task<string> ValidatePersonalOracleConnectionAsync(
+        OracleConnection connection,
+        string configuredUser)
+    {
+        var sessionUser = ValidatePersonalOracleIdentifier(
+            await ReadOracleScalarAsync<string>(
+                connection,
+                null,
+                "SELECT SYS_CONTEXT('USERENV', 'SESSION_USER') FROM DUAL"));
+        var currentSchema = ValidatePersonalOracleIdentifier(
+            await ReadOracleScalarAsync<string>(
+                connection,
+                null,
+                "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL"));
+        if (!configuredUser.Equals(sessionUser, StringComparison.OrdinalIgnoreCase) ||
+            !configuredUser.Equals(currentSchema, StringComparison.OrdinalIgnoreCase) ||
+            !sessionUser.Equals(sessionUser.ToUpperInvariant(), StringComparison.Ordinal) ||
+            !currentSchema.Equals(currentSchema.ToUpperInvariant(), StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The Oracle connection must log in as, and remain in, the configured unquoted personal test schema.");
+        }
+
+        return currentSchema;
+    }
+
+    private static async Task EnsureOwnedOracleBaseTablesAsync(
+        OracleConnection connection)
+    {
+        var ownedTableCount = await ReadOracleScalarAsync<decimal>(
+            connection,
+            null,
+            "SELECT COUNT(*) FROM USER_TABLES " +
+            "WHERE TABLE_NAME IN (:orderTable, :paymentTable)",
+            new OracleParameter(
+                "orderTable",
+                OracleDbType.Varchar2,
+                "T_ORDER",
+                System.Data.ParameterDirection.Input),
+            new OracleParameter(
+                "paymentTable",
+                OracleDbType.Varchar2,
+                "PAYMENT",
+                System.Data.ParameterDirection.Input));
+        if (ownedTableCount != 2m)
+        {
+            throw new InvalidOperationException(
+                "Both T_ORDER and PAYMENT must be base tables owned by the personal Oracle test user; synonyms and shared-owner tables are refused.");
+        }
     }
 
     private static async Task<T> ReadOracleScalarAsync<T>(
@@ -950,21 +1387,23 @@ public sealed class RefundConcurrencyTests
 
     private static RefundApplicationService CreateService(
         AppDbContext db,
-        IRefundLockCoordinator? lockCoordinator = null) => new(
+        IRefundLockCoordinator? lockCoordinator = null,
+        ILogger<RefundApplicationService>? logger = null) => new(
         db,
         new RefundPolicyEngine(),
         new FixedTimeProvider(RefundTestData.FixedUtcNow),
         lockCoordinator ?? new TestRefundLockCoordinator(db),
-        NullLogger<RefundApplicationService>.Instance,
+        logger ?? NullLogger<RefundApplicationService>.Instance,
         new NullOrderTicketAuditSink());
 
     private static RefundReviewService CreateReviewService(
         AppDbContext db,
-        TimeProvider timeProvider) => new(
+        TimeProvider timeProvider,
+        ILogger<RefundReviewService>? logger = null) => new(
         db,
         timeProvider,
         new TestRefundLockCoordinator(db),
-        NullLogger<RefundReviewService>.Instance,
+        logger ?? NullLogger<RefundReviewService>.Instance,
         new NullOrderTicketAuditSink());
 
     private static async Task MakeSingleItemFinancialsConsistentAsync(
@@ -994,6 +1433,21 @@ public sealed class RefundConcurrencyTests
             (await verificationDb.Set<ETicket>().SingleAsync()).TicketStatus);
     }
 
+    private static async Task AssertPendingApprovalStateAsync(RefundTestData fixture)
+    {
+        Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
+        Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
+        Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
+        Assert.Equal("REFUNDING", await fixture.TicketStatusAsync());
+        Assert.Equal("ISSUED", await fixture.OrderStatusAsync());
+        Assert.Equal("PENDING", await fixture.RefundApproveStatusAsync());
+        Assert.Equal("PENDING", await fixture.Db.Set<RefundRequest>()
+            .AsNoTracking()
+            .Where(item => item.RefundId == fixture.RefundId)
+            .Select(item => item.RefundStatus)
+            .SingleAsync());
+    }
+
     private static void AssertOracleLockCommand(
         RecordedOracleLockCommand command,
         string expectedTable,
@@ -1001,10 +1455,20 @@ public sealed class RefundConcurrencyTests
         DbConnection expectedConnection,
         DbTransaction expectedTransaction)
     {
-        Assert.Contains(expectedTable, command.CommandText, StringComparison.Ordinal);
-        Assert.Contains(":id", command.CommandText, StringComparison.Ordinal);
-        Assert.EndsWith("FOR UPDATE", command.CommandText, StringComparison.Ordinal);
-        Assert.DoesNotContain($"= {expectedId}", command.CommandText, StringComparison.Ordinal);
+        var normalizedSql = string.Join(
+            ' ',
+            command.CommandText.Split(
+                (char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries));
+        var expectedColumn = expectedTable.EndsWith(
+            ".REFUND_REQUEST",
+            StringComparison.Ordinal)
+            ? "REFUND_ID"
+            : "ORDER_ID";
+        Assert.Equal(
+            $"SELECT {expectedColumn} FROM {expectedTable} " +
+            $"WHERE {expectedColumn} = :id FOR UPDATE",
+            normalizedSql);
         Assert.Same(expectedConnection, command.Connection);
         Assert.Same(expectedTransaction, command.Transaction);
         Assert.Equal("id", command.ParameterName);
@@ -1023,6 +1487,87 @@ public sealed class RefundConcurrencyTests
                     "SHOWTIME_ORACLE_REFUND_TEST_CONNECTION is not configured; no Oracle connection will be opened.";
             }
         }
+    }
+
+    private sealed class RollbackRecoveryProbe
+    {
+        private int rollbackCompleted;
+
+        public bool RollbackCompleted => Volatile.Read(ref rollbackCompleted) == 1;
+
+        public void MarkRollbackCompleted() => Volatile.Write(ref rollbackCompleted, 1);
+    }
+
+    private sealed class RollbackRecordingInterceptor(
+        RollbackRecoveryProbe probe,
+        CancellationTokenSource? cancellation = null) : DbTransactionInterceptor
+    {
+        public int RollbackCount { get; private set; }
+
+        public override Task TransactionRolledBackAsync(
+            DbTransaction transaction,
+            TransactionEndEventData eventData,
+            CancellationToken cancellationToken = default)
+        {
+            RollbackCount++;
+            probe.MarkRollbackCompleted();
+            cancellation?.Cancel();
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecoverySelectFailureInterceptor(
+        RollbackRecoveryProbe probe,
+        string tableName) : DbCommandInterceptor
+    {
+        public int AttemptCount { get; private set; }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (!probe.RollbackCompleted ||
+                !command.CommandText.TrimStart().StartsWith(
+                    "SELECT",
+                    StringComparison.OrdinalIgnoreCase) ||
+                !command.CommandText.Contains(
+                    $"\"{tableName}\"",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return ValueTask.FromResult(result);
+            }
+
+            AttemptCount++;
+            return ValueTask.FromException<InterceptionResult<DbDataReader>>(
+                new RecoveryReadDbException());
+        }
+    }
+
+    private sealed class RecoveryReadDbException()
+        : DbException("Simulated transient recovery SELECT failure.");
+
+    private sealed record RecordedLog(
+        LogLevel Level,
+        string Message,
+        Exception? Exception);
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<RecordedLog> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) => Entries.Add(
+            new RecordedLog(logLevel, formatter(state, exception), exception));
     }
 
     private sealed class ThrowingSaveInterceptor(
@@ -1051,12 +1596,14 @@ public sealed class RefundConcurrencyTests
         public bool Mutated => Volatile.Read(ref mutated) == 1;
 
         public int RowsAffected { get; private set; }
+        public int SaveAttemptCount { get; private set; }
 
         public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData,
             InterceptionResult<int> result,
             CancellationToken cancellationToken = default)
         {
+            SaveAttemptCount++;
             if (Interlocked.CompareExchange(ref mutated, 1, 0) != 0)
             {
                 return result;
@@ -1472,6 +2019,7 @@ public sealed class RefundConcurrencyTests
 
         public int MutationAffectedRows { get; private set; }
         public int ConcurrencyExceptionObservedCount { get; private set; }
+        public int SaveAttemptCount { get; private set; }
         public bool MutationObservedTransaction { get; private set; }
         public IReadOnlyList<Type> ConcurrentEntityTypes { get; private set; } = [];
 
@@ -1480,6 +2028,7 @@ public sealed class RefundConcurrencyTests
             InterceptionResult<int> result,
             CancellationToken cancellationToken = default)
         {
+            SaveAttemptCount++;
             if (Interlocked.CompareExchange(ref mutated, 1, 0) != 0)
             {
                 return result;
@@ -1576,6 +2125,7 @@ public sealed class RefundConcurrencyTests
     private sealed class RefundBulkUpdateObserver : DbCommandInterceptor
     {
         public int PaymentUpdateAttempts { get; private set; }
+        public int ReservationUpdateAttempts { get; private set; }
         public int PaymentUpdateRows { get; private set; }
         public int ReservationUpdateRows { get; private set; }
         public int RefundRequestRecoveryReadCount { get; private set; }
@@ -1597,6 +2147,7 @@ public sealed class RefundConcurrencyTests
 
             if (IsUpdate(command.CommandText, "SEAT_RESERVATION"))
             {
+                ReservationUpdateAttempts++;
                 TrackedReservationsAtUpdate = db.ChangeTracker
                     .Entries<SeatReservation>()
                     .Count();
@@ -1647,6 +2198,66 @@ public sealed class RefundConcurrencyTests
         private static bool IsUpdate(string commandText, string tableName) =>
             commandText.TrimStart().StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase) &&
             commandText.Contains(tableName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class StableRefundItemOrderObserver : DbCommandInterceptor
+    {
+        public IReadOnlyList<long> ReservationOrderItemIds { get; private set; } = [];
+        public IReadOnlyList<string> ParameterValues { get; private set; } = [];
+        public string? ReservationCommandText { get; private set; }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (!command.CommandText.TrimStart().StartsWith(
+                    "UPDATE",
+                    StringComparison.OrdinalIgnoreCase) ||
+                !command.CommandText.Contains(
+                    "SEAT_RESERVATION",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return ValueTask.FromResult(result);
+            }
+
+            ReservationCommandText = command.CommandText;
+            ParameterValues = command.Parameters
+                .Cast<DbParameter>()
+                .Select(parameter => $"{parameter.ParameterName}={parameter.Value}")
+                .ToList();
+            var scalarIds = command.Parameters
+                .Cast<DbParameter>()
+                .Where(parameter => parameter.ParameterName.Contains(
+                    "orderItemIds",
+                    StringComparison.OrdinalIgnoreCase))
+                .Select(parameter => Convert.ToInt64(parameter.Value, CultureInfo.InvariantCulture))
+                .ToArray();
+            if (scalarIds.Length > 0)
+            {
+                ReservationOrderItemIds = scalarIds;
+                return ValueTask.FromResult(result);
+            }
+
+            foreach (DbParameter parameter in command.Parameters)
+            {
+                if (parameter.Value is not string json ||
+                    !json.TrimStart().StartsWith("[", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var values = JsonSerializer.Deserialize<long[]>(json);
+                if (values is { Length: > 0 })
+                {
+                    ReservationOrderItemIds = values;
+                    break;
+                }
+            }
+
+            return ValueTask.FromResult(result);
+        }
     }
 
     private sealed class ApproveRequestConcurrencyInterceptor : SaveChangesInterceptor

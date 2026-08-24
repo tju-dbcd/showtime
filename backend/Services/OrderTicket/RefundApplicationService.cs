@@ -281,44 +281,37 @@ public sealed class RefundApplicationService : IRefundApplicationService
                 exception,
                 "Concurrent refund application detected for order {OrderId}.",
                 orderId);
-            await RollbackAndClearAsync(transaction, cancellationToken);
-            if (await HasExistingRefundItemForOrderAsync(
-                    orderId,
-                    request.OrderItemIds,
-                    cancellationToken))
-            {
-                return Conflict<RefundResponse>(
-                    "REFUND_ITEM_ALREADY_REQUESTED",
-                    "An order item already belongs to a refund request.");
-            }
-
-            return Conflict<RefundResponse>(
+            return await RecoverApplicationConflictAsync(
+                transaction,
+                orderId,
+                request.OrderItemIds,
                 "REFUND_CREATE_CONFLICT",
-                "The refund request conflicted with another operation.");
+                "The refund request conflicted with another operation.",
+                cancellationToken);
         }
         catch (DbUpdateException exception)
         {
             var constraint = RefundConstraintClassifier.Classify(exception);
-            await RollbackAndClearAsync(transaction, cancellationToken);
-            var hasExistingRefundItem = await HasExistingRefundItemForOrderAsync(
-                orderId,
-                request.OrderItemIds,
-                cancellationToken);
-            if (constraint == RefundUniqueConstraint.OrderItem || hasExistingRefundItem)
+            if (constraint == RefundUniqueConstraint.OrderItem)
             {
                 logger.LogWarning(
                     exception,
                     "Duplicate refund item detected for order {OrderId}.",
                     orderId);
-                return Conflict<RefundResponse>(
+                return await RecoverApplicationConflictAsync(
+                    transaction,
+                    orderId,
+                    request.OrderItemIds,
                     "REFUND_ITEM_ALREADY_REQUESTED",
-                    "An order item already belongs to a refund request.");
+                    "An order item already belongs to a refund request.",
+                    cancellationToken);
             }
 
             logger.LogError(
                 exception,
                 "Refund application persistence failed for order {OrderId}.",
                 orderId);
+            await RollbackAndClearAsync(transaction, CancellationToken.None);
             return Internal<RefundResponse>(
                 "REFUND_CREATE_FAILED",
                 "The refund request could not be created.");
@@ -596,6 +589,38 @@ public sealed class RefundApplicationService : IRefundApplicationService
     {
         await transaction.RollbackAsync(cancellationToken);
         dbContext.ChangeTracker.Clear();
+    }
+
+    private async Task<OrderTicketResult<RefundResponse>> RecoverApplicationConflictAsync(
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,
+        long orderId,
+        IReadOnlyList<long> orderItemIds,
+        string fallbackCode,
+        string fallbackMessage,
+        CancellationToken cancellationToken)
+    {
+        await RollbackAndClearAsync(transaction, CancellationToken.None);
+        try
+        {
+            if (await HasExistingRefundItemForOrderAsync(
+                    orderId,
+                    orderItemIds,
+                    cancellationToken))
+            {
+                return Conflict<RefundResponse>(
+                    "REFUND_ITEM_ALREADY_REQUESTED",
+                    "An order item already belongs to a refund request.");
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Refund application conflict recovery read failed for order {OrderId}.",
+                orderId);
+        }
+
+        return Conflict<RefundResponse>(fallbackCode, fallbackMessage);
     }
 
     private async ValueTask WriteAuditSafelyAsync(

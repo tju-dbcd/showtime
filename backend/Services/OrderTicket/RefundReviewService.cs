@@ -656,22 +656,32 @@ public sealed class RefundReviewService(
         string fallbackMessage,
         CancellationToken cancellationToken)
     {
-        await RollbackAndClearAsync(transaction, cancellationToken);
-        var latest = await dbContext.Set<RefundRequest>()
-            .AsNoTracking()
-            .Where(item => item.RefundId == refundId)
-            .Select(item => new
-            {
-                item.ApproveStatus,
-                item.RefundStatus,
-            })
-            .SingleOrDefaultAsync(cancellationToken);
-        if (latest is not null &&
-            (latest.ApproveStatus != "PENDING" || latest.RefundStatus != "PENDING"))
+        await RollbackAndClearAsync(transaction, CancellationToken.None);
+        try
         {
-            return Conflict<RefundResponse>(
-                "REFUND_ALREADY_REVIEWED",
-                "The refund request has already been reviewed.");
+            var latest = await dbContext.Set<RefundRequest>()
+                .AsNoTracking()
+                .Where(item => item.RefundId == refundId)
+                .Select(item => new
+                {
+                    item.ApproveStatus,
+                    item.RefundStatus,
+                })
+                .SingleOrDefaultAsync(cancellationToken);
+            if (latest is not null &&
+                (latest.ApproveStatus != "PENDING" || latest.RefundStatus != "PENDING"))
+            {
+                return Conflict<RefundResponse>(
+                    "REFUND_ALREADY_REVIEWED",
+                    "The refund request has already been reviewed.");
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Refund review conflict recovery read failed for refund {RefundId}.",
+                refundId);
         }
 
         return Conflict<RefundResponse>(
