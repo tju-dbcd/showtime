@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
+using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Services.OrderTicket;
 
 namespace ShowtimeBackend.Tests.OrderTicket;
@@ -474,7 +475,7 @@ public sealed class RefundControllersTests
     }
 
     [Fact]
-    public async Task AdminApprove_TaskSevenRouteReturnsExplicitFailureWithoutMutation()
+    public async Task AdminApprove_WithAdminJwt_ReturnsSuccessAndPersistsAtomicWorkflow()
     {
         using var factory = new AuthTestFactory();
         await SeedLegacyRefundAsync(factory, appliedPolicyId: null);
@@ -486,16 +487,44 @@ public sealed class RefundControllersTests
             "/api/admin/refunds/401/approve",
             new ApproveRefundRequest("通过"));
 
-        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await ReadEnumResponseAsync<RefundResponse>(response);
-        Assert.False(body.Success);
-        Assert.Equal("REFUND_APPROVAL_NOT_AVAILABLE", body.Code);
-        var approveStatus = await factory.ExecuteDbContextAsync(async db =>
-            await db.Set<RefundRequest>()
-                .Where(item => item.RefundId == 401)
-                .Select(item => item.ApproveStatus)
-                .SingleAsync());
-        Assert.Equal("PENDING", approveStatus);
+        Assert.True(body.Success);
+        Assert.Equal(RefundApproveStatus.APPROVED, body.Data!.ApproveStatus);
+        Assert.Equal(RefundStatus.COMPLETED, body.Data.RefundStatus);
+        Assert.Equal(84m, body.Data.ActualRefund);
+        Assert.Equal("refund-admin", body.Data.ReviewBy);
+        Assert.Equal("通过", body.Data.ReviewRemark);
+
+        var state = await factory.ExecuteDbContextAsync(async db => new
+        {
+            PaymentRefundAmount = await db.Set<Payment>()
+                .Where(item => item.OrderId == 10 && item.PayStatus == "SUCCESS")
+                .Select(item => item.RefundAmount)
+                .SingleAsync(),
+            Reservation = await db.Set<SeatReservation>()
+                .Where(item => item.OrderItemId == 1)
+                .Select(item => new { item.ReservationStatus, item.CancelTime })
+                .SingleAsync(),
+            ItemStatus = await db.Set<OrderItem>()
+                .Where(item => item.OrderItemId == 1)
+                .Select(item => item.ItemStatus)
+                .SingleAsync(),
+            TicketStatus = await db.Set<ETicket>()
+                .Where(item => item.OrderItemId == 1)
+                .Select(item => item.TicketStatus)
+                .SingleAsync(),
+            OrderStatus = await db.Set<Order>()
+                .Where(item => item.OrderId == 10)
+                .Select(item => item.OrderStatus)
+                .SingleAsync(),
+        });
+        Assert.Equal(84m, state.PaymentRefundAmount);
+        Assert.Equal("RELEASED", state.Reservation.ReservationStatus);
+        Assert.Equal(factory.UtcNow.UtcDateTime, state.Reservation.CancelTime);
+        Assert.Equal("REFUNDED", state.ItemStatus);
+        Assert.Equal("REFUNDED", state.TicketStatus);
+        Assert.Equal("REFUNDED", state.OrderStatus);
     }
 
     [Fact]

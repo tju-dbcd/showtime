@@ -286,6 +286,106 @@ public sealed class RefundConcurrencyTests
         }
     }
 
+    [Fact]
+    public async Task ApproveAsync_WhenReservationReleaseCountChanges_RollsBackExecutedPaymentUpdate()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        await MakeSingleItemFinancialsConsistentAsync(fixture);
+        await fixture.Db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TRIGGER DELETE_RESERVATION_AFTER_PAYMENT_UPDATE
+            AFTER UPDATE OF REFUND_AMOUNT ON PAYMENT
+            BEGIN
+                DELETE FROM SEAT_RESERVATION WHERE ORDER_ITEM_ID = 101;
+            END;
+            """);
+        var interceptor = new RefundBulkUpdateObserver();
+        await using var db = fixture.CreateDbContext(interceptor);
+        var service = CreateReviewService(db, fixture.TimeProvider);
+
+        var result = await service.ApproveAsync(
+            "admin",
+            fixture.RefundId,
+            new ApproveRefundRequest(null),
+            CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_RESERVATION_DATA_INCONSISTENT", result.ErrorCode);
+        Assert.Equal(1, interceptor.PaymentUpdateRows);
+        Assert.Equal(0, interceptor.TrackedPaymentsAtUpdate);
+        Assert.Equal(0, interceptor.TrackedReservationsAtUpdate);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
+        Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
+        Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
+        Assert.Equal("REFUNDING", await fixture.TicketStatusAsync());
+        Assert.Equal("PENDING", await fixture.RefundApproveStatusAsync());
+    }
+
+    [Fact]
+    public async Task ApproveAsync_WhenSaveFails_RollsBackBulkUpdatesAndClearsTracker()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        await MakeSingleItemFinancialsConsistentAsync(fixture);
+        await fixture.Db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TRIGGER FAIL_REFUND_APPROVE
+            BEFORE UPDATE ON REFUND_REQUEST
+            BEGIN
+                SELECT RAISE(ABORT, 'forced approval failure');
+            END;
+            """);
+        var interceptor = new RefundBulkUpdateObserver();
+        await using var db = fixture.CreateDbContext(interceptor);
+        var service = CreateReviewService(db, fixture.TimeProvider);
+
+        var result = await service.ApproveAsync(
+            "admin",
+            fixture.RefundId,
+            new ApproveRefundRequest(null),
+            CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Internal, result.Failure);
+        Assert.Equal("REFUND_APPROVE_FAILED", result.ErrorCode);
+        Assert.Equal(1, interceptor.PaymentUpdateRows);
+        Assert.Equal(1, interceptor.ReservationUpdateRows);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Null(db.Database.CurrentTransaction);
+        Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
+        Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
+        Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
+        Assert.Equal("REFUNDING", await fixture.TicketStatusAsync());
+        Assert.Equal("PENDING", await fixture.RefundApproveStatusAsync());
+    }
+
+    [Fact]
+    public async Task ApproveAsync_WhenRequestTokensChangeBeforeSave_RollsBackBulkUpdates()
+    {
+        await using var fixture = await RefundTestData.CreatePendingRefundAsync();
+        await MakeSingleItemFinancialsConsistentAsync(fixture);
+        var interceptor = new ApproveRequestConcurrencyInterceptor();
+        await using var db = fixture.CreateDbContext(interceptor);
+        var service = CreateReviewService(db, fixture.TimeProvider);
+
+        var result = await service.ApproveAsync(
+            "admin",
+            fixture.RefundId,
+            new ApproveRefundRequest(null),
+            CancellationToken.None);
+
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_REVIEW_CONFLICT", result.ErrorCode);
+        Assert.True(interceptor.Mutated);
+        Assert.Equal(84m, interceptor.ObservedRefundAmountBeforeMutation);
+        Assert.Equal("RELEASED", interceptor.ObservedReservationStatusBeforeMutation);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Null(db.Database.CurrentTransaction);
+        Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
+        Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
+        Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
+        Assert.Equal("PENDING", await fixture.RefundApproveStatusAsync());
+    }
+
     private static async Task<SqliteConnection> OpenConnectionAsync(
         string connectionString)
     {
@@ -423,6 +523,29 @@ public sealed class RefundConcurrencyTests
         lockCoordinator ?? new TestRefundLockCoordinator(db),
         NullLogger<RefundApplicationService>.Instance,
         new NullOrderTicketAuditSink());
+
+    private static RefundReviewService CreateReviewService(
+        AppDbContext db,
+        TimeProvider timeProvider) => new(
+        db,
+        timeProvider,
+        new TestRefundLockCoordinator(db),
+        NullLogger<RefundReviewService>.Instance,
+        new NullOrderTicketAuditSink());
+
+    private static async Task MakeSingleItemFinancialsConsistentAsync(
+        RefundTestData fixture)
+    {
+        var itemTotal = await fixture.Db.Set<OrderItem>()
+            .SumAsync(item => item.UnitPrice);
+        var order = await fixture.Db.Set<Order>().SingleAsync();
+        var payment = await fixture.Db.Set<Payment>().SingleAsync();
+        order.TotalAmount = itemTotal;
+        order.DiscountAmount = 0m;
+        payment.PayAmount = itemTotal;
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+    }
 
     private static async Task AssertOriginalStateAsync(SqliteConnection connection)
     {
@@ -646,5 +769,95 @@ public sealed class RefundConcurrencyTests
     private sealed class FixedTimeProvider(DateTime utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => new(utcNow);
+    }
+
+    private sealed class RefundBulkUpdateObserver : DbCommandInterceptor
+    {
+        public int PaymentUpdateRows { get; private set; }
+        public int ReservationUpdateRows { get; private set; }
+        public int TrackedPaymentsAtUpdate { get; private set; } = -1;
+        public int TrackedReservationsAtUpdate { get; private set; } = -1;
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            var db = eventData.Context!;
+            if (IsUpdate(command.CommandText, "PAYMENT"))
+            {
+                TrackedPaymentsAtUpdate = db.ChangeTracker.Entries<Payment>().Count();
+            }
+
+            if (IsUpdate(command.CommandText, "SEAT_RESERVATION"))
+            {
+                TrackedReservationsAtUpdate = db.ChangeTracker
+                    .Entries<SeatReservation>()
+                    .Count();
+            }
+
+            return ValueTask.FromResult(result);
+        }
+
+        public override ValueTask<int> NonQueryExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            int result,
+            CancellationToken cancellationToken = default)
+        {
+            if (IsUpdate(command.CommandText, "PAYMENT"))
+            {
+                PaymentUpdateRows += result;
+            }
+
+            if (IsUpdate(command.CommandText, "SEAT_RESERVATION"))
+            {
+                ReservationUpdateRows += result;
+            }
+
+            return ValueTask.FromResult(result);
+        }
+
+        private static bool IsUpdate(string commandText, string tableName) =>
+            commandText.TrimStart().StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase) &&
+            commandText.Contains(tableName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class ApproveRequestConcurrencyInterceptor : SaveChangesInterceptor
+    {
+        private int mutated;
+
+        public bool Mutated => Volatile.Read(ref mutated) == 1;
+        public decimal ObservedRefundAmountBeforeMutation { get; private set; }
+        public string? ObservedReservationStatusBeforeMutation { get; private set; }
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.CompareExchange(ref mutated, 1, 0) != 0)
+            {
+                return result;
+            }
+
+            var db = (AppDbContext)eventData.Context!;
+            ObservedRefundAmountBeforeMutation = await db.Set<Payment>()
+                .AsNoTracking()
+                .Where(item => item.PaymentId == 31)
+                .Select(item => item.RefundAmount)
+                .SingleAsync(cancellationToken);
+            ObservedReservationStatusBeforeMutation = await db.Set<SeatReservation>()
+                .AsNoTracking()
+                .Where(item => item.OrderItemId == 101)
+                .Select(item => item.ReservationStatus)
+                .SingleAsync(cancellationToken);
+            await db.Database.ExecuteSqlRawAsync(
+                "UPDATE REFUND_REQUEST SET APPROVE_STATUS = 'APPROVED', " +
+                "REFUND_STATUS = 'COMPLETED' WHERE REFUND_ID = 401;",
+                cancellationToken);
+            return result;
+        }
     }
 }

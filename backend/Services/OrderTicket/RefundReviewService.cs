@@ -103,14 +103,323 @@ public sealed class RefundReviewService(
                 refundRequest.AppliedPolicy?.PolicyName));
     }
 
-    public Task<OrderTicketResult<RefundResponse>> ApproveAsync(
+    public async Task<OrderTicketResult<RefundResponse>> ApproveAsync(
         string actor,
         long refundId,
         ApproveRefundRequest request,
-        CancellationToken cancellationToken) => Task.FromResult(
-        Internal<RefundResponse>(
-            "REFUND_APPROVAL_NOT_AVAILABLE",
-            "Refund approval is not available yet."));
+        CancellationToken cancellationToken)
+    {
+        var remark = request?.Remark?.Trim();
+        if (remark?.Length > 500)
+        {
+            return Invalid<RefundResponse>(
+                "REFUND_REVIEW_REMARK_INVALID",
+                "Approve remark must not exceed 500 characters.");
+        }
+
+        if (string.IsNullOrEmpty(remark))
+        {
+            remark = null;
+        }
+
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(cancellationToken);
+        try
+        {
+            if (!await lockCoordinator.LockRefundRequestAsync(
+                    refundId,
+                    cancellationToken))
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return NotFound<RefundResponse>(
+                    "REFUND_NOT_FOUND",
+                    "The refund request does not exist.");
+            }
+
+            var lockedRequest = await dbContext.Set<RefundRequest>()
+                .AsNoTracking()
+                .Where(item => item.RefundId == refundId)
+                .Select(item => new
+                {
+                    item.OrderId,
+                    item.ApproveStatus,
+                    item.RefundStatus,
+                })
+                .SingleOrDefaultAsync(cancellationToken);
+            if (lockedRequest is null)
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_REVIEW_CONFLICT",
+                    "The refund request changed during review.");
+            }
+
+            if (lockedRequest.ApproveStatus != "PENDING" ||
+                lockedRequest.RefundStatus != "PENDING")
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_ALREADY_REVIEWED",
+                    "The refund request has already been reviewed.");
+            }
+
+            if (!await lockCoordinator.LockOrderAsync(
+                    lockedRequest.OrderId,
+                    cancellationToken))
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_ORDER_DATA_INCONSISTENT",
+                    "The refund order does not exist.");
+            }
+
+            dbContext.ChangeTracker.Clear();
+            var refundRequest = await dbContext.Set<RefundRequest>()
+                .Include(item => item.Items)
+                    .ThenInclude(item => item.OrderItem)
+                        .ThenInclude(item => item!.ETicket)
+                .SingleOrDefaultAsync(item => item.RefundId == refundId, cancellationToken);
+            if (refundRequest is null || refundRequest.OrderId != lockedRequest.OrderId)
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_REVIEW_CONFLICT",
+                    "The refund request changed during review.");
+            }
+
+            if (refundRequest.ApproveStatus != "PENDING" ||
+                refundRequest.RefundStatus != "PENDING")
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_ALREADY_REVIEWED",
+                    "The refund request has already been reviewed.");
+            }
+
+            if (!refundRequest.ActualRefund.HasValue ||
+                refundRequest.ActualRefund.Value <= 0m)
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_AMOUNT_NOT_POSITIVE",
+                    "The frozen refund amount must be positive.");
+            }
+
+            var refundItems = refundRequest.Items
+                .OrderBy(item => item.OrderItemId)
+                .ToList();
+            if (refundItems.Count == 0 ||
+                refundItems.Sum(item => item.RefundBaseAmount) !=
+                    refundRequest.RefundAmount)
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_PAYMENT_DATA_INCONSISTENT",
+                    "The frozen refund amounts are inconsistent.");
+            }
+
+            var order = await dbContext.Set<Order>()
+                .SingleOrDefaultAsync(
+                    item => item.OrderId == refundRequest.OrderId,
+                    cancellationToken);
+            var allOrderItems = await dbContext.Set<OrderItem>()
+                .Where(item => item.OrderId == refundRequest.OrderId)
+                .Include(item => item.ETicket)
+                .OrderBy(item => item.OrderItemId)
+                .ToListAsync(cancellationToken);
+            if (order is null || allOrderItems.Count == 0)
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_ORDER_DATA_INCONSISTENT",
+                    "The refund order data is inconsistent.");
+            }
+
+            if (refundItems.Any(item =>
+                    item.OrderItem is null ||
+                    item.OrderItem.OrderId != refundRequest.OrderId ||
+                    item.OrderItem.ItemStatus != "REFUNDING"))
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_ITEM_STATE_CONFLICT",
+                    "A refund item is no longer awaiting review.");
+            }
+
+            if (refundItems.Any(item =>
+                    item.OrderItem!.ETicket is null ||
+                    item.OrderItem.ETicket.OrderItemId != item.OrderItemId ||
+                    item.OrderItem.ETicket.TicketStatus != "REFUNDING"))
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_TICKET_STATE_CONFLICT",
+                    "A refund ticket is no longer awaiting review.");
+            }
+
+            var payments = await dbContext.Set<Payment>()
+                .AsNoTracking()
+                .Where(item => item.OrderId == order.OrderId &&
+                    item.PayStatus == "SUCCESS")
+                .Select(item => new
+                {
+                    item.PaymentId,
+                    item.PayAmount,
+                })
+                .ToListAsync(cancellationToken);
+            var orderItemTotal = allOrderItems.Sum(item => item.UnitPrice);
+            if (payments.Count != 1 ||
+                payments[0].PayAmount <= 0m ||
+                payments[0].PayAmount != order.TotalAmount - order.DiscountAmount ||
+                orderItemTotal <= 0m ||
+                orderItemTotal != order.TotalAmount)
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_PAYMENT_DATA_INCONSISTENT",
+                    "The payment and order amounts are inconsistent.");
+            }
+
+            var orderItemIds = refundItems
+                .Select(item => item.OrderItemId)
+                .ToArray();
+            var reservationRows = await dbContext.Set<SeatReservation>()
+                .AsNoTracking()
+                .Where(item => item.OrderItemId.HasValue &&
+                    orderItemIds.Contains(item.OrderItemId.Value))
+                .Select(item => new
+                {
+                    item.SeatReservationId,
+                    item.OrderItemId,
+                    item.ReservationType,
+                    item.ReservationStatus,
+                })
+                .ToListAsync(cancellationToken);
+            var reservationsValid = reservationRows.Count == orderItemIds.Length &&
+                reservationRows.All(item =>
+                    item.ReservationType == "ORDER" &&
+                    item.ReservationStatus == "ACTIVE") &&
+                reservationRows
+                    .GroupBy(item => item.OrderItemId)
+                    .All(group => group.Count() == 1);
+            if (!reservationsValid)
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_RESERVATION_DATA_INCONSISTENT",
+                    "Seat reservation data is inconsistent.");
+            }
+
+            var actualRefund = refundRequest.ActualRefund.Value;
+            var now = timeProvider.GetUtcNow().UtcDateTime;
+            var payment = payments[0];
+            var paymentRows = await dbContext.Set<Payment>()
+                .Where(item => item.PaymentId == payment.PaymentId &&
+                    item.OrderId == order.OrderId &&
+                    item.PayStatus == "SUCCESS" &&
+                    item.RefundAmount + actualRefund <= item.PayAmount)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(
+                        item => item.RefundAmount,
+                        item => item.RefundAmount + actualRefund)
+                    .SetProperty(item => item.UpdateBy, actor),
+                    cancellationToken);
+            if (paymentRows != 1)
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_PAYMENT_AMOUNT_CONFLICT",
+                    "Payment refund amount changed.");
+            }
+
+            var releasedRows = await dbContext.Set<SeatReservation>()
+                .Where(item => item.OrderItemId.HasValue &&
+                    orderItemIds.Contains(item.OrderItemId.Value) &&
+                    item.ReservationType == "ORDER" &&
+                    item.ReservationStatus == "ACTIVE")
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(item => item.ReservationStatus, "RELEASED")
+                    .SetProperty(item => item.CancelTime, now)
+                    .SetProperty(item => item.UpdateBy, actor),
+                    cancellationToken);
+            if (releasedRows != orderItemIds.Length)
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_RESERVATION_DATA_INCONSISTENT",
+                    "Seat reservation release count changed.");
+            }
+
+            foreach (var refundItem in refundItems)
+            {
+                refundItem.OrderItem!.ItemStatus = "REFUNDED";
+                refundItem.OrderItem.UpdateBy = actor;
+                refundItem.OrderItem.ETicket!.TicketStatus = "REFUNDED";
+                refundItem.OrderItem.ETicket.UpdateBy = actor;
+            }
+
+            order.OrderStatus = allOrderItems.All(item => item.ItemStatus == "REFUNDED")
+                ? "REFUNDED"
+                : "PART_REFUND";
+            order.UpdateBy = actor;
+            refundRequest.ApproveStatus = "APPROVED";
+            refundRequest.RefundStatus = "COMPLETED";
+            refundRequest.ReviewBy = actor;
+            refundRequest.ReviewTime = now;
+            refundRequest.ReviewRemark = remark;
+            refundRequest.CompleteTime = now;
+            refundRequest.UpdateBy = actor;
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            var response = RefundResponseMapper.ToResponse(refundRequest, null);
+            await WriteAuditSafelyAsync(
+                new OrderTicketAuditEvent(
+                    "REFUND_APPROVED",
+                    refundRequest.OrderId,
+                    actor,
+                    refundItems.Count,
+                    now,
+                    refundRequest.RefundId,
+                    actualRefund,
+                    new Dictionary<string, string>
+                    {
+                        ["ApproveStatus"] = refundRequest.ApproveStatus,
+                        ["RefundStatus"] = refundRequest.RefundStatus,
+                    }),
+                cancellationToken);
+
+            return OrderTicketResult<RefundResponse>.Success(response);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await RollbackAndClearAsync(transaction, CancellationToken.None);
+            throw;
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Concurrent refund approval detected for refund {RefundId}.",
+                refundId);
+            await RollbackAndClearAsync(transaction, cancellationToken);
+            return Conflict<RefundResponse>(
+                "REFUND_REVIEW_CONFLICT",
+                "The refund request conflicted with another operation.");
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(
+                exception,
+                "Refund approval failed for refund {RefundId}.",
+                refundId);
+            await RollbackAndClearAsync(transaction, cancellationToken);
+            return Internal<RefundResponse>(
+                "REFUND_APPROVE_FAILED",
+                "The refund request could not be approved.");
+        }
+    }
 
     public async Task<OrderTicketResult<RefundResponse>> RejectAsync(
         string actor,
@@ -334,7 +643,7 @@ public sealed class RefundReviewService(
         {
             logger.LogWarning(
                 exception,
-                "Order-ticket audit sink failed for rejected refund {RefundId} on order {OrderId}.",
+                "Order-ticket audit sink failed for refund {RefundId} on order {OrderId}.",
                 auditEvent.RefundId,
                 auditEvent.OrderId);
         }
