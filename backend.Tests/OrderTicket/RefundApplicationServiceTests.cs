@@ -452,6 +452,38 @@ public sealed class RefundApplicationServiceTests
     }
 
     [Fact]
+    public async Task QuoteAsync_StartedSessionPrecedesItemConflict()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        var session = await fixture.Db.Set<ShowSession>().SingleAsync();
+        var item = await fixture.Db.Set<OrderItem>()
+            .SingleAsync(x => x.OrderItemId == fixture.OrderItemIds[0]);
+        session.StartTime = RefundTestData.FixedUtcNow;
+        item.ItemStatus = "REFUNDED";
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_SESSION_STARTED");
+    }
+
+    [Fact]
+    public async Task QuoteAsync_MissingSessionPrecedesItemConflict()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        var order = await fixture.Db.Set<Order>().SingleAsync();
+        var item = await fixture.Db.Set<OrderItem>()
+            .SingleAsync(x => x.OrderItemId == fixture.OrderItemIds[0]);
+        order.SessionId = 999;
+        item.ItemStatus = "REFUNDED";
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_SESSION_INVALID");
+    }
+
+    [Fact]
     public async Task QuoteAsync_ItemConflictPrecedesTicketConflict()
     {
         await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
