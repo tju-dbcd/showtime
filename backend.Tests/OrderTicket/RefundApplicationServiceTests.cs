@@ -60,6 +60,23 @@ public sealed class RefundApplicationServiceTests
     }
 
     [Fact]
+    public async Task QuoteAsync_RejectsNegativeSuccessfulPaymentAmount()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(Policy());
+        await fixture.Db.SaveChangesAsync();
+        await fixture.Db.Database.ExecuteSqlRawAsync("PRAGMA ignore_check_constraints = ON;");
+        await fixture.Db.Database.ExecuteSqlRawAsync(
+            "UPDATE PAYMENT SET PAY_AMOUNT = -1 WHERE PAYMENT_ID = 31;");
+        await fixture.Db.Database.ExecuteSqlRawAsync("PRAGMA ignore_check_constraints = OFF;");
+        fixture.Db.ChangeTracker.Clear();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_PAYMENT_DATA_INCONSISTENT");
+    }
+
+    [Fact]
     public async Task QuoteAsync_HidesOrderOwnedByAnotherUser()
     {
         await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
@@ -196,6 +213,20 @@ public sealed class RefundApplicationServiceTests
         AssertConflict(result, "REFUND_TICKET_STATUS_INVALID");
     }
 
+    [Fact]
+    public async Task QuoteAsync_RejectsMissingTicket()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        var ticket = await fixture.Db.Set<ETicket>()
+            .SingleAsync(x => x.OrderItemId == fixture.OrderItemIds[0]);
+        fixture.Db.Remove(ticket);
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_TICKET_STATUS_INVALID");
+    }
+
     [Theory]
     [InlineData("SYSTEM", "ACTIVE")]
     [InlineData("ORDER", "RELEASED")]
@@ -217,6 +248,29 @@ public sealed class RefundApplicationServiceTests
         var result = await QuoteFirstItemAsync(fixture);
 
         AssertConflict(result, "REFUND_SEAT_RESERVATION_INVALID");
+    }
+
+    [Fact]
+    public async Task QuoteAsync_RejectsDuplicateActiveOrderReservationsAsInconsistentData()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        await fixture.Db.Database.ExecuteSqlRawAsync(
+            "DROP INDEX UK_SEAT_RESERVATION_ORDER_ITEM;");
+        fixture.Db.Add(new SeatReservation
+        {
+            SeatReservationId = 399,
+            SessionId = 21,
+            SeatId = 501,
+            OrderItemId = fixture.OrderItemIds[0],
+            ReservationType = "ORDER",
+            ReservationStatus = "ACTIVE",
+            ReserveTime = RefundTestData.FixedUtcNow.AddHours(-2),
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_RESERVATION_DATA_INCONSISTENT");
     }
 
     [Fact]
@@ -256,10 +310,40 @@ public sealed class RefundApplicationServiceTests
     }
 
     [Fact]
+    public async Task QuoteAsync_RejectsItemUsedAsNewExchangeItem()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(new ExchangeItem
+        {
+            ExchangeItemId = 602,
+            ExchangeId = 702,
+            OrderItemId = 999,
+            NewOrderItemId = fixture.OrderItemIds[0],
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_ITEM_ALREADY_RELATED");
+    }
+
+    [Fact]
     public async Task QuoteAsync_IgnoresDisabledPoliciesAndReturnsNotFound()
     {
         await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
         fixture.Db.Add(Policy(status: 0));
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_POLICY_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task QuoteAsync_IgnoresEnabledPolicyForAnotherShow()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(Policy(showId: 999));
         await fixture.Db.SaveChangesAsync();
 
         var result = await QuoteFirstItemAsync(fixture);
@@ -310,6 +394,119 @@ public sealed class RefundApplicationServiceTests
         Assert.True(result.IsSuccess);
         Assert.Empty(fixture.Db.ChangeTracker.Entries());
         Assert.Equal(beforeCounts, await DatabaseCountsAsync(fixture));
+    }
+
+    [Fact]
+    public async Task QuoteAsync_OwnershipValidationPrecedesMalformedItemIds()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        var itemId = fixture.OrderItemIds[0];
+
+        var result = await fixture.CreateApplicationService().QuoteAsync(
+            fixture.UserId + 1,
+            fixture.OrderId,
+            new RefundQuoteRequest([itemId, itemId]),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.NotFound, result.Failure);
+        Assert.Equal("REFUND_ORDER_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task QuoteAsync_MalformedItemIdsPrecedeInvalidOrderAndSession()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        var order = await fixture.Db.Set<Order>().SingleAsync();
+        var session = await fixture.Db.Set<ShowSession>().SingleAsync();
+        order.OrderStatus = "PAID";
+        session.StartTime = RefundTestData.FixedUtcNow;
+        await fixture.Db.SaveChangesAsync();
+        var itemId = fixture.OrderItemIds[0];
+
+        var result = await fixture.CreateApplicationService().QuoteAsync(
+            fixture.UserId,
+            fixture.OrderId,
+            new RefundQuoteRequest([itemId, itemId]),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.InvalidRequest, result.Failure);
+        Assert.Equal("REFUND_ITEM_IDS_DUPLICATED", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task QuoteAsync_ItemConflictPrecedesTicketConflict()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        var item = await fixture.Db.Set<OrderItem>()
+            .SingleAsync(x => x.OrderItemId == fixture.OrderItemIds[0]);
+        var ticket = await fixture.Db.Set<ETicket>()
+            .SingleAsync(x => x.OrderItemId == fixture.OrderItemIds[0]);
+        item.ItemStatus = "REFUNDING";
+        ticket.TicketStatus = "USED";
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_ORDER_ITEM_STATUS_INVALID");
+    }
+
+    [Fact]
+    public async Task QuoteAsync_TicketConflictPrecedesReservationConflict()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        var ticket = await fixture.Db.Set<ETicket>()
+            .SingleAsync(x => x.OrderItemId == fixture.OrderItemIds[0]);
+        var reservation = await fixture.Db.Set<SeatReservation>()
+            .SingleAsync(x => x.OrderItemId == fixture.OrderItemIds[0]);
+        ticket.TicketStatus = "USED";
+        reservation.ReservationStatus = "RELEASED";
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_TICKET_STATUS_INVALID");
+    }
+
+    [Fact]
+    public async Task QuoteAsync_ReservationConflictPrecedesHistoryConflict()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        var reservation = await fixture.Db.Set<SeatReservation>()
+            .SingleAsync(x => x.OrderItemId == fixture.OrderItemIds[0]);
+        reservation.ReservationStatus = "RELEASED";
+        fixture.Db.Add(RefundRelation(fixture.OrderItemIds[0]));
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_SEAT_RESERVATION_INVALID");
+    }
+
+    [Fact]
+    public async Task QuoteAsync_HistoryConflictPrecedesPaymentInconsistency()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(RefundRelation(fixture.OrderItemIds[0]));
+        (await fixture.Db.Set<Payment>().SingleAsync()).PayAmount = 209m;
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_ITEM_ALREADY_RELATED");
+    }
+
+    [Fact]
+    public async Task QuoteAsync_PaymentInconsistencyPrecedesMissingPolicy()
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        (await fixture.Db.Set<Payment>().SingleAsync()).PayAmount = 209m;
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await QuoteFirstItemAsync(fixture);
+
+        AssertConflict(result, "REFUND_PAYMENT_DATA_INCONSISTENT");
     }
 
     private static async Task<RefundTestData> CreatePaymentFaultFixtureAsync(PaymentFault fault)
@@ -370,15 +567,25 @@ public sealed class RefundApplicationServiceTests
     private static RefundPolicy Policy(
         decimal refundRate = 1m,
         decimal serviceFee = 0m,
-        byte status = 1) => new()
+        byte status = 1,
+        long? showId = null) => new()
     {
         PolicyId = 801,
+        ShowId = showId,
         PolicyName = "全局",
         RefundDeadlineHour = 24,
         RefundRate = refundRate,
         ServiceFee = serviceFee,
         Priority = 1,
         Status = status,
+    };
+
+    private static RefundItem RefundRelation(long orderItemId) => new()
+    {
+        RefundItemId = 401,
+        RefundId = 501,
+        OrderItemId = orderItemId,
+        RefundBaseAmount = 105m,
     };
 
     private static async Task<(int Refunds, int RefundItems, int Exchanges, int ExchangeItems)>

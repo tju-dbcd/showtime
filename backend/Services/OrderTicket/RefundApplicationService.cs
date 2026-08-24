@@ -105,10 +105,20 @@ public sealed class RefundApplicationService(
             .Where(item => item.OrderItemId.HasValue &&
                 selectedItemIds.Contains(item.OrderItemId.Value))
             .ToListAsync(cancellationToken);
-        if (selectedItemIds.Any(itemId => reservations.Count(item =>
+        var activeOrderReservationCounts = selectedItemIds.ToDictionary(
+            itemId => itemId,
+            itemId => reservations.Count(item =>
                 item.OrderItemId == itemId &&
                 item.ReservationType == "ORDER" &&
-                item.ReservationStatus == "ACTIVE") != 1))
+                item.ReservationStatus == "ACTIVE"));
+        if (activeOrderReservationCounts.Values.Any(count => count > 1))
+        {
+            return Conflict<RefundQuoteResponse>(
+                "REFUND_RESERVATION_DATA_INCONSISTENT",
+                "An order item has duplicate active order reservations.");
+        }
+
+        if (activeOrderReservationCounts.Values.Any(count => count != 1))
         {
             return Conflict<RefundQuoteResponse>(
                 "REFUND_SEAT_RESERVATION_INVALID",
