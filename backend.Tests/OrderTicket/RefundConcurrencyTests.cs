@@ -1,6 +1,8 @@
+using System.Data.Common;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
@@ -14,6 +16,58 @@ namespace ShowtimeBackend.Tests.OrderTicket;
 
 public sealed class RefundConcurrencyTests
 {
+    [Fact]
+    public async Task CreateAsync_WhenTicketBecomesUsedAfterQuote_DoesNotOverwriteIt()
+    {
+        await using var connection = await OpenConnectionAsync("Data Source=:memory:");
+        await SeedIssuedOrderAsync(connection);
+        var mutation = new TrackedLoadMutationInterceptor(
+            (competingDb, cancellationToken) => competingDb.Database.ExecuteSqlRawAsync(
+                "UPDATE E_TICKET SET TICKET_STATUS = 'USED' WHERE ORDER_ITEM_ID = 101;",
+                cancellationToken));
+        await using var db = CreateDbContext(connection, mutation);
+        var coordinator = new ArmedMutationRefundLockCoordinator(db, mutation);
+
+        var result = await CreateService(db, coordinator).CreateAsync(
+            7,
+            "alice",
+            11,
+            new CreateRefundRequest([101], "行程变更"),
+            CancellationToken.None);
+
+        Assert.True(mutation.Mutated);
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_TICKET_NOT_UNUSED", result.ErrorCode);
+        await AssertOriginalStateAsync(connection);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenItemBecomesNonNormalAfterQuote_DoesNotOverwriteIt()
+    {
+        await using var connection = await OpenConnectionAsync("Data Source=:memory:");
+        await SeedIssuedOrderAsync(connection);
+        var mutation = new TrackedLoadMutationInterceptor(
+            (competingDb, cancellationToken) => competingDb.Database.ExecuteSqlRawAsync(
+                "UPDATE ORDER_ITEM SET ITEM_STATUS = 'EXCHANGING' WHERE ORDER_ITEM_ID = 101;",
+                cancellationToken));
+        await using var db = CreateDbContext(connection, mutation);
+        var coordinator = new ArmedMutationRefundLockCoordinator(db, mutation);
+
+        var result = await CreateService(db, coordinator).CreateAsync(
+            7,
+            "alice",
+            11,
+            new CreateRefundRequest([101], "行程变更"),
+            CancellationToken.None);
+
+        Assert.True(mutation.Mutated);
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
+        Assert.Equal("REFUND_ITEM_NOT_ELIGIBLE", result.ErrorCode);
+        await AssertOriginalStateAsync(connection);
+    }
+
     [Fact]
     public async Task OracleRefundLockCoordinator_RequiresExistingTransaction()
     {
@@ -56,12 +110,37 @@ public sealed class RefundConcurrencyTests
     }
 
     [Fact]
-    public async Task CreateAsync_WhenConcurrencyTokenLoses_RollsBackAndReturnsConflict()
+    public async Task CreateAsync_WhenLaterDmlFails_RollsBackPreviouslyExecutedDml()
     {
         await using var connection = await OpenConnectionAsync("Data Source=:memory:");
         await SeedIssuedOrderAsync(connection);
-        var interceptor = new ThrowingSaveInterceptor(
-            () => new DbUpdateConcurrencyException("simulated stale ticket status"));
+        var interceptor = new FailAfterFirstRefundDmlInterceptor();
+        await using var db = CreateSingleCommandDbContext(connection, interceptor);
+        db.Database.AutoTransactionBehavior = AutoTransactionBehavior.Never;
+
+        var result = await CreateService(db).CreateAsync(
+            7,
+            "alice",
+            11,
+            new CreateRefundRequest([101], "行程变更"),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.Internal, result.Failure);
+        Assert.Equal("REFUND_CREATE_FAILED", result.ErrorCode);
+        Assert.Equal(1, interceptor.SuccessfulDmlCount);
+        Assert.True(interceptor.AttemptedDmlCount >= 2);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Null(db.Database.CurrentTransaction);
+        await AssertOriginalStateAsync(connection);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenSecondContextChangesTicketConcurrencyToken_RollsBackAndReturnsConflict()
+    {
+        await using var connection = await OpenConnectionAsync("Data Source=:memory:");
+        await SeedIssuedOrderAsync(connection);
+        var interceptor = new CompetingTicketStatusInterceptor();
         await using var db = CreateDbContext(connection, interceptor);
 
         var result = await CreateService(db).CreateAsync(
@@ -74,7 +153,8 @@ public sealed class RefundConcurrencyTests
         Assert.False(result.IsSuccess);
         Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
         Assert.Equal("REFUND_CREATE_CONFLICT", result.ErrorCode);
-        Assert.Equal(1, interceptor.CallCount);
+        Assert.True(interceptor.Mutated);
+        Assert.Equal(1, interceptor.RowsAffected);
         Assert.Empty(db.ChangeTracker.Entries());
         Assert.Null(db.Database.CurrentTransaction);
         await AssertOriginalStateAsync(connection);
@@ -135,7 +215,7 @@ public sealed class RefundConcurrencyTests
     }
 
     [Fact]
-    public async Task TwoContextsCompetingForSameTicket_AtMostOneCommits()
+    public async Task TwoContextsWithStaleQuotes_WhenSubmittedSequentially_SecondReturnsDuplicateConflict()
     {
         var databasePath = Path.Combine(
             Path.GetTempPath(),
@@ -226,13 +306,27 @@ public sealed class RefundConcurrencyTests
 
     private static AppDbContext CreateDbContext(
         SqliteConnection connection,
-        SaveChangesInterceptor? interceptor = null)
+        params IInterceptor[] interceptors)
     {
         var options = new DbContextOptionsBuilder<SqliteAuthDbContext>()
             .UseSqlite(connection);
-        if (interceptor is not null)
+        if (interceptors.Length > 0)
         {
-            options.AddInterceptors(interceptor);
+            options.AddInterceptors(interceptors);
+        }
+
+        return new SqliteAuthDbContext(options.Options);
+    }
+
+    private static AppDbContext CreateSingleCommandDbContext(
+        SqliteConnection connection,
+        params IInterceptor[] interceptors)
+    {
+        var options = new DbContextOptionsBuilder<SqliteAuthDbContext>()
+            .UseSqlite(connection, sqlite => sqlite.MaxBatchSize(1));
+        if (interceptors.Length > 0)
+        {
+            options.AddInterceptors(interceptors);
         }
 
         return new SqliteAuthDbContext(options.Options);
@@ -320,11 +414,13 @@ public sealed class RefundConcurrencyTests
         await db.SaveChangesAsync();
     }
 
-    private static RefundApplicationService CreateService(AppDbContext db) => new(
+    private static RefundApplicationService CreateService(
+        AppDbContext db,
+        IRefundLockCoordinator? lockCoordinator = null) => new(
         db,
         new RefundPolicyEngine(),
         new FixedTimeProvider(RefundTestData.FixedUtcNow),
-        new TestRefundLockCoordinator(db),
+        lockCoordinator ?? new TestRefundLockCoordinator(db),
         NullLogger<RefundApplicationService>.Instance,
         new NullOrderTicketAuditSink());
 
@@ -354,6 +450,196 @@ public sealed class RefundConcurrencyTests
             CallCount++;
             return ValueTask.FromException<InterceptionResult<int>>(
                 exceptionFactory());
+        }
+    }
+
+    private sealed class CompetingTicketStatusInterceptor : SaveChangesInterceptor
+    {
+        private int mutated;
+
+        public bool Mutated => Volatile.Read(ref mutated) == 1;
+
+        public int RowsAffected { get; private set; }
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.CompareExchange(ref mutated, 1, 0) != 0)
+            {
+                return result;
+            }
+
+            var primaryDb = (AppDbContext)eventData.Context!;
+            var transaction = primaryDb.Database.CurrentTransaction ??
+                throw new InvalidOperationException("Expected an active transaction.");
+            var connection = (SqliteConnection)primaryDb.Database.GetDbConnection();
+            var options = new DbContextOptionsBuilder<SqliteAuthDbContext>()
+                .UseSqlite(connection)
+                .Options;
+            await using var competingDb = new SqliteAuthDbContext(options);
+            await competingDb.Database.UseTransactionAsync(
+                transaction.GetDbTransaction(),
+                cancellationToken);
+            RowsAffected = await competingDb.Database.ExecuteSqlRawAsync(
+                "UPDATE E_TICKET SET TICKET_STATUS = 'USED' " +
+                "WHERE ORDER_ITEM_ID = 101;",
+                cancellationToken);
+
+            return result;
+        }
+    }
+
+    private sealed class FailAfterFirstRefundDmlInterceptor : DbCommandInterceptor
+    {
+        public int AttemptedDmlCount { get; private set; }
+
+        public int SuccessfulDmlCount { get; private set; }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowOnLaterDml(command.CommandText);
+            return ValueTask.FromResult(result);
+        }
+
+        public override ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            RecordSuccessfulDml(command.CommandText);
+            return ValueTask.FromResult(result);
+        }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowOnLaterDml(command.CommandText);
+            return ValueTask.FromResult(result);
+        }
+
+        public override ValueTask<int> NonQueryExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            int result,
+            CancellationToken cancellationToken = default)
+        {
+            RecordSuccessfulDml(command.CommandText);
+            return ValueTask.FromResult(result);
+        }
+
+        private void ThrowOnLaterDml(string commandText)
+        {
+            if (!IsRefundApplicationDml(commandText))
+            {
+                return;
+            }
+
+            AttemptedDmlCount++;
+            if (AttemptedDmlCount > 1)
+            {
+                throw new DbUpdateException(
+                    "The later refund DML failed.",
+                    new InvalidOperationException("simulated command failure"));
+            }
+        }
+
+        private void RecordSuccessfulDml(string commandText)
+        {
+            if (IsRefundApplicationDml(commandText))
+            {
+                SuccessfulDmlCount++;
+            }
+        }
+
+        private static bool IsRefundApplicationDml(string commandText)
+        {
+            var trimmed = commandText.TrimStart();
+            if (!trimmed.StartsWith("INSERT", StringComparison.OrdinalIgnoreCase) &&
+                !trimmed.StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase) &&
+                !trimmed.StartsWith("DELETE", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return commandText.Contains("REFUND_REQUEST", StringComparison.OrdinalIgnoreCase) ||
+                commandText.Contains("REFUND_ITEM", StringComparison.OrdinalIgnoreCase) ||
+                commandText.Contains("ORDER_ITEM", StringComparison.OrdinalIgnoreCase) ||
+                commandText.Contains("E_TICKET", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private sealed class TrackedLoadMutationInterceptor(
+        Func<AppDbContext, CancellationToken, Task> mutateAsync) : DbCommandInterceptor
+    {
+        private int armed;
+        private int mutated;
+
+        public bool Mutated => Volatile.Read(ref mutated) == 1;
+
+        public void Arm() => Volatile.Write(ref armed, 1);
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Volatile.Read(ref armed) == 1 &&
+                IsTrackedItemLoad(command.CommandText) &&
+                Interlocked.CompareExchange(ref mutated, 1, 0) == 0)
+            {
+                var connection = (SqliteConnection)command.Connection!;
+                var options = new DbContextOptionsBuilder<SqliteAuthDbContext>()
+                    .UseSqlite(connection)
+                    .Options;
+                await using var competingDb = new SqliteAuthDbContext(options);
+                await competingDb.Database.UseTransactionAsync(
+                    command.Transaction!,
+                    cancellationToken);
+                await mutateAsync(competingDb, cancellationToken);
+            }
+
+            return result;
+        }
+
+        private static bool IsTrackedItemLoad(string commandText) =>
+            commandText.Contains(
+                "FROM \"ORDER_ITEM\"",
+                StringComparison.OrdinalIgnoreCase) &&
+            commandText.Contains(
+                "JOIN \"E_TICKET\"",
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class ArmedMutationRefundLockCoordinator(
+        AppDbContext db,
+        TrackedLoadMutationInterceptor mutation) : IRefundLockCoordinator
+    {
+        public Task<bool> LockRefundRequestAsync(
+            long refundId,
+            CancellationToken cancellationToken) => db.Set<RefundRequest>()
+            .AsNoTracking()
+            .AnyAsync(item => item.RefundId == refundId, cancellationToken);
+
+        public async Task<bool> LockOrderAsync(
+            long orderId,
+            CancellationToken cancellationToken)
+        {
+            var exists = await db.Set<Order>()
+                .AsNoTracking()
+                .AnyAsync(item => item.OrderId == orderId, cancellationToken);
+            mutation.Arm();
+            return exists;
         }
     }
 

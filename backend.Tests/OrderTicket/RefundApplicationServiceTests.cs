@@ -161,6 +161,48 @@ public sealed class RefundApplicationServiceTests
                 .TicketStatus);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreateAsync_WhenRequestIncludesItemFromAnotherOrder_ReturnsNotEligibleRegardlessOfRefundHistory(
+        bool outsideItemHasRefundHistory)
+    {
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(new OrderItem
+        {
+            OrderItemId = 999,
+            OrderId = 12,
+            SeatId = 999,
+            PriceStrategyId = 601,
+            UnitPrice = 105m,
+            ItemStatus = "NORMAL",
+        });
+        if (outsideItemHasRefundHistory)
+        {
+            fixture.Db.Add(new RefundItem
+            {
+                RefundItemId = 999,
+                RefundId = 999,
+                OrderItemId = 999,
+                RefundBaseAmount = 105m,
+            });
+        }
+
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await CreateApplicationService(fixture).CreateAsync(
+            fixture.UserId,
+            "alice",
+            fixture.OrderId,
+            new CreateRefundRequest([fixture.OrderItemIds[0], 999], "行程变更"),
+            CancellationToken.None);
+
+        AssertConflict(result, "REFUND_ITEM_NOT_ELIGIBLE");
+        Assert.Equal(
+            outsideItemHasRefundHistory ? 1 : 0,
+            await fixture.Db.Set<RefundItem>().CountAsync());
+    }
+
     [Fact]
     public async Task CreateAsync_FreezesQuoteAndMovesItemAndTicketToRefunding()
     {

@@ -31,11 +31,26 @@ public sealed class RefundConstraintClassifierTests
     [InlineData("ORA-00001: unique constraint (APP_OWNER.UK_PAYMENT_NO) violated")]
     [InlineData("SQLite Error 19: UNIQUE constraint failed: REFUND_ITEM.ORDER_ITEM_ID")]
     [InlineData("ORA-00001: unique constraint (APP_OWNER.UK_REFUND_ORDER_ITEM_COPY) violated")]
+    [InlineData("ORA-00001: unique constraint (APP_OWNER.UK_REFUND_ORDER_ITEM$ARCHIVE) violated")]
+    [InlineData("ORA-00001: unique constraint (APP_OWNER.UK_REFUND_ORDER_ITEM#ARCHIVE) violated")]
     public void Classify_LeavesUnknownUniqueConstraintAsOther(string message)
     {
         Assert.Equal(
             RefundUniqueConstraint.Other,
             RefundConstraintClassifier.Classify(Wrap(message)));
+    }
+
+    [Fact]
+    public void Classify_DoesNotCombineWrapperTargetWithDifferentInnerConstraint()
+    {
+        var exception = new DbUpdateException(
+            "Saving target UK_REFUND_ORDER_ITEM failed.",
+            new InvalidOperationException(
+                "ORA-00001: unique constraint (APP_OWNER.UK_REFUND_NO) violated"));
+
+        Assert.Equal(
+            RefundUniqueConstraint.RefundNumber,
+            RefundConstraintClassifier.Classify(exception));
     }
 
     [Theory]

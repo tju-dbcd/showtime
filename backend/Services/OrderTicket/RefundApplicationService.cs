@@ -90,7 +90,8 @@ public sealed class RefundApplicationService : IRefundApplicationService
         if (!quoteResult.IsSuccess)
         {
             if (quoteResult.ErrorCode == "REFUND_ITEM_NOT_ELIGIBLE" &&
-                await HasExistingRefundItemAsync(
+                await HasExistingRefundItemForOrderAsync(
+                    orderId,
                     request.OrderItemIds,
                     cancellationToken))
             {
@@ -114,6 +115,27 @@ public sealed class RefundApplicationService : IRefundApplicationService
             .Where(item => selectedItemIds.Contains(item.OrderItemId))
             .OrderBy(item => item.OrderItemId)
             .ToListAsync(cancellationToken);
+
+        if (selectedItems.Count != selectedItemIds.Count ||
+            selectedItems.Any(item =>
+                item.OrderId != orderId || item.ItemStatus != "NORMAL"))
+        {
+            await RollbackAndClearAsync(transaction, cancellationToken);
+            return Conflict<RefundResponse>(
+                "REFUND_ITEM_NOT_ELIGIBLE",
+                "An order item does not belong to the order or cannot be refunded.");
+        }
+
+        if (selectedItems.Any(item =>
+                item.ETicket is null ||
+                item.ETicket.OrderItemId != item.OrderItemId ||
+                item.ETicket.TicketStatus != "UNUSED"))
+        {
+            await RollbackAndClearAsync(transaction, cancellationToken);
+            return Conflict<RefundResponse>(
+                "REFUND_TICKET_NOT_UNUSED",
+                "An electronic ticket is unavailable for refund.");
+        }
 
         var refundRequest = new RefundRequest
         {
@@ -468,12 +490,24 @@ public sealed class RefundApplicationService : IRefundApplicationService
     private static OrderTicketResult<T> Internal<T>(string code, string message) =>
         OrderTicketResult<T>.Fail(OrderTicketFailure.Internal, code, message);
 
-    private Task<bool> HasExistingRefundItemAsync(
+    private async Task<bool> HasExistingRefundItemForOrderAsync(
+        long orderId,
         IReadOnlyList<long> orderItemIds,
         CancellationToken cancellationToken)
     {
         var selectedItemIds = orderItemIds.ToHashSet();
-        return dbContext.Set<RefundItem>()
+        var ownedItemCount = await dbContext.Set<OrderItem>()
+            .AsNoTracking()
+            .CountAsync(
+                item => item.OrderId == orderId &&
+                    selectedItemIds.Contains(item.OrderItemId),
+                cancellationToken);
+        if (ownedItemCount != selectedItemIds.Count)
+        {
+            return false;
+        }
+
+        return await dbContext.Set<RefundItem>()
             .AsNoTracking()
             .AnyAsync(
                 item => selectedItemIds.Contains(item.OrderItemId),
