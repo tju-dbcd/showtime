@@ -109,6 +109,20 @@ public class AdminShowSessionController : ControllerBase
         [FromBody] IEnumerable<CreateDynamicPricingRuleRequest> requests,
         CancellationToken cancellationToken)
     {
+        if (!ModelState.IsValid)
+        {
+            var errorMessage = string.Join("; ", ModelState.Values
+                .SelectMany(v => v.Errors)
+                .Select(e => e.ErrorMessage));
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", errorMessage));
+        }
+
+        // 拦截空列表请求
+        if (requests == null || !requests.Any())
+        {
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "动态调价规则列表不能为空"));
+        }
+
         try
         {
             await _adminService.ConfigureDynamicPricingRulesAsync(sessionId, requests, cancellationToken);

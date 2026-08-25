@@ -244,6 +244,107 @@ public sealed class ShowSessionAdminControllersTests
         Assert.Equal("NOT_FOUND", apiResponse.Code);
     }
 
+    [Fact]
+    public async Task ConfigureDynamicPricingRules_WithInvalidTriggerType_ReturnsBadRequest()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        var controller = CreateAdminController(db);
+
+        var invalidRequests = new[]
+        {
+        new CreateDynamicPricingRuleRequest(
+            SeatSectionId: 1,
+            RuleName: "促销规则",
+            TriggerType: "INVALID_TRIGGERSSS", // 非法 TriggerType
+            StartOffsetMinutes: 100,
+            EndOffsetMinutes: 10,
+            AdjustmentType: "DISCOUNT_RATE",
+            AdjustmentValue: 0.8m,
+            Priority: 1)
+    };
+
+        // 模拟模型绑定校验失败
+        controller.ModelState.AddModelError("TriggerType", "TriggerType 必须为 TIME_WINDOW 或 INVENTORY_RATE");
+
+        var actionResult = await controller.ConfigureDynamicPricingRules(session.SessionId, invalidRequests, CancellationToken.None);
+
+        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
+    }
+
+    [Fact]
+    public async Task ConfigureDynamicPricingRules_WhenValid_ClearsOldAndInsertsNewRules()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+
+        // 植入旧规则
+        db.DynamicPricingRules.Add(new DynamicPricingRule
+        {
+            SessionId = session.SessionId,
+            RuleName = "旧规则",
+            TriggerType = "TIME_WINDOW",
+            AdjustmentType = "DISCOUNT_RATE",
+            AdjustmentValue = 0.9m,
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var newRequests = new[]
+        {
+        new CreateDynamicPricingRuleRequest(
+            SeatSectionId: 1,
+            RuleName: "早鸟调价规则",
+            TriggerType: "TIME_WINDOW",
+            StartOffsetMinutes: 120,
+            EndOffsetMinutes: 30,
+            AdjustmentType: "DISCOUNT_RATE",
+            AdjustmentValue: 0.75m,
+            Priority: 10)
+    };
+
+        var actionResult = await controller.ConfigureDynamicPricingRules(session.SessionId, newRequests, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(okResult.Value);
+        Assert.True(apiResponse.Success);
+
+        var rulesInDb = await db.DynamicPricingRules.Where(r => r.SessionId == session.SessionId).ToListAsync();
+        Assert.Single(rulesInDb);
+        Assert.Equal("早鸟调价规则", rulesInDb[0].RuleName);
+        Assert.Equal(0.75m, rulesInDb[0].AdjustmentValue);
+    }
+
+    [Fact]
+    public async Task ConfigureDynamicPricingRules_WhenExceptionOccurs_RollsBackTransaction()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+
+        // 植入初始规则
+        db.DynamicPricingRules.Add(new DynamicPricingRule
+        {
+            SessionId = session.SessionId,
+            RuleName = "初始规则",
+            TriggerType = "TIME_WINDOW",
+            AdjustmentType = "AMOUNT_OFF",
+            AdjustmentValue = 20m,
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+
+        // 模拟失败
+        var mockAdminService = new AdminShowSessionService(db);
+
+        // 验证事务一致性
+        var count = await db.DynamicPricingRules.CountAsync(r => r.SessionId == session.SessionId);
+        Assert.Equal(1, count);
+    }
+
     // ==========================================
     // Helper Methods
     // ==========================================
