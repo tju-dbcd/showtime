@@ -23,7 +23,7 @@ public sealed class AdminRefundsController(IRefundReviewService service)
         [FromQuery] AdminRefundListQuery query,
         CancellationToken cancellationToken)
     {
-        if (HasNumericStatusQueryValue())
+        if (HasInvalidStatusQueryValue())
         {
             return BadRequest(
                 ApiResponse<PagedRefundResponse>.Fail(
@@ -108,7 +108,7 @@ public sealed class AdminRefundsController(IRefundReviewService service)
             : FailureResponse(result);
     }
 
-    private bool HasNumericStatusQueryValue()
+    private bool HasInvalidStatusQueryValue()
     {
         foreach (var (name, values) in Request.Query)
         {
@@ -120,7 +120,8 @@ public sealed class AdminRefundsController(IRefundReviewService service)
 
             foreach (var value in values)
             {
-                if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+                if (string.IsNullOrWhiteSpace(value) ||
+                    int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
                 {
                     return true;
                 }

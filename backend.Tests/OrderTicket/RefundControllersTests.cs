@@ -359,10 +359,26 @@ public sealed class RefundControllersTests
 
     [Theory]
     [InlineData("approveStatus=0")]
+    [InlineData("approveStatus=1")]
+    [InlineData("approveStatus=-1")]
+    [InlineData("approveStatus=2147483648")]
+    [InlineData("approveStatus=-2147483649")]
+    [InlineData("approveStatus=")]
+    [InlineData("approveStatus=%20")]
+    [InlineData("approveStatus=NOT_A_STATUS")]
     [InlineData("refundStatus=0")]
+    [InlineData("refundStatus=1")]
+    [InlineData("refundStatus=-1")]
+    [InlineData("refundStatus=2147483648")]
+    [InlineData("refundStatus=-2147483649")]
+    [InlineData("refundStatus=")]
+    [InlineData("refundStatus=%20")]
+    [InlineData("refundStatus=NOT_A_STATUS")]
     [InlineData("ApproveStatus=PENDING&aPpRoVeStAtUs=0")]
     [InlineData("RefundStatus=COMPLETED&rEfUnDsTaTuS=-0")]
-    public async Task List_WithNumericStatusQuery_ReturnsValidationFailed(string query)
+    [InlineData("ApproveStatus=PENDING&aPpRoVeStAtUs=")]
+    [InlineData("RefundStatus=COMPLETED&rEfUnDsTaTuS=")]
+    public async Task List_WithInvalidStatusQuery_ReturnsValidationFailed(string query)
     {
         using var factory = new AuthTestFactory();
         await RefundTestData.SeedIssuedOrderAsync(factory);
@@ -377,16 +393,21 @@ public sealed class RefundControllersTests
         Assert.Equal("VALIDATION_FAILED", body.Code);
     }
 
-    [Fact]
-    public async Task List_WithStringStatusQueries_RemainsValid()
+    [Theory]
+    [InlineData("approveStatus=PENDING")]
+    [InlineData("approveStatus=APPROVED")]
+    [InlineData("approveStatus=REJECTED")]
+    [InlineData("refundStatus=PROCESSING")]
+    [InlineData("refundStatus=COMPLETED")]
+    [InlineData("refundStatus=FAILED")]
+    public async Task List_WithStringStatusQuery_RemainsValid(string query)
     {
         using var factory = new AuthTestFactory();
         await RefundTestData.SeedIssuedOrderAsync(factory);
         using var client = factory.CreateApiClient();
         Authenticate(client, 7);
 
-        var response = await client.GetAsync(
-            "/api/orders/10/refunds?approveStatus=PENDING&refundStatus=COMPLETED");
+        var response = await client.GetAsync($"/api/orders/10/refunds?{query}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await ReadEnumResponseAsync<PagedRefundResponse>(response);
@@ -444,10 +465,26 @@ public sealed class RefundControllersTests
 
     [Theory]
     [InlineData("approveStatus=0")]
+    [InlineData("approveStatus=1")]
+    [InlineData("approveStatus=-1")]
+    [InlineData("approveStatus=2147483648")]
+    [InlineData("approveStatus=-2147483649")]
+    [InlineData("approveStatus=")]
+    [InlineData("approveStatus=%20")]
+    [InlineData("approveStatus=NOT_A_STATUS")]
     [InlineData("refundStatus=0")]
+    [InlineData("refundStatus=1")]
+    [InlineData("refundStatus=-1")]
+    [InlineData("refundStatus=2147483648")]
+    [InlineData("refundStatus=-2147483649")]
+    [InlineData("refundStatus=")]
+    [InlineData("refundStatus=%20")]
+    [InlineData("refundStatus=NOT_A_STATUS")]
     [InlineData("ApproveStatus=PENDING&aPpRoVeStAtUs=0")]
     [InlineData("RefundStatus=COMPLETED&rEfUnDsTaTuS=-0")]
-    public async Task AdminList_WithNumericStatusQuery_ReturnsValidationFailed(string query)
+    [InlineData("ApproveStatus=PENDING&aPpRoVeStAtUs=")]
+    [InlineData("RefundStatus=COMPLETED&rEfUnDsTaTuS=")]
+    public async Task AdminList_WithInvalidStatusQuery_ReturnsValidationFailed(string query)
     {
         using var factory = new AuthTestFactory();
         await factory.ResetDatabaseAsync();
@@ -460,6 +497,27 @@ public sealed class RefundControllersTests
         var body = await ReadEnumResponseAsync<PagedRefundResponse>(response);
         Assert.False(body.Success);
         Assert.Equal("VALIDATION_FAILED", body.Code);
+    }
+
+    [Theory]
+    [InlineData("approveStatus=PENDING")]
+    [InlineData("approveStatus=APPROVED")]
+    [InlineData("approveStatus=REJECTED")]
+    [InlineData("refundStatus=PROCESSING")]
+    [InlineData("refundStatus=COMPLETED")]
+    [InlineData("refundStatus=FAILED")]
+    public async Task AdminList_WithStringStatusQuery_RemainsValid(string query)
+    {
+        using var factory = new AuthTestFactory();
+        await factory.ResetDatabaseAsync();
+        using var client = factory.CreateApiClient();
+        AuthenticateAdmin(client);
+
+        var response = await client.GetAsync($"/api/admin/refunds?{query}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadEnumResponseAsync<PagedRefundResponse>(response);
+        Assert.True(body.Success);
     }
 
     [Fact]
