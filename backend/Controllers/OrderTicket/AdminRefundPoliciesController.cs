@@ -14,6 +14,10 @@ public sealed class AdminRefundPoliciesController(
     IRefundPolicyAdminService service) : OrderTicketControllerBase
 {
     [HttpGet]
+    [ProducesResponseType(typeof(ApiResponse<PagedRefundPolicyResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedRefundPolicyResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<PagedRefundPolicyResponse>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<PagedRefundPolicyResponse>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<PagedRefundPolicyResponse>>> List(
         [FromQuery] RefundPolicyListQuery query,
         CancellationToken cancellationToken)
@@ -25,6 +29,11 @@ public sealed class AdminRefundPoliciesController(
     }
 
     [HttpPost]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<RefundPolicyResponse>>> Create(
         [FromBody] SaveRefundPolicyRequest request,
         CancellationToken cancellationToken)
@@ -43,6 +52,11 @@ public sealed class AdminRefundPoliciesController(
     }
 
     [HttpPut("{policyId:long}")]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<RefundPolicyResponse>>> Update(
         long policyId,
         [FromBody] SaveRefundPolicyRequest request,
@@ -60,6 +74,11 @@ public sealed class AdminRefundPoliciesController(
     }
 
     [HttpPatch("{policyId:long}/status")]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<RefundPolicyResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<RefundPolicyResponse>>> UpdateStatus(
         long policyId,
         [FromBody] UpdateRefundPolicyStatusRequest request,

@@ -937,16 +937,16 @@ public sealed class RefundApplicationServiceTests
         decimal serviceFee = 0m,
         byte status = 1,
         long? showId = null) => new()
-    {
-        PolicyId = 801,
-        ShowId = showId,
-        PolicyName = "全局",
-        RefundDeadlineHour = 24,
-        RefundRate = refundRate,
-        ServiceFee = serviceFee,
-        Priority = 1,
-        Status = status,
-    };
+        {
+            PolicyId = 801,
+            ShowId = showId,
+            PolicyName = "全局",
+            RefundDeadlineHour = 24,
+            RefundRate = refundRate,
+            ServiceFee = serviceFee,
+            Priority = 1,
+            Status = status,
+        };
 
     private static RefundItem RefundRelation(long orderItemId) => new()
     {

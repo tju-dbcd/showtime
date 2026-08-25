@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Globalization;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Services.OrderTicket;
@@ -22,6 +23,14 @@ public sealed class AdminRefundsController(IRefundReviewService service)
         [FromQuery] AdminRefundListQuery query,
         CancellationToken cancellationToken)
     {
+        if (HasNumericStatusQueryValue())
+        {
+            return BadRequest(
+                ApiResponse<PagedRefundResponse>.Fail(
+                    "VALIDATION_FAILED",
+                    "ApproveStatus and RefundStatus must use string enum values."));
+        }
+
         var result = await service.ListAsync(query, cancellationToken);
         return result.IsSuccess
             ? Ok(ApiResponse<PagedRefundResponse>.Ok(result.Value!, "Refunds retrieved."))
@@ -97,5 +106,27 @@ public sealed class AdminRefundsController(IRefundReviewService service)
         return result.IsSuccess
             ? Ok(ApiResponse<RefundResponse>.Ok(result.Value!, "Refund rejected."))
             : FailureResponse(result);
+    }
+
+    private bool HasNumericStatusQueryValue()
+    {
+        foreach (var (name, values) in Request.Query)
+        {
+            if (!name.Equals("approveStatus", StringComparison.OrdinalIgnoreCase) &&
+                !name.Equals("refundStatus", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var value in values)
+            {
+                if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

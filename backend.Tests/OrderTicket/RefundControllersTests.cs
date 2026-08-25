@@ -357,6 +357,42 @@ public sealed class RefundControllersTests
         Assert.Equal(0, body.Data.TotalCount);
     }
 
+    [Theory]
+    [InlineData("approveStatus=0")]
+    [InlineData("refundStatus=0")]
+    [InlineData("ApproveStatus=PENDING&aPpRoVeStAtUs=0")]
+    [InlineData("RefundStatus=COMPLETED&rEfUnDsTaTuS=-0")]
+    public async Task List_WithNumericStatusQuery_ReturnsValidationFailed(string query)
+    {
+        using var factory = new AuthTestFactory();
+        await RefundTestData.SeedIssuedOrderAsync(factory);
+        using var client = factory.CreateApiClient();
+        Authenticate(client, 7);
+
+        var response = await client.GetAsync($"/api/orders/10/refunds?{query}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await ReadEnumResponseAsync<PagedRefundResponse>(response);
+        Assert.False(body.Success);
+        Assert.Equal("VALIDATION_FAILED", body.Code);
+    }
+
+    [Fact]
+    public async Task List_WithStringStatusQueries_RemainsValid()
+    {
+        using var factory = new AuthTestFactory();
+        await RefundTestData.SeedIssuedOrderAsync(factory);
+        using var client = factory.CreateApiClient();
+        Authenticate(client, 7);
+
+        var response = await client.GetAsync(
+            "/api/orders/10/refunds?approveStatus=PENDING&refundStatus=COMPLETED");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadEnumResponseAsync<PagedRefundResponse>(response);
+        Assert.True(body.Success);
+    }
+
     [Fact]
     public async Task Get_WhenOwnedByAnotherUser_ReturnsNotFound()
     {
@@ -406,6 +442,26 @@ public sealed class RefundControllersTests
         Assert.Equal(401, Assert.Single(body.Data.Items).RefundId);
     }
 
+    [Theory]
+    [InlineData("approveStatus=0")]
+    [InlineData("refundStatus=0")]
+    [InlineData("ApproveStatus=PENDING&aPpRoVeStAtUs=0")]
+    [InlineData("RefundStatus=COMPLETED&rEfUnDsTaTuS=-0")]
+    public async Task AdminList_WithNumericStatusQuery_ReturnsValidationFailed(string query)
+    {
+        using var factory = new AuthTestFactory();
+        await factory.ResetDatabaseAsync();
+        using var client = factory.CreateApiClient();
+        AuthenticateAdmin(client);
+
+        var response = await client.GetAsync($"/api/admin/refunds?{query}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await ReadEnumResponseAsync<PagedRefundResponse>(response);
+        Assert.False(body.Success);
+        Assert.Equal("VALIDATION_FAILED", body.Code);
+    }
+
     [Fact]
     public async Task AdminGet_WithAdminRole_ReturnsMappedDetail()
     {
@@ -432,6 +488,37 @@ public sealed class RefundControllersTests
         var response = await client.GetAsync("/api/admin/refunds");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("GET", "/api/admin/refunds", null)]
+    [InlineData("GET", "/api/admin/refunds/401", null)]
+    [InlineData("POST", "/api/admin/refunds/401/approve", "{}")]
+    [InlineData("POST", "/api/admin/refunds/401/reject", "{}")]
+    [InlineData("GET", "/api/admin/refund-policies", null)]
+    [InlineData("POST", "/api/admin/refund-policies", "{}")]
+    [InlineData("PUT", "/api/admin/refund-policies/1", "{}")]
+    [InlineData("PATCH", "/api/admin/refund-policies/1/status", "{}")]
+    public async Task AdminRefundOperation_WithNonAdminRole_ReturnsForbiddenEnvelope(
+        string method,
+        string path,
+        string? json)
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+        Authenticate(client, 7);
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+        if (json is not null)
+        {
+            request.Content = JsonContent.Create(JsonDocument.Parse(json).RootElement);
+        }
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await ReadEnumResponseAsync<object>(response);
+        Assert.False(body.Success);
+        Assert.Equal("FORBIDDEN", body.Code);
     }
 
     [Fact]
@@ -605,21 +692,21 @@ public sealed class RefundControllersTests
         long orderId,
         long userId,
         DateTime createTime) => new()
-    {
-        RefundId = refundId,
-        RefundNo = $"REF{refundId:000000}",
-        OrderId = orderId,
-        UserId = userId,
-        RefundType = "PART",
-        RefundReason = "测试申请",
-        RefundAmount = 10m,
-        ActualRefund = 8m,
-        FeeRate = 0.8m,
-        AppliedServiceFee = 0m,
-        ApproveStatus = "PENDING",
-        RefundStatus = "PENDING",
-        CreateTime = createTime,
-    };
+        {
+            RefundId = refundId,
+            RefundNo = $"REF{refundId:000000}",
+            OrderId = orderId,
+            UserId = userId,
+            RefundType = "PART",
+            RefundReason = "测试申请",
+            RefundAmount = 10m,
+            ActualRefund = 8m,
+            FeeRate = 0.8m,
+            AppliedServiceFee = 0m,
+            ApproveStatus = "PENDING",
+            RefundStatus = "PENDING",
+            CreateTime = createTime,
+        };
 
     private static void AssertOperationResponses(
         JsonElement paths,
