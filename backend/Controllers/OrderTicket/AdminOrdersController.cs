@@ -10,7 +10,9 @@ namespace ShowtimeBackend.Controllers.OrderTicket;
 [Authorize(Roles = "Admin")]
 [Route("api/admin/orders")]
 [Tags("Admin Orders")]
-public sealed class AdminOrdersController(IOrderService orderService) : OrderTicketControllerBase
+public sealed class AdminOrdersController(
+    IOrderService orderService,
+    IAdminTicketIssuanceService ticketIssuanceService) : OrderTicketControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<PagedAdminOrderResponse>), StatusCodes.Status200OK)]
@@ -60,6 +62,45 @@ public sealed class AdminOrdersController(IOrderService orderService) : OrderTic
         var result = await orderService.CancelAdminAsync(actor, orderId, cancellationToken);
         return result.IsSuccess
             ? Ok(ApiResponse<OrderResponse>.Ok(result.Value!, "Order cancelled."))
+            : FailureResponse(result);
+    }
+
+    [HttpPost("{orderId:long}/issue")]
+    [ProducesResponseType(
+        typeof(ApiResponse<TicketIssuanceResponse>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        typeof(ApiResponse<TicketIssuanceResponse>),
+        StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<TicketIssuanceResponse>),
+        StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(
+        typeof(ApiResponse<TicketIssuanceResponse>),
+        StatusCodes.Status404NotFound)]
+    [ProducesResponseType(
+        typeof(ApiResponse<TicketIssuanceResponse>),
+        StatusCodes.Status409Conflict)]
+    [ProducesResponseType(
+        typeof(ApiResponse<TicketIssuanceResponse>),
+        StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<ApiResponse<TicketIssuanceResponse>>> Issue(
+        long orderId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetCurrentUser(out _, out var actor))
+        {
+            return UnauthorizedResponse<TicketIssuanceResponse>();
+        }
+
+        var result = await ticketIssuanceService.IssueAsync(
+            actor,
+            orderId,
+            cancellationToken);
+        return result.IsSuccess
+            ? Ok(ApiResponse<TicketIssuanceResponse>.Ok(
+                result.Value!,
+                "Tickets issued."))
             : FailureResponse(result);
     }
 }

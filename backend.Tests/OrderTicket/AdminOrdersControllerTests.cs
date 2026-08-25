@@ -96,7 +96,33 @@ public sealed class AdminOrdersControllerTests
         Assert.Equal("ORDER_CANNOT_CANCEL", response.Code);
     }
 
-    private static AdminOrdersController CreateController(AppDbContext db)
+    [Fact]
+    public async Task Issue_UsesCurrentAdminAndReturnsCompensationResult()
+    {
+        await using var db = CreateDbContext();
+        var issuance = new StubAdminTicketIssuanceService(
+            OrderTicketResult<TicketIssuanceResponse>.Success(
+                new TicketIssuanceResponse(
+                    21,
+                    OrderStatus.ISSUED,
+                    2,
+                    0,
+                    2,
+                    new DateTime(2026, 8, 23, 10, 0, 0))));
+        var controller = CreateController(db, issuance);
+
+        var result = await controller.Issue(21, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<TicketIssuanceResponse>>(ok.Value);
+        Assert.Equal(21, response.Data!.OrderId);
+        Assert.Equal("admin-user", issuance.Actor);
+        Assert.Equal(21, issuance.OrderId);
+    }
+
+    private static AdminOrdersController CreateController(
+        AppDbContext db,
+        IAdminTicketIssuanceService? issuanceService = null)
     {
         var identity = new ClaimsIdentity(
             [
@@ -105,7 +131,13 @@ public sealed class AdminOrdersControllerTests
                 new Claim(ClaimTypes.Role, "Admin")
             ],
             "test");
-        return new AdminOrdersController(new OrderService(db, TimeProvider.System))
+        return new AdminOrdersController(
+            new OrderService(db, TimeProvider.System),
+            issuanceService ?? new StubAdminTicketIssuanceService(
+                OrderTicketResult<TicketIssuanceResponse>.Fail(
+                    OrderTicketFailure.NotFound,
+                    "TICKET_ORDER_NOT_FOUND",
+                    "The order does not exist.")))
         {
             ControllerContext = new ControllerContext
             {
@@ -145,4 +177,22 @@ public sealed class AdminOrdersControllerTests
         ExpireTime = DateTime.UtcNow.AddMinutes(15),
         Source = "WEB"
     };
+
+    private sealed class StubAdminTicketIssuanceService(
+        OrderTicketResult<TicketIssuanceResponse> result)
+        : IAdminTicketIssuanceService
+    {
+        public string? Actor { get; private set; }
+        public long? OrderId { get; private set; }
+
+        public Task<OrderTicketResult<TicketIssuanceResponse>> IssueAsync(
+            string actor,
+            long orderId,
+            CancellationToken cancellationToken)
+        {
+            Actor = actor;
+            OrderId = orderId;
+            return Task.FromResult(result);
+        }
+    }
 }

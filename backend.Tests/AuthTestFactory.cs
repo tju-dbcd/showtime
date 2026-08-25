@@ -105,6 +105,8 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
                 ["Jwt:Issuer"] = TestIssuer,
                 ["Jwt:Audience"] = TestAudience,
                 ["Jwt:ExpirationMinutes"] = "120",
+                ["TicketSecurity:SigningKeyBase64"] =
+                    "ERERERERERERERERERERERERERERERERERERERERERE=",
             });
         });
         builder.ConfigureServices(services =>

@@ -134,6 +134,7 @@ export type AdminOrderSummary = components['schemas']['AdminOrderSummaryResponse
 export type OrderDetail = components['schemas']['OrderResponse'];
 export type OrderItem = components['schemas']['OrderItemResponse'];
 export type Payment = components['schemas']['PaymentResponse'];
+export type TicketIssuance = components['schemas']['TicketIssuanceResponse'];
 
 // 管理端：分页查询全部订单
 export const getAdminOrderList = (params?: {
@@ -157,6 +158,13 @@ export const getAdminOrderDetail = (orderId: number) => {
 // 管理端：取消订单（仅 PENDING_PAY）
 export const adminCancelOrder = (orderId: number) => {
   return client.PATCH('/api/admin/orders/{orderId}/cancel', {
+    params: { path: { orderId } },
+  });
+};
+
+// 管理端：为历史 PAID 订单补偿出票，或修复 ISSUED 缺票订单
+export const issueOrderTickets = (orderId: number) => {
+  return client.POST('/api/admin/orders/{orderId}/issue', {
     params: { path: { orderId } },
   });
 };

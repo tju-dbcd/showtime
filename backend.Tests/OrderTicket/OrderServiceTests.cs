@@ -408,6 +408,7 @@ public sealed class OrderServiceTests
     {
         await using var db = CreateDbContext();
         var order = CreateOrder(1, 7, "PAID", new DateTime(2026, 8, 2, 10, 0, 0));
+        order.IssueTime = new DateTime(2026, 8, 2, 10, 5, 0);
         var item = new OrderItem
         {
             OrderItemId = 2,
@@ -442,7 +443,8 @@ public sealed class OrderServiceTests
         var result = await service.GetAsync(7, 1, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(4, Assert.Single(result.Value!.Payments).PaymentId);
+        Assert.Equal(order.IssueTime, result.Value!.IssueTime);
+        Assert.Equal(4, Assert.Single(result.Value.Payments).PaymentId);
         Assert.Equal("TICKET000003", Assert.Single(result.Value.Tickets).ETicketNo);
     }
 
