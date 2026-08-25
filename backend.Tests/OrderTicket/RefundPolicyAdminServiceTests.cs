@@ -247,18 +247,18 @@ public sealed class RefundPolicyAdminServiceTests
         int priority = 1,
         long? showId = null,
         int deadlineHour = 24) => new()
-    {
-        PolicyId = policyId,
-        ShowId = showId,
-        PolicyName = name,
-        RefundDeadlineHour = deadlineHour,
-        RefundRate = 0.8m,
-        ServiceFee = 0m,
-        Priority = priority,
-        Status = 1,
-        CreateTime = new DateTime(2026, 8, 24),
-        UpdateTime = new DateTime(2026, 8, 24),
-        CreateBy = "seed",
-        UpdateBy = "seed",
-    };
+        {
+            PolicyId = policyId,
+            ShowId = showId,
+            PolicyName = name,
+            RefundDeadlineHour = deadlineHour,
+            RefundRate = 0.8m,
+            ServiceFee = 0m,
+            Priority = priority,
+            Status = 1,
+            CreateTime = new DateTime(2026, 8, 24),
+            UpdateTime = new DateTime(2026, 8, 24),
+            CreateBy = "seed",
+            UpdateBy = "seed",
+        };
 }
