@@ -67,7 +67,7 @@ public class AdminShowSessionController : ControllerBase
     }
 
     /// <summary>
-    /// 配置或覆盖更新场次票价策略
+    /// 配置或覆盖更新场次基础票价策略
     /// </summary>
     [HttpPost("sessions/{sessionId:long}/pricing-strategies")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
@@ -80,6 +80,17 @@ public class AdminShowSessionController : ControllerBase
         [FromBody] IEnumerable<CreatePriceStrategyRequest> requests,
         CancellationToken cancellationToken)
     {
+        if (!ModelState.IsValid)
+        {
+            var errorMessage = string.Join("; ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage));
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", errorMessage));
+        }
+
+        if (requests == null)
+        {
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "请求体不能为空"));
+        }
+
         try
         {
             await _adminService.ConfigurePriceStrategiesAsync(sessionId, requests, cancellationToken);
@@ -118,7 +129,7 @@ public class AdminShowSessionController : ControllerBase
         }
 
         // 拦截空列表请求
-        if (requests == null || !requests.Any())
+        if (requests == null) //不在阻挡空列表
         {
             return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "动态调价规则列表不能为空"));
         }

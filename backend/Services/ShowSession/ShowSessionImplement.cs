@@ -142,15 +142,16 @@ public class AdminShowSessionService : IAdminShowSessionService
     }
 
     public async Task ConfigurePriceStrategiesAsync(
-        long sessionId,
-        IEnumerable<CreatePriceStrategyRequest> requests,
-        CancellationToken cancellationToken = default)
+     long sessionId,
+     IEnumerable<CreatePriceStrategyRequest> requests,
+     CancellationToken cancellationToken = default)
     {
-        var requestList = requests?.ToList();
-        if (requestList == null || requestList.Count == 0)
+        if (requests == null)
         {
-            throw new ArgumentException("策略配置不能为空");
+            throw new ArgumentException("策略配置列表不能为 null");
         }
+
+        var requestList = requests.ToList();
 
         var session = await _context.ShowSessions
             .AsNoTracking()
@@ -164,6 +165,7 @@ public class AdminShowSessionService : IAdminShowSessionService
         using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            // 清空旧策略
             var oldStrategies = await _context.PriceStrategy
                 .Where(p => p.SessionId == sessionId)
                 .ToListAsync(cancellationToken);
@@ -173,30 +175,34 @@ public class AdminShowSessionService : IAdminShowSessionService
                 _context.PriceStrategy.RemoveRange(oldStrategies);
             }
 
-            var now = DateTime.UtcNow;
-            var newStrategies = requestList.Select(req => new PriceStrategy
+            // [] 则仅清空
+            if (requestList.Count > 0)
             {
-                SessionId = sessionId,
-                SeatSectionId = req.SeatSectionId,
-                StrategyName = string.IsNullOrWhiteSpace(req.StrategyName)
-        ? $"{req.PriceType}策略"
-        : req.StrategyName,
-                PriceType = req.PriceType.ToDbString(),
-                Price = req.Price,
-                SaleStartTime = req.SaleStartTime ?? session.SaleStartTime,
-                SaleEndTime = req.SaleEndTime ?? session.SaleEndTime,
-                Priority = req.Priority,
-                Quota = req.Quota,
-                Status = PriceStrategyStatus.ENABLED.ToDbString(),
-                CreateBy = "admin",
-                UpdateBy = "admin",
-                CreateTime = now,
-                UpdateTime = now
-            }).ToList();
+                var now = DateTime.UtcNow;
+                var newStrategies = requestList.Select(req => new PriceStrategy
+                {
+                    SessionId = sessionId,
+                    SeatSectionId = req.SeatSectionId,
+                    StrategyName = string.IsNullOrWhiteSpace(req.StrategyName)
+                        ? $"{req.PriceType}策略"
+                        : req.StrategyName,
+                    PriceType = req.PriceType.ToDbString(),
+                    Price = req.Price,
+                    SaleStartTime = req.SaleStartTime ?? session.SaleStartTime,
+                    SaleEndTime = req.SaleEndTime ?? session.SaleEndTime,
+                    Priority = req.Priority,
+                    Quota = req.Quota,
+                    Status = PriceStrategyStatus.ENABLED.ToDbString(),
+                    CreateBy = "admin",
+                    UpdateBy = "admin",
+                    CreateTime = now,
+                    UpdateTime = now
+                }).ToList();
 
-            _context.PriceStrategy.AddRange(newStrategies);
+                _context.PriceStrategy.AddRange(newStrategies);
+            }
+
             await _context.SaveChangesAsync(cancellationToken);
-
             await transaction.CommitAsync(cancellationToken);
         }
         catch
@@ -211,7 +217,12 @@ public class AdminShowSessionService : IAdminShowSessionService
         IEnumerable<CreateDynamicPricingRuleRequest> requests,
         CancellationToken cancellationToken = default)
     {
-        var requestList = requests?.ToList() ?? new List<CreateDynamicPricingRuleRequest>();
+        if (requests == null)
+        {
+            throw new ArgumentException("动态调价规则列表不能为 null");
+        }
+
+        var requestList = requests.ToList();
 
         var sessionExists = await _context.ShowSessions
             .AnyAsync(s => s.SessionId == sessionId, cancellationToken);
@@ -222,6 +233,7 @@ public class AdminShowSessionService : IAdminShowSessionService
         using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            // 清空旧规则
             var oldRules = await _context.DynamicPricingRules
                 .Where(r => r.SessionId == sessionId)
                 .ToListAsync(cancellationToken);
@@ -231,28 +243,32 @@ public class AdminShowSessionService : IAdminShowSessionService
                 _context.DynamicPricingRules.RemoveRange(oldRules);
             }
 
-            var now = DateTime.UtcNow;
-            var newRules = requestList.Select(req => new DynamicPricingRule
+            //  [] 仅清空，不插入
+            if (requestList.Count > 0)
             {
-                SessionId = sessionId,
-                SeatSectionId = req.SeatSectionId,
-                RuleName = req.RuleName,
-                TriggerType = req.TriggerType,
-                StartOffsetMinutes = req.StartOffsetMinutes,
-                EndOffsetMinutes = req.EndOffsetMinutes,
-                AdjustmentType = req.AdjustmentType,
-                AdjustmentValue = req.AdjustmentValue,
-                Priority = req.Priority,
-                Status = "ENABLED",
-                CreateBy = "admin",
-                UpdateBy = "admin",
-                CreateTime = now,
-                UpdateTime = now
-            }).ToList();
+                var now = DateTime.UtcNow;
+                var newRules = requestList.Select(req => new DynamicPricingRule
+                {
+                    SessionId = sessionId,
+                    SeatSectionId = req.SeatSectionId,
+                    RuleName = req.RuleName,
+                    TriggerType = req.TriggerType,
+                    StartOffsetMinutes = req.StartOffsetMinutes,
+                    EndOffsetMinutes = req.EndOffsetMinutes,
+                    AdjustmentType = req.AdjustmentType,
+                    AdjustmentValue = req.AdjustmentValue,
+                    Priority = req.Priority,
+                    Status = "ENABLED",
+                    CreateBy = "admin",
+                    UpdateBy = "admin",
+                    CreateTime = now,
+                    UpdateTime = now
+                }).ToList();
 
-            _context.DynamicPricingRules.AddRange(newRules);
+                _context.DynamicPricingRules.AddRange(newRules);
+            }
+
             await _context.SaveChangesAsync(cancellationToken);
-
             await transaction.CommitAsync(cancellationToken);
         }
         catch
