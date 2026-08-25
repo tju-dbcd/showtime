@@ -2,28 +2,53 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK;
 ALTER SESSION SET CURRENT_SCHEMA = APP_OWNER;
 
 DECLARE
-    v_existing_columns NUMBER;
-    v_existing_constraints NUMBER;
+    v_eticket_status_exists NUMBER;
+    v_existing_target_artifacts NUMBER;
     v_invalid_rows NUMBER;
 BEGIN
-    SELECT COUNT(*) INTO v_existing_columns
-    FROM ALL_TAB_COLUMNS
-    WHERE OWNER = 'APP_OWNER'
-      AND ((TABLE_NAME = 'REFUND_REQUEST' AND COLUMN_NAME IN ('APPLIED_POLICY_ID','APPLIED_SERVICE_FEE'))
-        OR (TABLE_NAME = 'REFUND_ITEM' AND COLUMN_NAME = 'REFUND_BASE_AMOUNT'));
-    IF v_existing_columns > 0 THEN
-        RAISE_APPLICATION_ERROR(-20001, 'Refund workflow columns already exist');
-    END IF;
-
-    SELECT COUNT(*) INTO v_existing_constraints
+    SELECT COUNT(*) INTO v_eticket_status_exists
     FROM ALL_CONSTRAINTS
     WHERE OWNER = 'APP_OWNER'
-      AND CONSTRAINT_NAME IN (
-          'FK_REFUND_APPLIED_POLICY', 'CHK_REFUND_APPLIED_FEE',
-          'CHK_REFUND_ACTUAL_POSITIVE', 'CHK_REFUND_STATE_COMBO',
-          'CHK_REFUND_BASE_AMOUNT', 'CHK_REFUND_POLICY_DEADLINE');
-    IF v_existing_constraints > 0 THEN
-        RAISE_APPLICATION_ERROR(-20006, 'Refund workflow constraints already exist');
+      AND TABLE_NAME = 'E_TICKET'
+      AND CONSTRAINT_NAME = 'CHK_ETICKET_STATUS';
+    IF v_eticket_status_exists = 0 THEN
+        RAISE_APPLICATION_ERROR(
+            -20001,
+            'Expected legacy CHK_ETICKET_STATUS is missing. Stop and manually restore the pre-migration schema.');
+    END IF;
+
+    SELECT COUNT(*) INTO v_existing_target_artifacts
+    FROM (
+        SELECT 1
+        FROM ALL_TAB_COLUMNS
+        WHERE OWNER = 'APP_OWNER'
+          AND ((TABLE_NAME = 'REFUND_REQUEST' AND COLUMN_NAME IN ('APPLIED_POLICY_ID','APPLIED_SERVICE_FEE'))
+            OR (TABLE_NAME = 'REFUND_ITEM' AND COLUMN_NAME = 'REFUND_BASE_AMOUNT'))
+        UNION ALL
+        SELECT 1
+        FROM ALL_CONSTRAINTS
+        WHERE OWNER = 'APP_OWNER'
+          AND CONSTRAINT_NAME IN (
+              'FK_REFUND_APPLIED_POLICY', 'CHK_REFUND_APPLIED_FEE',
+              'CHK_REFUND_ACTUAL_POSITIVE', 'CHK_REFUND_STATE_COMBO',
+              'CHK_REFUND_BASE_AMOUNT', 'CHK_REFUND_POLICY_DEADLINE')
+        UNION ALL
+        SELECT 1
+        FROM ALL_INDEXES
+        WHERE OWNER = 'APP_OWNER'
+          AND INDEX_NAME = 'IDX_REFUND_APPLIED_POLICY'
+        UNION ALL
+        SELECT 1
+        FROM ALL_CONSTRAINTS
+        WHERE OWNER = 'APP_OWNER'
+          AND TABLE_NAME = 'E_TICKET'
+          AND CONSTRAINT_NAME = 'CHK_ETICKET_STATUS'
+          AND INSTR(UPPER(SEARCH_CONDITION_VC), '''REFUNDING''') > 0
+    );
+    IF v_existing_target_artifacts > 0 THEN
+        RAISE_APPLICATION_ERROR(
+            -20006,
+            'Refund workflow target artifacts already exist or CHK_ETICKET_STATUS was replaced. A partial or prior deployment was detected; manually restore the pre-migration schema before rerunning.');
     END IF;
 
     SELECT COUNT(*) INTO v_invalid_rows

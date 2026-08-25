@@ -34,7 +34,8 @@ public sealed class RefundPolicyAdminService(AppDbContext dbContext) : IRefundPo
 
         var totalCount = await policies.CountAsync(cancellationToken);
         var items = await policies
-            .OrderByDescending(item => item.RefundDeadlineHour)
+            .OrderBy(item => item.ShowId.HasValue)
+            .ThenByDescending(item => item.RefundDeadlineHour)
             .ThenBy(item => item.Priority)
             .ThenBy(item => item.PolicyId)
             .Skip((int)offset)
@@ -140,8 +141,12 @@ public sealed class RefundPolicyAdminService(AppDbContext dbContext) : IRefundPo
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.PolicyName) || request.PolicyName.Trim().Length > 100 ||
-            request.RefundDeadlineHour < 0 || request.RefundRate is < 0m or > 1m ||
-            request.ServiceFee < 0m || request.Priority <= 0 || request.Remark?.Length > 500 ||
+            request.RefundDeadlineHour is < 0 or > 99999 ||
+            request.RefundRate is < 0m or > 1m ||
+            request.RefundRate != decimal.Round(request.RefundRate, 4) ||
+            request.ServiceFee is < 0m or > 99999999.99m ||
+            request.ServiceFee != decimal.Round(request.ServiceFee, 2) ||
+            request.Priority is <= 0 or > 99999 || request.Remark?.Length > 500 ||
             request.ShowId <= 0)
         {
             return Invalid<RefundPolicyResponse>(

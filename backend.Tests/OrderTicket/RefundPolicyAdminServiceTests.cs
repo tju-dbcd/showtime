@@ -50,6 +50,32 @@ public sealed class RefundPolicyAdminServiceTests
         Assert.False(result.IsSuccess);
         Assert.Equal(OrderTicketFailure.InvalidRequest, result.Failure);
         Assert.Equal("REFUND_POLICY_INVALID", result.ErrorCode);
+        Assert.Empty(await fixture.Db.Set<RefundPolicy>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task CreateAsync_PersistsOracleNumberBoundaryValuesIncludingTrailingZeroes()
+    {
+        await using var fixture = await RefundTestData.CreateAsync();
+        var service = new RefundPolicyAdminService(fixture.Db);
+
+        var result = await service.CreateAsync(
+            "admin",
+            new SaveRefundPolicyRequest(
+                null,
+                "精度边界",
+                99999,
+                0.123400m,
+                99999999.9900m,
+                99999,
+                null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(99999, result.Value!.RefundDeadlineHour);
+        Assert.Equal(0.1234m, result.Value.RefundRate);
+        Assert.Equal(99999999.99m, result.Value.ServiceFee);
+        Assert.Equal(99999, result.Value.Priority);
     }
 
     [Fact]
@@ -73,6 +99,60 @@ public sealed class RefundPolicyAdminServiceTests
         Assert.Equal("更新策略", policies[0].PolicyName);
         Assert.Equal("editor", policies[0].UpdateBy);
         Assert.Equal("保持不变", policies[1].PolicyName);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_PersistsOracleNumberBoundaryValuesIncludingTrailingZeroes()
+    {
+        await using var fixture = await RefundTestData.CreateAsync();
+        fixture.Db.Add(Policy(1, "原策略"));
+        await fixture.Db.SaveChangesAsync();
+        var service = new RefundPolicyAdminService(fixture.Db);
+
+        var result = await service.UpdateAsync(
+            "editor",
+            1,
+            new SaveRefundPolicyRequest(
+                null,
+                "精度边界",
+                99999,
+                0.123400m,
+                99999999.9900m,
+                99999,
+                null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        fixture.Db.ChangeTracker.Clear();
+        var persisted = await fixture.Db.Set<RefundPolicy>().SingleAsync();
+        Assert.Equal(99999, persisted.RefundDeadlineHour);
+        Assert.Equal(0.1234m, persisted.RefundRate);
+        Assert.Equal(99999999.99m, persisted.ServiceFee);
+        Assert.Equal(99999, persisted.Priority);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidOracleNumberRequests))]
+    public async Task UpdateAsync_RejectsInvalidOracleNumberValuesWithoutChangingEntity(
+        SaveRefundPolicyRequest request)
+    {
+        await using var fixture = await RefundTestData.CreateAsync();
+        fixture.Db.Add(Policy(1, "原策略"));
+        await fixture.Db.SaveChangesAsync();
+        var service = new RefundPolicyAdminService(fixture.Db);
+
+        var result = await service.UpdateAsync("editor", 1, request, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OrderTicketFailure.InvalidRequest, result.Failure);
+        Assert.Equal("REFUND_POLICY_INVALID", result.ErrorCode);
+        fixture.Db.ChangeTracker.Clear();
+        var persisted = await fixture.Db.Set<RefundPolicy>().SingleAsync();
+        Assert.Equal("原策略", persisted.PolicyName);
+        Assert.Equal(24, persisted.RefundDeadlineHour);
+        Assert.Equal(0.8m, persisted.RefundRate);
+        Assert.Equal(0m, persisted.ServiceFee);
+        Assert.Equal(1, persisted.Priority);
     }
 
     [Fact]
@@ -115,6 +195,26 @@ public sealed class RefundPolicyAdminServiceTests
         Assert.Equal(OrderTicketFailure.InvalidRequest, invalid.Failure);
     }
 
+    [Fact]
+    public async Task ListAsync_PutsGlobalPoliciesFirstBeforeApplyingDeadlinePriorityAndIdSort()
+    {
+        await using var fixture = await RefundTestData.CreateAsync();
+        fixture.Db.AddRange(
+            Policy(1, "专属截止早", showId: 101, deadlineHour: 12),
+            Policy(2, "全局截止晚", deadlineHour: 72),
+            Policy(3, "专属截止晚", showId: 102, deadlineHour: 96),
+            Policy(4, "全局截止早", deadlineHour: 48));
+        await fixture.Db.SaveChangesAsync();
+        var service = new RefundPolicyAdminService(fixture.Db);
+
+        var result = await service.ListAsync(
+            new RefundPolicyListQuery(null, null, 1, 20),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal([2L, 4L, 3L, 1L], result.Value!.Items.Select(item => item.PolicyId));
+    }
+
     public static IEnumerable<object[]> InvalidRequests()
     {
         yield return [new SaveRefundPolicyRequest(null, " ", 24, 0.8m, 0m, 1, null)];
@@ -125,13 +225,33 @@ public sealed class RefundPolicyAdminServiceTests
         yield return [new SaveRefundPolicyRequest(null, "策略", 24, 0.8m, -0.01m, 1, null)];
         yield return [new SaveRefundPolicyRequest(null, "策略", 24, 0.8m, 0m, 0, null)];
         yield return [new SaveRefundPolicyRequest(null, "策略", 24, 0.8m, 0m, 1, new string('a', 501))];
+        yield return [new SaveRefundPolicyRequest(null, "策略", 100000, 0.8m, 0m, 1, null)];
+        yield return [new SaveRefundPolicyRequest(null, "策略", 24, 0.8m, 0m, 100000, null)];
+        yield return [new SaveRefundPolicyRequest(null, "策略", 24, 0.12345m, 0m, 1, null)];
+        yield return [new SaveRefundPolicyRequest(null, "策略", 24, 0.8m, 0.001m, 1, null)];
+        yield return [new SaveRefundPolicyRequest(null, "策略", 24, 0.8m, 100000000m, 1, null)];
     }
 
-    private static RefundPolicy Policy(long policyId, string name, int priority = 1) => new()
+    public static IEnumerable<object[]> InvalidOracleNumberRequests()
+    {
+        yield return [new SaveRefundPolicyRequest(null, "更新", 100000, 0.8m, 0m, 1, null)];
+        yield return [new SaveRefundPolicyRequest(null, "更新", 24, 0.8m, 0m, 100000, null)];
+        yield return [new SaveRefundPolicyRequest(null, "更新", 24, 0.12345m, 0m, 1, null)];
+        yield return [new SaveRefundPolicyRequest(null, "更新", 24, 0.8m, 0.001m, 1, null)];
+        yield return [new SaveRefundPolicyRequest(null, "更新", 24, 0.8m, 100000000m, 1, null)];
+    }
+
+    private static RefundPolicy Policy(
+        long policyId,
+        string name,
+        int priority = 1,
+        long? showId = null,
+        int deadlineHour = 24) => new()
     {
         PolicyId = policyId,
+        ShowId = showId,
         PolicyName = name,
-        RefundDeadlineHour = 24,
+        RefundDeadlineHour = deadlineHour,
         RefundRate = 0.8m,
         ServiceFee = 0m,
         Priority = priority,
