@@ -38,6 +38,18 @@ public static class PricingChange
         };
     }
 
+    public static bool IsRuleTriggered(DynamicPricingRule rule, DateTime sessionStartTime, DateTime nowUtc)
+    {
+        if (rule.Status != "ENABLED") return false;
+
+        return rule.TriggerType switch
+        {
+            "TIME_WINDOW" => EvaluateTimeWindowRule(rule, sessionStartTime, nowUtc),
+            "INVENTORY_RATE" => false, 
+            _ => false
+        };
+    }
+
     private static bool MatchesTimeWindow(DynamicPricingRule rule, int minutesToStart)
     {
         if (rule.TriggerType != "TIME_WINDOW") return true;

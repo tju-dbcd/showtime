@@ -74,7 +74,7 @@ namespace ShowtimeBackend.Entities.ShowSession
         public virtual ShowSession ShowSession { get; set; } = null!;
 
         /// <summary>
-        /// TODO:关联的看台/区域实体待联合
+        /// 关联的看台实体
         /// </summary>
         public virtual SeatSection SeatSection { get; set; } = null!;
     }

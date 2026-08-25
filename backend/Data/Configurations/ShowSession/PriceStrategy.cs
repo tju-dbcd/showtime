@@ -90,6 +90,12 @@ public class PriceStrategyConfiguration : IEntityTypeConfiguration<PriceStrategy
         builder.HasIndex(x => x.SeatSectionId)
                .HasDatabaseName("IDX_PRICE_SECTION");
 
+        // 在 Configure 方法追加：
+        builder.HasOne(p => p.SeatSection)
+               .WithMany()
+               .HasForeignKey(p => p.SeatSectionId)
+               .OnDelete(DeleteBehavior.Restrict);
+
         // 审计字段
         builder.ConfigureAuditableEntity();
     }

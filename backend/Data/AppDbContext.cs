@@ -31,14 +31,5 @@ public class AppDbContext : DbContext
         modelBuilder.HasDefaultSchema("APP_OWNER");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
 
-        modelBuilder.Entity<PriceStrategy>(entity =>
-        {
-            entity
-                  .HasOne(p => p.SeatSection)
-                  .WithMany(s => s.PriceStrategies)
-                  .HasForeignKey(p => p.SeatSectionId)
-                  .OnDelete(DeleteBehavior.Restrict);
-        });
-
     }
 }

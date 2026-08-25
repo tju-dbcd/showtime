@@ -52,6 +52,67 @@ public class ShowSessionService : IClientShowSessionService
         return sessions.Select(ToDto);
     }
 
+    public async Task ConfigurePriceStrategiesAsync(
+    long sessionId,
+    IEnumerable<CreatePriceStrategyRequest> requests,
+    CancellationToken cancellationToken = default)
+    {
+        var requestList = requests?.ToList();
+        if (requestList == null || requestList.Count == 0)
+            throw new ArgumentException("策略配置不能为空");
+
+        var session = await _context.ShowSessions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.SessionId == sessionId, cancellationToken);
+
+        if (session == null)
+            throw new KeyNotFoundException("演出场次不存在");
+
+        using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var oldStrategies = await _context.PriceStrategy
+                .Where(p => p.SessionId == sessionId)
+                .ToListAsync(cancellationToken);
+
+            if (oldStrategies.Count > 0)
+            {
+                _context.PriceStrategy.RemoveRange(oldStrategies);
+            }
+
+            var now = DateTime.UtcNow;
+            var newStrategies = requestList.Select(req => new PriceStrategy
+            {
+                SessionId = sessionId,
+                SeatSectionId = req.SeatSectionId,
+                StrategyName = string.IsNullOrWhiteSpace(req.StrategyName)
+                    ? $"{req.PriceType}策略"
+                    : req.StrategyName,
+                PriceType = req.PriceType.ToDbString(),
+                Price = req.Price,
+                SaleStartTime = req.SaleStartTime ?? session.SaleStartTime,
+                SaleEndTime = req.SaleEndTime ?? session.SaleEndTime,
+                Priority = req.Priority,
+                Quota = req.Quota,
+                Status = PriceStrategyStatus.ENABLED.ToDbString(),
+                CreateBy = "admin",
+                UpdateBy = "admin",
+                CreateTime = now,
+                UpdateTime = now
+            }).ToList();
+
+            _context.PriceStrategy.AddRange(newStrategies);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
     public async Task<IEnumerable<PricingStrategyDto>> GetPricingStrategiesAsync(
      long sessionId,
      CancellationToken cancellationToken = default)
