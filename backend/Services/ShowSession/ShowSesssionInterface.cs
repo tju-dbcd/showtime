@@ -10,28 +10,17 @@ public interface IClientShowSessionService
     /// <summary>
     /// 获取指定演出下所有有效可售的场次列表
     /// </summary>
-    /// <param name="showId">演出ID</param>
-    /// <param name="cancellationToken">取消令牌</param>
     Task<IEnumerable<ShowSessionDto>> GetOnSaleSessionsAsync(long showId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取指定场次的所有区域票价策略
     /// </summary>
-    /// <param name="sessionId">场次ID</param>
-    /// <param name="cancellationToken">取消令牌</param>
     Task<IEnumerable<PricingStrategyDto>> GetPricingStrategiesAsync(long sessionId, CancellationToken cancellationToken = default);
 }
 
 public interface IClientShowService
 {
-    /// <summary>
-    /// 获取 C 端已上架且审核通过的演出
-    /// </summary>
     Task<PagedResponse<ShowDto>> GetClientShowsAsync(ShowQueryRequest query, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 获取已上架演出的详情
-    /// </summary>
     Task<ShowDto> GetClientShowByIdAsync(long showId, CancellationToken cancellationToken = default);
 }
 
@@ -46,6 +35,11 @@ public interface IAdminShowSessionService
     /// 为场次批量配置区域票价策略
     /// </summary>
     Task ConfigurePriceStrategiesAsync(long sessionId, IEnumerable<CreatePriceStrategyRequest> requests, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 为场次配置动态调价规则
+    /// </summary>
+    Task ConfigureDynamicPricingRulesAsync(long sessionId, IEnumerable<CreateDynamicPricingRuleRequest> requests, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 手动变更场次状态
