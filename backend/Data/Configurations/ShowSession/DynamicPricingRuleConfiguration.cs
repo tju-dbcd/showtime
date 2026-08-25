@@ -1,5 +1,8 @@
+// backend/Data/Configurations/ShowSession/DynamicPricingRuleConfiguration.cs
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 
 namespace ShowtimeBackend.Data.Configurations.ShowSession;
@@ -34,18 +37,24 @@ public class DynamicPricingRuleConfiguration : IEntityTypeConfiguration<DynamicP
         builder.Property(r => r.Priority).HasColumnName("PRIORITY").HasColumnType("NUMBER(5,0)").HasDefaultValue(0).IsRequired();
         builder.Property(r => r.Status).HasColumnName("STATUS").HasColumnType("VARCHAR2(20 CHAR)").HasDefaultValueSql("'ENABLED'").IsRequired();
 
-        // 导航与外键
+        // 场次外键关联
         builder.HasOne(r => r.ShowSession)
                .WithMany()
                .HasForeignKey(r => r.SessionId)
                .HasConstraintName("FK_DPR_SESSION")
                .OnDelete(DeleteBehavior.Cascade);
 
-        // 索引配置
+        // 看台外键关联
+        builder.HasOne<SeatSection>()
+               .WithMany()
+               .HasForeignKey(r => r.SeatSectionId)
+               .HasConstraintName("FK_DPR_SECTION")
+               .OnDelete(DeleteBehavior.SetNull);
+
         builder.HasIndex(r => r.SessionId).HasDatabaseName("IDX_DPR_SESSION");
         builder.HasIndex(r => r.SeatSectionId).HasDatabaseName("IDX_DPR_SECTION");
 
-        // 审计字段自动配置
+        // 统一注入审计列配置
         builder.ConfigureAuditableEntity();
     }
 }
