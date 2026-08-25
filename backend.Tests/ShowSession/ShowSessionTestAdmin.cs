@@ -123,15 +123,15 @@ public sealed class ShowSessionAdminControllersTests
 
         // 使用具名参数，显式传参
         var requests = new[]
-        {
-            new CreatePriceStrategyRequest(
-                SeatSectionId: 1,
-                StrategyName: "VIP策略",
-                PriceType: PriceType.VIP,
-                Price: 580m,
-                SaleStartTime: null,
-                SaleEndTime: null)
-        };
+{
+    new CreatePriceStrategyRequest(
+        SeatSectionId: 1,
+        StrategyName: "VIP策略",
+        PriceType: PriceType.VIP, // 直接使用枚举
+        Price: 580m,
+        SaleStartTime: null,
+        SaleEndTime: null)
+};
 
         var actionResult = await controller.ConfigurePriceStrategies(999, requests, CancellationToken.None);
 
@@ -178,22 +178,22 @@ public sealed class ShowSessionAdminControllersTests
 
         // 使用具名参数，显式传参 OriginalPrice
         var newRequests = new[]
-        {
-            new CreatePriceStrategyRequest(
-                SeatSectionId: 1,
-                StrategyName: "VIP票策略",
-                PriceType: PriceType.VIP,
-                Price: 880m,
-                SaleStartTime: null,
-                SaleEndTime: null),
-            new CreatePriceStrategyRequest(
-                SeatSectionId: 2,
-                StrategyName: "早鸟票策略",
-                PriceType: PriceType.EARLY_BIRD,
-                Price: 280m,
-                SaleStartTime: null,
-                SaleEndTime: null)
-        };
+{
+    new CreatePriceStrategyRequest(
+        SeatSectionId: 1,
+        StrategyName: "VIP票策略",
+        PriceType: PriceType.VIP, // 直接使用枚举
+        Price: 880m,
+        SaleStartTime: null,
+        SaleEndTime: null),
+    new CreatePriceStrategyRequest(
+        SeatSectionId: 2,
+        StrategyName: "早鸟票策略",
+        PriceType: PriceType.EARLY_BIRD, // 直接使用枚举
+        Price: 280m,
+        SaleStartTime: null,
+        SaleEndTime: null)
+};
 
         var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, newRequests, CancellationToken.None);
 

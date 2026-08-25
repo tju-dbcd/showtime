@@ -17,13 +17,10 @@ public static class PricingChange
         long seatSectionId,
         IEnumerable<DynamicPricingRule> rules)
     {
-        var minutesToStart = (int)(sessionStartTime - nowUtc).TotalMinutes;
-
-        // 筛选作用于该看台且处于启用状态的规则，按优先级降序排序
         var matchedRule = rules
             .Where(r => r.Status == "ENABLED")
             .Where(r => r.SeatSectionId == null || r.SeatSectionId == seatSectionId)
-            .Where(r => MatchesTimeWindow(r, minutesToStart))
+            .Where(r => IsRuleTriggered(r, sessionStartTime, nowUtc))
             .OrderByDescending(r => r.Priority)
             .FirstOrDefault();
 
@@ -44,16 +41,14 @@ public static class PricingChange
 
         return rule.TriggerType switch
         {
-            "TIME_WINDOW" => EvaluateTimeWindowRule(rule, sessionStartTime, nowUtc),
-            "INVENTORY_RATE" => false, 
+            "TIME_WINDOW" => MatchesTimeWindow(rule, (int)(sessionStartTime - nowUtc).TotalMinutes),
+            "INVENTORY_RATE" => false, // 暂未接入实时库存计算，安全返回 false，绝不误触发
             _ => false
         };
     }
 
     private static bool MatchesTimeWindow(DynamicPricingRule rule, int minutesToStart)
     {
-        if (rule.TriggerType != "TIME_WINDOW") return true;
-
         bool startMatch = !rule.StartOffsetMinutes.HasValue || minutesToStart <= rule.StartOffsetMinutes.Value;
         bool endMatch = !rule.EndOffsetMinutes.HasValue || minutesToStart >= rule.EndOffsetMinutes.Value;
 
