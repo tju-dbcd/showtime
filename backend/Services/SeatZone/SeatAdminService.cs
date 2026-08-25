@@ -56,10 +56,20 @@ public sealed class SeatAdminService
         if (validation is not null)
             return ServiceResult<SeatBatchUpdateResponse>.Failure(
                 400,
-                "SEAT_BATCH_UPDATE_INVALID_REQUEST",
+                "Invalid seat",
                 validation);
 
         var seatIds = request!.SeatIds.ToArray();
+        if (await _db.SeatSections.CountAsync(
+                section => section.SeatSectionId == seatSectionId,
+                cancellationToken) == 0)
+        {
+            return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                404,
+                "Seat section not found",
+                $"Seat section {seatSectionId} does not exist.");
+        }
+
         var seats = await _db.Seats
             .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
             .OrderBy(seat => seat.RowIndex)
@@ -70,7 +80,7 @@ public sealed class SeatAdminService
         if (seats.Count != seatIds.Length)
             return ServiceResult<SeatBatchUpdateResponse>.Failure(
                 404,
-                "SEAT_BATCH_UPDATE_SEAT_NOT_FOUND",
+                "Seat not found",
                 "One or more seats do not belong to the requested seat section.");
 
         foreach (var seat in seats)

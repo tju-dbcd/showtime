@@ -46,7 +46,7 @@ public sealed class SeatsControllerTests
         var result = Assert.IsType<ObjectResult>(action.Result);
         Assert.Equal(StatusCodes.Status404NotFound, result.StatusCode);
         var response = Assert.IsType<ApiResponse<SeatBatchUpdateResponse>>(result.Value);
-        Assert.Equal("SEAT_BATCH_UPDATE_SEAT_NOT_FOUND", response.Code);
+        Assert.Equal("Seat not found", response.Code);
     }
 
     [Fact]

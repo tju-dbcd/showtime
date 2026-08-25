@@ -69,7 +69,7 @@ public sealed class SeatAdminServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(400, result.StatusCode);
-        Assert.Equal("SEAT_BATCH_UPDATE_INVALID_REQUEST", result.Title);
+        Assert.Equal("Invalid seat", result.Title);
         Assert.Equal("NORMAL", (await db.Seats.SingleAsync()).SeatType);
     }
 
@@ -88,7 +88,7 @@ public sealed class SeatAdminServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(400, result.StatusCode);
-        Assert.Equal("SEAT_BATCH_UPDATE_INVALID_REQUEST", result.Title);
+        Assert.Equal("Invalid seat", result.Title);
         var seat = await db.Seats.SingleAsync();
         Assert.Equal("NORMAL", seat.SeatType);
         Assert.Equal("ENABLED", seat.SeatStatus);
@@ -109,7 +109,7 @@ public sealed class SeatAdminServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(400, result.StatusCode);
-        Assert.Equal("SEAT_BATCH_UPDATE_INVALID_REQUEST", result.Title);
+        Assert.Equal("Invalid seat", result.Title);
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public sealed class SeatAdminServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(400, result.StatusCode);
-        Assert.Equal("SEAT_BATCH_UPDATE_INVALID_REQUEST", result.Title);
+        Assert.Equal("Invalid seat", result.Title);
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public sealed class SeatAdminServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(400, result.StatusCode);
-        Assert.Equal("SEAT_BATCH_UPDATE_INVALID_REQUEST", result.Title);
+        Assert.Equal("Invalid seat", result.Title);
     }
 
     [Fact]
@@ -162,7 +162,7 @@ public sealed class SeatAdminServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(404, result.StatusCode);
-        Assert.Equal("SEAT_BATCH_UPDATE_SEAT_NOT_FOUND", result.Title);
+        Assert.Equal("Seat not found", result.Title);
         Assert.All(await db.Seats.OrderBy(seat => seat.SeatId).ToListAsync(), seat =>
             Assert.Equal("ENABLED", seat.SeatStatus));
     }
@@ -185,7 +185,23 @@ public sealed class SeatAdminServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(400, result.StatusCode);
-        Assert.Equal("SEAT_BATCH_UPDATE_INVALID_REQUEST", result.Title);
+        Assert.Equal("Invalid seat", result.Title);
+    }
+
+    [Fact]
+    public async Task UpdateSeatsAsync_ReportsMissingSeatSection()
+    {
+        await using var db = CreateDbContext();
+        var service = new SeatAdminService(db);
+
+        var result = await service.UpdateSeatsAsync(
+            40,
+            new SeatBatchUpdateRequest([401], null, "DISABLED", null, null),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(404, result.StatusCode);
+        Assert.Equal("Seat section not found", result.Title);
     }
 
     private static AppDbContext CreateDbContext() => new(
