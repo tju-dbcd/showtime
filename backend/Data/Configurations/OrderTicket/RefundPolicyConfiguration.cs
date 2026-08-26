@@ -23,6 +23,9 @@ public class RefundPolicyConfiguration : IEntityTypeConfiguration<RefundPolicy>
             table.HasCheckConstraint(
                 "CHK_REFUND_POLICY_STATUS",
                 "STATUS IN (0, 1)");
+            table.HasCheckConstraint(
+                "CHK_REFUND_POLICY_DEADLINE",
+                "REFUND_DEADLINE_HOUR >= 0");
         });
 
         builder.HasKey(entity => entity.PolicyId)

@@ -9,7 +9,10 @@ public class RefundItemConfiguration : IEntityTypeConfiguration<RefundItem>
 {
     public void Configure(EntityTypeBuilder<RefundItem> builder)
     {
-        builder.ToTable("REFUND_ITEM");
+        builder.ToTable("REFUND_ITEM", table =>
+        {
+            table.HasCheckConstraint("CHK_REFUND_BASE_AMOUNT", "REFUND_BASE_AMOUNT >= 0");
+        });
 
         builder.HasKey(entity => entity.RefundItemId)
             .HasName("PK_REFUND_ITEM");
@@ -26,6 +29,13 @@ public class RefundItemConfiguration : IEntityTypeConfiguration<RefundItem>
         builder.Property(entity => entity.OrderItemId)
             .HasColumnName("ORDER_ITEM_ID")
             .HasColumnType("NUMBER(19)");
+
+        builder.Property(entity => entity.RefundBaseAmount)
+            .HasColumnName("REFUND_BASE_AMOUNT")
+            .HasColumnType("NUMBER(12,2)")
+            .HasPrecision(12, 2)
+            .HasDefaultValue(0m)
+            .IsRequired();
 
         builder.ConfigureAuditableEntity();
 

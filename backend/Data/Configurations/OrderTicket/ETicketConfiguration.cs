@@ -13,7 +13,7 @@ public class ETicketConfiguration : IEntityTypeConfiguration<ETicket>
         {
             table.HasCheckConstraint(
                 "CHK_ETICKET_STATUS",
-                "TICKET_STATUS IN ('UNUSED', 'USED', 'REFUNDED', 'EXCHANGED')");
+                "TICKET_STATUS IN ('UNUSED', 'REFUNDING', 'USED', 'REFUNDED', 'EXCHANGED')");
         });
 
         builder.HasKey(entity => entity.ETicketId)
@@ -59,6 +59,7 @@ public class ETicketConfiguration : IEntityTypeConfiguration<ETicket>
             .HasMaxLength(20)
             .IsUnicode(false)
             .HasDefaultValue("UNUSED")
+            .IsConcurrencyToken()
             .IsRequired();
 
         builder.Property(entity => entity.CheckTime)
