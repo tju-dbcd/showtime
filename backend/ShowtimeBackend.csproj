@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 本地开发敏感值（如 ConnectionStrings:Oracle）通过 dotnet user-secrets 管理，不入仓库 -->
+    <UserSecretsId>60edebbf-c6b4-47fd-b190-f51f0c7875e5</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

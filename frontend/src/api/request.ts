@@ -12,7 +12,7 @@ const client = createClient<paths>({
 // 请求拦截器：加token
 const authMiddleware: Middleware = {
   async onRequest({ request }) {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('accessToken');
     if (token) {
       request.headers.set('Authorization', `Bearer ${token}`);
     }

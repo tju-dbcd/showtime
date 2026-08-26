@@ -10,6 +10,7 @@ namespace ShowtimeBackend.Services.SeatZone;
 public sealed class SeatAdminService
 {
     private const decimal MaxNumber10Scale2 = 99_999_999.99m;
+    private const int MaxBatchUpdatedSeats = 999;
     private static readonly HashSet<string> SeatTypes = ["NORMAL", "COUPLE", "ACCESSIBLE", "COMPANION"];
     private static readonly HashSet<string> SeatStatuses = ["ENABLED", "DISABLED", "MAINTENANCE"];
     private const string SeatHistoryConflictDetail = "Seat locks or reservations exist. Set seatStatus to DISABLED or isSellable to false instead.";
@@ -40,6 +41,67 @@ public sealed class SeatAdminService
         var items = await seats.OrderBy(seat => seat.RowIndex).ThenBy(seat => seat.ColIndex).ThenBy(seat => seat.SeatId)
             .Skip((int)skip).Take(query.PageSize).Select(seat => ToResponse(seat)).ToListAsync(cancellationToken);
         return ServiceResult<PagedResponse<SeatResponse>>.Success(new PagedResponse<SeatResponse>(items, query.Page, query.PageSize, totalCount));
+    }
+
+    /// <summary>
+    /// 在同一个票区内批量修改座位的可编辑属性。
+    /// 完整校验通过后才跟踪修改，最后只保存一次，避免出现部分更新。
+    /// </summary>
+    public async Task<ServiceResult<SeatBatchUpdateResponse>> UpdateSeatsAsync(
+        long seatSectionId,
+        SeatBatchUpdateRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var validation = ValidateBatchUpdateRequest(request);
+        if (validation is not null)
+            return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                400,
+                "Invalid seat",
+                validation);
+
+        var seatIds = request!.SeatIds.ToArray();
+        if (await _db.SeatSections.CountAsync(
+                section => section.SeatSectionId == seatSectionId,
+                cancellationToken) == 0)
+        {
+            return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                404,
+                "Seat section not found",
+                $"Seat section {seatSectionId} does not exist.");
+        }
+
+        var seats = await _db.Seats
+            .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
+            .OrderBy(seat => seat.RowIndex)
+            .ThenBy(seat => seat.ColIndex)
+            .ThenBy(seat => seat.SeatId)
+            .ToListAsync(cancellationToken);
+
+        if (seats.Count != seatIds.Length)
+            return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                404,
+                "Seat not found",
+                "One or more seats do not belong to the requested seat section.");
+
+        foreach (var seat in seats)
+        {
+            if (request.SeatType is not null)
+                seat.SeatType = request.SeatType;
+            if (request.SeatStatus is not null)
+                seat.SeatStatus = request.SeatStatus;
+            if (request.IsAisleSide is not null)
+                seat.IsAisleSide = request.IsAisleSide.Value;
+            if (request.IsSellable is not null)
+                seat.IsSellable = request.IsSellable.Value;
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<SeatBatchUpdateResponse>.Success(
+            new SeatBatchUpdateResponse(
+                seatSectionId,
+                seats.Count,
+                seats.Select(ToResponse).ToList()));
     }
 
     public async Task<ServiceResult<SeatResponse>> GetSeatAsync(long seatId, CancellationToken cancellationToken)
@@ -141,6 +203,28 @@ public sealed class SeatAdminService
     {
         if (page < 1 || pageSize < 1 || pageSize > 100) return "page must be positive and pageSize must be between 1 and 100.";
         return ((long)page - 1) * pageSize > int.MaxValue ? "page and pageSize produce an offset that is too large." : null;
+    }
+
+    private static string? ValidateBatchUpdateRequest(SeatBatchUpdateRequest? request)
+    {
+        if (request is null)
+            return "request is required.";
+        if (request.SeatIds is null ||
+            request.SeatIds.Count is 0 or > MaxBatchUpdatedSeats ||
+            request.SeatIds.Any(seatId => seatId <= 0))
+            return $"seatIds must contain between 1 and {MaxBatchUpdatedSeats} positive values.";
+        if (request.SeatIds.Distinct().Count() != request.SeatIds.Count)
+            return "seatIds must not contain duplicates.";
+        if (request.SeatType is null &&
+            request.SeatStatus is null &&
+            request.IsAisleSide is null &&
+            request.IsSellable is null)
+            return "at least one editable seat property is required.";
+        if (request.SeatType is not null && !SeatTypes.Contains(request.SeatType))
+            return "seatType must be NORMAL, COUPLE, ACCESSIBLE, or COMPANION.";
+        if (request.SeatStatus is not null && !SeatStatuses.Contains(request.SeatStatus))
+            return "seatStatus must be ENABLED, DISABLED, or MAINTENANCE.";
+        return null;
     }
 
     private static bool ContainsOracleError(Exception exception, int number)

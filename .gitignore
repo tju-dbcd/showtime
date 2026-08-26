@@ -34,7 +34,8 @@ build/
 
 ## dotenv
 .env
-*.env
+.env.*
+!.env.example
 
 ## Frontend (React + Vite)
 frontend/node_modules/

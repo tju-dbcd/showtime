@@ -8,13 +8,34 @@ using ShowtimeBackend.Services.ShowSession;
 
 namespace ShowtimeBackend.Services.Impl;
 
+///<summary>
+/// ShowSession 扩展方法
+/// <fix> 增加 WhereIsOnSale对齐 SessionSeatMapQueryService 的判定标准
+///</summary>
+public static class ShowSessionExtensions
+{
+    /// <summary>
+    /// 场次“在售”判定
+    /// </summary>
+    public static IQueryable<ShowtimeBackend.Entities.ShowSession.ShowSession> WhereIsOnSale(this IQueryable<ShowtimeBackend.Entities.ShowSession.ShowSession> query, DateTime nowUtc)
+    {
+        var onSaleStatusStr = SessionStatus.ONSALE.ToDbString();
+        return query.Where(s =>
+            s.SessionStatus == onSaleStatusStr &&
+            s.SaleStartTime <= nowUtc &&
+            s.SaleEndTime >= nowUtc);
+    }// 对应座位部分
+}
+
 public class ShowSessionService : IClientShowSessionService
 {
     private readonly AppDbContext _context;
+    private readonly TimeProvider _timeProvider;
 
-    public ShowSessionService(AppDbContext context)
+    public ShowSessionService(AppDbContext context, TimeProvider timeProvider)
     {
         _context = context;
+        _timeProvider = timeProvider;// 新增该部分用于座位售卖判断标准
     }
 
     public async Task<IEnumerable<ShowSessionDto>> GetOnSaleSessionsAsync(
@@ -24,6 +45,7 @@ public class ShowSessionService : IClientShowSessionService
         var sessions = await _context.ShowSessions
             .AsNoTracking()
             .Where(s => s.ShowId == showId && s.SessionStatus == SessionStatus.ONSALE.ToDbString())
+            .WhereIsOnSale(_timeProvider.GetUtcNow().UtcDateTime)
             .OrderBy(s => s.StartTime)
             .ToListAsync(cancellationToken);
 

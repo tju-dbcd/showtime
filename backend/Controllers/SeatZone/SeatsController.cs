@@ -8,7 +8,7 @@ using ShowtimeBackend.Services.SeatZone;
 namespace ShowtimeBackend.Controllers.SeatZone;
 
 /// <summary>
-/// 管理端单个座位维护接口（仅 Admin 角色）；批量编辑留给后续座位图编辑器。
+/// 管理端座位维护接口（仅 Admin 角色）。
 /// </summary>
 [ApiController]
 [Authorize(Roles = "Admin")]
@@ -35,6 +35,30 @@ public sealed class SeatsController : ControllerBase
         var result = await _service.CreateSeatAsync(seatSectionId, request, cancellationToken);
         if (!result.IsSuccess) return ToFailure(result);
         return CreatedAtAction(nameof(Get), new { seatId = result.Data!.SeatId }, ApiResponse<SeatResponse>.Ok(result.Data, "Seat created."));
+    }
+
+    /// <summary>
+    /// 批量修改同一票区内座位的可编辑属性。
+    /// </summary>
+    [HttpPatch("seat-sections/{seatSectionId:long}/seats")]
+    [ProducesResponseType(typeof(ApiResponse<SeatBatchUpdateResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SeatBatchUpdateResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SeatBatchUpdateResponse>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<SeatBatchUpdateResponse>>> UpdateBatch(
+        long seatSectionId,
+        [FromBody] SeatBatchUpdateRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _service.UpdateSeatsAsync(
+            seatSectionId,
+            request,
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Ok(ApiResponse<SeatBatchUpdateResponse>.Ok(
+                result.Data!,
+                "Seats updated."))
+            : ToFailure(result);
     }
 
     [HttpGet("seats/{seatId:long}")]

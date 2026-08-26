@@ -1,8 +1,7 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import path from 'path'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -15,7 +14,8 @@ export default defineConfig({
       '/api': {
         target: 'http://120.27.157.163:5146',
         changeOrigin: true,
+        secure: false,
       },
     },
   },
-})
+});

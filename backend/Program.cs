@@ -10,6 +10,7 @@ using ShowtimeBackend.Common;
 using ShowtimeBackend.Common.Jwt;
 using ShowtimeBackend.Common.Middlewares;
 using ShowtimeBackend.Common.OpenApi;
+using ShowtimeBackend.Common.TicketSecurity;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.UserPermission;
@@ -24,16 +25,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-    var userId = configuration["Oracle_UserId"]
+    options.UseOracle(
+        configuration.GetConnectionString("Oracle")
         ?? throw new InvalidOperationException(
-            "Environment variable 'Oracle_UserId' is not set.");
-    var password = configuration["Oracle_Password"]
-        ?? throw new InvalidOperationException(
-            "Environment variable 'Oracle_Password' is not set.");
-    var connectionString =
-        $"User Id={userId};Password={password};Data Source=120.27.157.163:1521/XEPDB1";
-
-    options.UseOracle(connectionString);
+            "Connection string 'Oracle' is not set."));
 });
 
 builder.Services
@@ -44,6 +39,14 @@ builder.Services
         options => Encoding.UTF8.GetByteCount(options.Key ?? string.Empty) >= 32,
         "Jwt:Key must contain at least 32 UTF-8 bytes.")
     .ValidateOnStart();
+
+builder.Services
+    .AddOptions<TicketSecurityOptions>()
+    .Bind(builder.Configuration.GetSection(TicketSecurityOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<
+    Microsoft.Extensions.Options.IValidateOptions<TicketSecurityOptions>,
+    TicketSecurityOptionsValidator>();
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -111,9 +114,14 @@ builder.Services
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IPasswordHasher<SysUser>, PasswordHasher<SysUser>>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+builder.Services.AddSingleton<ITicketTokenService, HmacTicketTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<ITicketIssuanceService, TicketIssuanceService>();
+builder.Services.AddScoped<ITicketQueryService, TicketQueryService>();
+builder.Services.AddScoped<IAdminTicketIssuanceService, AdminTicketIssuanceService>();
+builder.Services.AddSingleton<IOrderTicketAuditSink, NullOrderTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
 builder.Services.AddScoped<ISeatLockService, SeatLockService>();
