@@ -33,7 +33,6 @@ public class AdminShowSessionController : ControllerBase
         return Ok(ApiResponse<IEnumerable<ShowSessionDto>>.Ok(sessions, "获取管理端场次列表成功"));
     }
 
-
     /// <summary>
     /// 为指定演出创建/排布场次
     /// </summary>
@@ -51,13 +50,8 @@ public class AdminShowSessionController : ControllerBase
         try
         {
             var createdSession = await _adminService.CreateSessionAsync(showId, request, cancellationToken);
-
-            // 包装成功响应
             var response = ApiResponse<ShowSessionDto>.Ok(createdSession, "场次排布成功");
 
-            // 修复（P0）：原 CreatedAtAction("GetSessionById", ...) 引用了不存在的 action，
-            // 导致场次已 INSERT 但响应生成时抛 No route matches（HTTP 500 且客户端无法感知数据已落库）。
-            // Location 指向真实存在的客户端场次列表资源；响应体已包含完整场次信息。
             return Created(
                 $"/api/client/shows/{showId}/sessions",
                 response);
@@ -73,7 +67,7 @@ public class AdminShowSessionController : ControllerBase
     }
 
     /// <summary>
-    /// 配置或覆盖更新场次票价策略
+    /// 配置或覆盖更新场次基础票价策略
     /// </summary>
     [HttpPost("sessions/{sessionId:long}/pricing-strategies")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
@@ -86,10 +80,64 @@ public class AdminShowSessionController : ControllerBase
         [FromBody] IEnumerable<CreatePriceStrategyRequest> requests,
         CancellationToken cancellationToken)
     {
+        if (!ModelState.IsValid)
+        {
+            var errorMessage = string.Join("; ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage));
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", errorMessage));
+        }
+
+        if (requests == null)
+        {
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "请求体不能为空"));
+        }
+
         try
         {
             await _adminService.ConfigurePriceStrategiesAsync(sessionId, requests, cancellationToken);
             return Ok(ApiResponse<object>.Ok(null!, "票价策略配置成功"));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ApiResponse<object>.Fail("NOT_FOUND", ex.Message));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// 配置或覆盖更新场次动态调价规则
+    /// </summary>
+    [HttpPost("sessions/{sessionId:long}/dynamic-pricing-rules")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<ApiResponse<object>>> ConfigureDynamicPricingRules(
+        [FromRoute] long sessionId,
+        [FromBody] IEnumerable<CreateDynamicPricingRuleRequest> requests,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+        {
+            var errorMessage = string.Join("; ", ModelState.Values
+                .SelectMany(v => v.Errors)
+                .Select(e => e.ErrorMessage));
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", errorMessage));
+        }
+
+        // 拦截空列表请求
+        if (requests == null) //不在阻挡空列表
+        {
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "动态调价规则列表不能为空"));
+        }
+
+        try
+        {
+            await _adminService.ConfigureDynamicPricingRulesAsync(sessionId, requests, cancellationToken);
+            return Ok(ApiResponse<object>.Ok(null!, "动态调价规则配置成功"));
         }
         catch (KeyNotFoundException ex)
         {

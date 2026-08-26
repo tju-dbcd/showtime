@@ -1,4 +1,5 @@
 using ShowtimeBackend.Entities.Base;
+using ShowtimeBackend.Entities.ShowSession;
 
 namespace ShowtimeBackend.Entities.SeatZone;
 
@@ -37,4 +38,7 @@ public class SeatSection : AuditableEntity
     public SeatMap SeatMap { get; set; } = null!;
     public ICollection<Seat> Seats { get; set; } = [];
     public ICollection<SeatRuleScope> RuleScopes { get; set; } = [];
+
+    // 导航属性
+    public ICollection<ShowtimeBackend.Entities.ShowSession.PriceStrategy> PriceStrategies { get; set; } = [];
 }

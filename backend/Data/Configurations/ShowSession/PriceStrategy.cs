@@ -83,12 +83,18 @@ public class PriceStrategyConfiguration : IEntityTypeConfiguration<PriceStrategy
                .HasForeignKey(x => x.SessionId)
                .HasConstraintName("FK_PRICE_SESSION");
 
-        // 索引配置,保留 DDL 中实际存在的单列索引,去除了先前的问题
+        // 索引配置,保留 DDL 中实际存在的单列索引
         builder.HasIndex(x => x.SessionId)
                .HasDatabaseName("IDX_PRICE_SESSION");
 
         builder.HasIndex(x => x.SeatSectionId)
                .HasDatabaseName("IDX_PRICE_SECTION");
+
+        // 显式指定双向导航关联，消除幽灵列
+        builder.HasOne(p => p.SeatSection)
+               .WithMany(s => s.PriceStrategies)
+               .HasForeignKey(p => p.SeatSectionId)
+               .OnDelete(DeleteBehavior.Restrict);
 
         // 审计字段
         builder.ConfigureAuditableEntity();

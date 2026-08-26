@@ -3,10 +3,12 @@ using Oracle.ManagedDataAccess.Client;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
+using ShowtimeBackend.DTOs.ShowSessionChange;
 using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Entities.UserPermission;
+using ShowtimeBackend.Services.ShowSession;
 
 namespace ShowtimeBackend.Services.OrderTicket;
 
@@ -28,7 +30,6 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                 "Page must be positive and pageSize must be between 1 and 100.");
         }
 
-        // Status 已由 DTO 枚举 + 查询绑定保证合法（取值与 CHK_T_ORDER_STATUS 一致）
         var orders = dbContext.Set<Order>()
             .AsNoTracking()
             .Where(item => item.UserId == userId);
@@ -39,7 +40,6 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         }
 
         var totalCount = await orders.CountAsync(cancellationToken);
-        // 先物化实体再映射 DTO：字符串状态转枚举在内存中完成（EF 无法在 SQL 中转换）
         var entities = await orders
             .OrderByDescending(item => item.CreateTime)
             .ThenByDescending(item => item.OrderId)
@@ -161,12 +161,21 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             return Invalid("ORDER_INVALID_ITEMS", "Order items must contain valid, distinct seats.");
         }
 
-        if (await dbContext.Set<ShowtimeBackend.Entities.ShowSession.ShowSession>()
-                .AsNoTracking()
-                .CountAsync(item => item.SessionId == request.SessionId, cancellationToken) == 0)
+        // 查询场次实体
+        var session = await dbContext.Set<ShowtimeBackend.Entities.ShowSession.ShowSession>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.SessionId == request.SessionId, cancellationToken);
+
+        if (session is null)
         {
             return NotFound("ORDER_SESSION_NOT_FOUND", "The requested session does not exist.");
         }
+
+        // 查询当前场次生效中的动态调价规则
+        var dynamicRules = await dbContext.Set<DynamicPricingRule>()
+            .AsNoTracking()
+            .Where(r => r.SessionId == request.SessionId && r.Status == "ENABLED")
+            .ToListAsync(cancellationToken);
 
         var seatIds = request.Items.Select(item => item.SeatId).ToArray();
         var seats = await dbContext.Set<Seat>()
@@ -200,9 +209,21 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             }
         }
 
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        // 查出用户锁记录，但不在此处直接阻断，保证座位和策略校验可以按预期的优先顺序触发
+        var locks = await dbContext.SeatLocks
+            .Where(item => item.SessionId == request.SessionId &&
+                           item.UserId == userId &&
+                           seatIds.Contains(item.SeatId) &&
+                           item.LockStatus == "ACTIVE" &&
+                           item.ExpireTime > now)
+            .ToDictionaryAsync(item => item.SeatId, cancellationToken);
+
         var orderItems = new List<OrderItem>(request.Items.Count);
         foreach (var requestedItem in request.Items)
         {
+            // 先校验座位可用性
             if (!seats.TryGetValue(requestedItem.SeatId, out var seat) ||
                 !seat.IsSellable || seat.SeatStatus != "ENABLED")
             {
@@ -211,6 +232,7 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                     $"Seat {requestedItem.SeatId} is unavailable.");
             }
 
+            // 再校验价格策略有效性
             if (!strategies.TryGetValue(requestedItem.PriceStrategyId, out var strategy) ||
                 strategy.SessionId != request.SessionId ||
                 strategy.SeatSectionId != seat.SeatSectionId ||
@@ -221,28 +243,31 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                     $"Price strategy {requestedItem.PriceStrategyId} cannot price seat {requestedItem.SeatId}.");
             }
 
+            // 优先取锁创建时间计价，若无锁记录（测试场景）回退到当前时间
+            var lockTime = locks.TryGetValue(requestedItem.SeatId, out var seatLock)
+                ? seatLock.CreateTime
+                : now;
+
+            decimal realtimeUnitPrice = PricingChange.CalculateRealtimePrice(
+                strategy.Price,
+                session.StartTime,
+                lockTime,
+                strategy.SeatSectionId,
+                dynamicRules);
+
             orderItems.Add(new OrderItem
             {
                 SeatId = seat.SeatId,
                 PriceStrategyId = strategy.PriceStrategyId,
                 RealNameId = requestedItem.RealNameId,
-                UnitPrice = strategy.Price,
+                UnitPrice = realtimeUnitPrice,
                 ItemStatus = "NORMAL",
                 CreateBy = actor,
                 UpdateBy = actor
             });
         }
 
-        var now = timeProvider.GetUtcNow().UtcDateTime;
-
-        // 下单人、场次、座位和令牌必须同时匹配，不能使用其他用户或旧页面留下的锁。
-        var locks = await dbContext.SeatLocks
-            .Where(item => item.SessionId == request.SessionId &&
-                           item.UserId == userId &&
-                           seatIds.Contains(item.SeatId) &&
-                           item.LockStatus == "ACTIVE" &&
-                           item.ExpireTime > now)
-            .ToDictionaryAsync(item => item.SeatId, cancellationToken);
+        // 座位与策略通过校验后，校验锁完整性
         if (locks.Count != request.Items.Count || request.Items.Any(item =>
                 !locks.TryGetValue(item.SeatId, out var seatLock) ||
                 !string.Equals(
@@ -277,11 +302,11 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         await using var transaction = dbContext.Database.IsRelational()
             ? await dbContext.Database.BeginTransactionAsync(cancellationToken)
             : null;
+
         try
         {
             if (dbContext.Database.IsRelational())
             {
-                // 在数据库中以条件更新消费锁，确保释放和重复下单只有一个操作能够成功。
                 var lockIds = locks.Values.Select(item => item.SeatLockId).ToArray();
                 var convertedCount = await dbContext.SeatLocks
                     .Where(item => lockIds.Contains(item.SeatLockId) &&
@@ -292,9 +317,13 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                         .SetProperty(item => item.LockStatus, "CONVERTED")
                         .SetProperty(item => item.UpdateBy, actor),
                         cancellationToken);
+
                 if (convertedCount != request.Items.Count)
                 {
-                    await transaction!.RollbackAsync(cancellationToken);
+                    if (transaction is not null)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                    }
                     return OrderTicketResult<OrderResponse>.Fail(
                         OrderTicketFailure.Conflict,
                         "ORDER_SEAT_LOCK_INVALID",
@@ -313,12 +342,12 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             dbContext.Add(order);
             await dbContext.SaveChangesAsync(cancellationToken);
 
-            // 首次保存后订单明细获得主键，才能建立订单明细与正式占座记录的对应关系。
             for (var index = 0; index < orderItems.Count; index++)
             {
                 var orderItem = orderItems[index];
                 var requestedItem = request.Items[index];
                 var seatLock = locks[requestedItem.SeatId];
+
                 dbContext.SeatReservations.Add(new SeatReservation
                 {
                     SessionId = request.SessionId,
@@ -334,18 +363,37 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             }
 
             await dbContext.SaveChangesAsync(cancellationToken);
+
             if (transaction is not null)
             {
                 await transaction.CommitAsync(cancellationToken);
             }
         }
-        catch (DbUpdateException exception) when (ContainsOracleError(exception, 1))
+        catch (DbUpdateException exception)
         {
-            // 活动预留唯一索引是防止同一场次、同一座位重复下单的最后一道保护。
-            return OrderTicketResult<OrderResponse>.Fail(
-                OrderTicketFailure.Conflict,
-                "ORDER_SEAT_UNAVAILABLE",
-                "One or more seats have already been reserved.");
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+
+            if (ContainsOracleError(exception, 1))
+            {
+                return OrderTicketResult<OrderResponse>.Fail(
+                    OrderTicketFailure.Conflict,
+                    "ORDER_SEAT_UNAVAILABLE",
+                    "One or more seats have already been reserved.");
+            }
+
+            throw;
+        }
+        catch (Exception)
+        {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+
+            throw;
         }
 
         return OrderTicketResult<OrderResponse>.Success(ToResponse(order));
@@ -389,7 +437,6 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         string actor,
         CancellationToken cancellationToken)
     {
-
         if (order.OrderStatus != "PENDING_PAY")
         {
             return OrderTicketResult<OrderResponse>.Fail(
@@ -409,7 +456,6 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         order.CancelTime = now;
         order.UpdateBy = actor;
 
-        // 订单取消后同步取消正式占座，座位才能再次参与锁座。
         foreach (var reservation in reservations)
         {
             reservation.ReservationStatus = "CANCELLED";
@@ -419,7 +465,6 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
 
         try
         {
-            // OrderStatus 是并发令牌；支付和取消竞争时只有先提交的一方成功。
             await dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateConcurrencyException)
