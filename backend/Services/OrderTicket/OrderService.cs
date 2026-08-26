@@ -465,6 +465,7 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         order.OrderStatus.ToEnum<OrderStatus>(),
         order.ExpireTime,
         order.PayTime,
+        order.IssueTime,
         order.CancelTime,
         order.Source,
         order.Remark,
