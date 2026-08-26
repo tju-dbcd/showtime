@@ -63,6 +63,7 @@ public sealed class TicketIssuanceConcurrencyTests
         }
         finally
         {
+            SqliteConnection.ClearAllPools();
             File.Delete(databasePath);
         }
     }
@@ -121,6 +122,7 @@ public sealed class TicketIssuanceConcurrencyTests
         }
         finally
         {
+            SqliteConnection.ClearAllPools();
             File.Delete(databasePath);
         }
     }

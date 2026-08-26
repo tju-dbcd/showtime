@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.UserPermission;
 
 namespace ShowtimeBackend.Controllers.OrderTicket;
 
@@ -10,7 +11,10 @@ namespace ShowtimeBackend.Controllers.OrderTicket;
 [Authorize]
 [Route("api/orders")]
 [Tags("Orders")]
-public sealed class OrdersController(IOrderService orderService) : OrderTicketControllerBase
+public sealed class OrdersController(
+    IOrderService orderService,
+    IOperationLogWriter operationLogWriter,
+    TimeProvider timeProvider) : OrderTicketControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<PagedOrderResponse>), StatusCodes.Status200OK)]
@@ -57,7 +61,39 @@ public sealed class OrdersController(IOrderService orderService) : OrderTicketCo
             return UnauthorizedResponse<OrderResponse>();
         }
 
+        var startedAt = timeProvider.GetTimestamp();
         var result = await orderService.CreateAsync(userId, actor, request, cancellationToken);
+        var costTime = Math.Max(
+            0,
+            (long)Math.Ceiling(timeProvider.GetElapsedTime(startedAt).TotalMilliseconds));
+        await operationLogWriter.WriteBestEffortAsync(
+            new OperationLogWriteRequest(
+                Module: "ORDER",
+                OperationType: "ORDER_CREATE",
+                Succeeded: result.IsSuccess,
+                UserId: userId,
+                UserName: actor,
+                CostTimeMilliseconds: costTime,
+                RequestSummary: new
+                {
+                    request.SessionId,
+                    TicketCount = request.Items.Count,
+                },
+                ResponseSummary: result.IsSuccess
+                    ? new
+                    {
+                        ResultCode = "SUCCESS",
+                        result.Value!.OrderId,
+                        result.Value.OrderNo,
+                    }
+                    : new
+                    {
+                        ResultCode = result.ErrorCode ?? "ORDER_CREATE_FAILED",
+                        OrderId = (long?)null,
+                        OrderNo = (string?)null,
+                    },
+                ErrorMessage: result.IsSuccess ? null : result.ErrorCode),
+            cancellationToken);
         return result.IsSuccess
             ? CreatedAtAction(
                 nameof(Get),

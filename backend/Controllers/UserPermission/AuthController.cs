@@ -9,7 +9,10 @@ namespace ShowtimeBackend.Controllers.UserPermission;
 [ApiController]
 [Route("api/auth")]
 [AllowAnonymous]
-public sealed class AuthController(IAuthService authService) : ControllerBase
+public sealed class AuthController(
+    IAuthService authService,
+    IOperationLogWriter operationLogWriter,
+    TimeProvider timeProvider) : ControllerBase
 {
     [HttpPost("register")]
     [ProducesResponseType(typeof(ApiResponse<RegisterResponse>), StatusCodes.Status201Created)]
@@ -42,17 +45,65 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
         LoginRequest request,
         CancellationToken cancellationToken)
     {
+        var startedAt = timeProvider.GetTimestamp();
         var result = await authService.LoginAsync(request, cancellationToken);
+        var costTime = ToMilliseconds(timeProvider.GetElapsedTime(startedAt));
         if (result.IsSuccess)
         {
+            await operationLogWriter.WriteBestEffortAsync(
+                new OperationLogWriteRequest(
+                    Module: "AUTH",
+                    OperationType: "LOGIN",
+                    Succeeded: true,
+                    UserId: result.Value!.User.UserId,
+                    UserName: result.Value.User.UserName,
+                    CostTimeMilliseconds: costTime,
+                    RequestSummary: new { AccountType = GetAccountType(request.Account) },
+                    ResponseSummary: new { ResultCode = "SUCCESS" }),
+                cancellationToken);
             return Ok(
                 ApiResponse<LoginResponse>.Ok(
                     result.Value!,
                     "Login succeeded."));
         }
 
+        await operationLogWriter.WriteBestEffortAsync(
+            new OperationLogWriteRequest(
+                Module: "AUTH",
+                OperationType: "LOGIN",
+                Succeeded: false,
+                CostTimeMilliseconds: costTime,
+                RequestSummary: new { AccountType = GetAccountType(request.Account) },
+                ResponseSummary: new { ResultCode = ToLogCode(result.Failure) },
+                ErrorMessage: ToLogCode(result.Failure)),
+            cancellationToken);
+
         return CreateFailure<LoginResponse>(result.Failure);
     }
+
+    private static string GetAccountType(string account)
+    {
+        var normalized = account.Trim();
+        if (normalized.Contains('@'))
+        {
+            return "EMAIL";
+        }
+
+        return normalized.All(character => character is '+' or >= '0' and <= '9')
+            ? "PHONE"
+            : "USERNAME";
+    }
+
+    private static string ToLogCode(AuthFailure failure) => failure switch
+    {
+        AuthFailure.InvalidCredentials => "AUTH_INVALID_CREDENTIALS",
+        AuthFailure.AccountDisabled => "AUTH_ACCOUNT_DISABLED",
+        AuthFailure.AccountLocked => "AUTH_ACCOUNT_LOCKED",
+        _ => "AUTH_LOGIN_FAILED",
+    };
+
+    private static long ToMilliseconds(TimeSpan elapsed) =>
+        Math.Max(0, (long)Math.Ceiling(elapsed.TotalMilliseconds));
 
     private ActionResult<ApiResponse<T>> CreateFailure<T>(AuthFailure failure)
     {

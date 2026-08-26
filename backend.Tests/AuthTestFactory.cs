@@ -107,6 +107,8 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
                 ["Jwt:ExpirationMinutes"] = "120",
                 ["TicketSecurity:SigningKeyBase64"] =
                     "ERERERERERERERERERERERERERERERERERERERERERE=",
+                ["IdentityData:EncryptionKey"] =
+                    "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=",
             });
         });
         builder.ConfigureServices(services =>
@@ -120,8 +122,12 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
             services.AddSingleton<TimeProvider>(_timeProvider);
             services.AddControllers()
                 .AddApplicationPart(typeof(TestAuthorizationController).Assembly);
-            services.AddDbContext<SqliteAuthDbContext>(options =>
-                options.UseSqlite(_connection));
+            services.AddDbContext<SqliteAuthDbContext>((provider, options) =>
+                options
+                    .UseSqlite(_connection)
+                    .AddInterceptors(
+                        provider.GetRequiredService<
+                            ShowtimeBackend.Data.Interceptors.UserRealNameEncryptionInterceptor>()));
             services.AddScoped<AppDbContext>(provider =>
                 provider.GetRequiredService<SqliteAuthDbContext>());
         });

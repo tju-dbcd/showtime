@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ShowtimeBackend.Common.IdentityData;
 using Microsoft.Extensions.Configuration;
 using ShowtimeBackend.Data;
+using ShowtimeBackend.Data.Interceptors;
 using ShowtimeBackend.TestData;
 
 namespace ShowtimeBackend.TestDataRunner;
@@ -36,8 +39,28 @@ class Program
             Console.WriteLine($"Database: {ExtractDbName(connectionString)}");
             Console.WriteLine();
 
+            var encryptionKey = Environment.GetEnvironmentVariable(
+                "IdentityData__EncryptionKey") ?? string.Empty;
+            var identityOptions = new IdentityDataOptions
+            {
+                EncryptionKey = encryptionKey,
+            };
+            var validation = new IdentityDataOptionsValidator().Validate(
+                Options.DefaultName,
+                identityOptions);
+            if (validation.Failed)
+            {
+                throw new InvalidOperationException(validation.FailureMessage);
+            }
+
+            using var identityProtector = new AesGcmIdentityDataProtector(
+                Options.Create(identityOptions));
+
             var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
-            optionsBuilder.UseOracle(connectionString);
+            optionsBuilder
+                .UseOracle(connectionString)
+                .AddInterceptors(
+                    new UserRealNameEncryptionInterceptor(identityProtector));
 
             using var context = new AppDbContext(optionsBuilder.Options);
 
