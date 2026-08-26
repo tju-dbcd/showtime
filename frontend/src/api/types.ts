@@ -2206,6 +2206,702 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/refund-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    ShowId?: number | string;
+                    Status?: number | string;
+                    Page?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundPolicyResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SaveRefundPolicyRequest"];
+                    "text/json": components["schemas"]["SaveRefundPolicyRequest"];
+                    "application/*+json": components["schemas"]["SaveRefundPolicyRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/refund-policies/{policyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    policyId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SaveRefundPolicyRequest"];
+                    "text/json": components["schemas"]["SaveRefundPolicyRequest"];
+                    "application/*+json": components["schemas"]["SaveRefundPolicyRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/refund-policies/{policyId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    policyId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateRefundPolicyStatusRequest"];
+                    "text/json": components["schemas"]["UpdateRefundPolicyStatusRequest"];
+                    "application/*+json": components["schemas"]["UpdateRefundPolicyStatusRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundPolicyResponse"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/admin/refunds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    ApproveStatus?: components["schemas"]["RefundApproveStatus"];
+                    RefundStatus?: components["schemas"]["RefundStatus"];
+                    OrderId?: number | string;
+                    UserId?: number | string;
+                    RefundNo?: string;
+                    Page?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/refunds/{refundId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    refundId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/refunds/{refundId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    refundId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ApproveRefundRequest"];
+                    "text/json": components["schemas"]["ApproveRefundRequest"];
+                    "application/*+json": components["schemas"]["ApproveRefundRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/refunds/{refundId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    refundId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RejectRefundRequest"];
+                    "text/json": components["schemas"]["RejectRefundRequest"];
+                    "application/*+json": components["schemas"]["RejectRefundRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/orders": {
         parameters: {
             query?: never;
@@ -2552,6 +3248,317 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/orders/{orderId}/refunds/quote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RefundQuoteRequest"];
+                    "text/json": components["schemas"]["RefundQuoteRequest"];
+                    "application/*+json": components["schemas"]["RefundQuoteRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundQuoteResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/orders/{orderId}/refunds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    ApproveStatus?: components["schemas"]["RefundApproveStatus"];
+                    RefundStatus?: components["schemas"]["RefundStatus"];
+                    Page?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path: {
+                    orderId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedRefundResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateRefundRequest"];
+                    "text/json": components["schemas"]["CreateRefundRequest"];
+                    "application/*+json": components["schemas"]["CreateRefundRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/refunds/{refundId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    refundId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfRefundResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2645,6 +3652,18 @@ export interface components {
             code: null | string;
             message: string;
         };
+        ApiResponseOfPagedRefundPolicyResponse: {
+            success: boolean;
+            data: null | components["schemas"]["PagedRefundPolicyResponse"];
+            code: null | string;
+            message: string;
+        };
+        ApiResponseOfPagedRefundResponse: {
+            success: boolean;
+            data: null | components["schemas"]["PagedRefundResponse"];
+            code: null | string;
+            message: string;
+        };
         ApiResponseOfPagedResponseOfSeatMapResponse: {
             success: boolean;
             data: null | components["schemas"]["PagedResponseOfSeatMapResponse"];
@@ -2678,6 +3697,24 @@ export interface components {
         ApiResponseOfPaymentProcessResponse: {
             success: boolean;
             data: null | components["schemas"]["PaymentProcessResponse"];
+            code: null | string;
+            message: string;
+        };
+        ApiResponseOfRefundPolicyResponse: {
+            success: boolean;
+            data: null | components["schemas"]["RefundPolicyResponse"];
+            code: null | string;
+            message: string;
+        };
+        ApiResponseOfRefundQuoteResponse: {
+            success: boolean;
+            data: null | components["schemas"]["RefundQuoteResponse"];
+            code: null | string;
+            message: string;
+        };
+        ApiResponseOfRefundResponse: {
+            success: boolean;
+            data: null | components["schemas"]["RefundResponse"];
             code: null | string;
             message: string;
         };
@@ -2753,6 +3790,9 @@ export interface components {
             code: null | string;
             message: string;
         };
+        ApproveRefundRequest: {
+            remark: null | string;
+        };
         CategoryResponse: {
             /** Format: int64 */
             categoryId: number | string;
@@ -2796,6 +3836,10 @@ export interface components {
             /** Format: int64 */
             quota?: null | number | string;
         };
+        CreateRefundRequest: {
+            orderItemIds: (number | string)[];
+            reason: string;
+        };
         CreateShowRequest: {
             showName: string;
             /** Format: int64 */
@@ -2818,7 +3862,7 @@ export interface components {
             seatMapId: number | string;
         };
         /** @enum {string} */
-        ETicketStatus: "UNUSED" | "USED" | "REFUNDED" | "EXCHANGED";
+        ETicketStatus: "UNUSED" | "REFUNDING" | "USED" | "REFUNDED" | "EXCHANGED";
         ETicketSummaryResponse: {
             /** Format: int64 */
             eTicketId: number | string;
@@ -2926,6 +3970,24 @@ export interface components {
             /** Format: int32 */
             totalCount: number | string;
         };
+        PagedRefundPolicyResponse: {
+            items: components["schemas"]["RefundPolicyResponse"][];
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+        };
+        PagedRefundResponse: {
+            items: components["schemas"]["RefundSummaryResponse"][];
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+        };
         PagedResponseOfSeatMapResponse: {
             items: components["schemas"]["SeatMapResponse"][];
             /** Format: int32 */
@@ -3013,6 +4075,121 @@ export interface components {
             price: number | string;
             status: components["schemas"]["PriceStrategyStatus"];
         };
+        /** @enum {string} */
+        RefundApproveStatus: "PENDING" | "APPROVED" | "REJECTED";
+        RefundItemResponse: {
+            /** Format: int64 */
+            refundItemId: number | string;
+            /** Format: int64 */
+            orderItemId: number | string;
+            /** Format: double */
+            refundBaseAmount: number | string;
+            itemStatus: components["schemas"]["OrderItemStatus"];
+            ticketStatus: components["schemas"]["ETicketStatus"];
+        };
+        RefundPolicyResponse: {
+            /** Format: int64 */
+            policyId: number | string;
+            /** Format: int64 */
+            showId: null | number | string;
+            policyName: string;
+            /** Format: int32 */
+            refundDeadlineHour: number | string;
+            /** Format: double */
+            refundRate: number | string;
+            /** Format: double */
+            serviceFee: number | string;
+            /** Format: int32 */
+            priority: number | string;
+            /** Format: uint8 */
+            status: number | string;
+            remark: null | string;
+            /** Format: date-time */
+            createTime: string;
+            /** Format: date-time */
+            updateTime: string;
+        };
+        RefundQuoteItemResponse: {
+            /** Format: int64 */
+            orderItemId: number | string;
+            /** Format: double */
+            refundBaseAmount: number | string;
+        };
+        RefundQuoteRequest: {
+            orderItemIds: (number | string)[];
+        };
+        RefundQuoteResponse: {
+            /** Format: date-time */
+            quotedAt: string;
+            /** Format: int64 */
+            orderId: number | string;
+            refundType: components["schemas"]["RefundType"];
+            /** Format: int64 */
+            appliedPolicyId: number | string;
+            policyName: string;
+            /** Format: double */
+            refundAmount: number | string;
+            /** Format: double */
+            feeRate: number | string;
+            /** Format: double */
+            appliedServiceFee: number | string;
+            /** Format: double */
+            actualRefund: number | string;
+            items: components["schemas"]["RefundQuoteItemResponse"][];
+        };
+        RefundResponse: {
+            /** Format: int64 */
+            refundId: number | string;
+            refundNo: string;
+            /** Format: int64 */
+            orderId: number | string;
+            /** Format: int64 */
+            userId: number | string;
+            refundType: components["schemas"]["RefundType"];
+            refundReason: null | string;
+            /** Format: int64 */
+            appliedPolicyId: null | number | string;
+            policyName: null | string;
+            /** Format: double */
+            refundAmount: number | string;
+            /** Format: double */
+            feeRate: number | string;
+            /** Format: double */
+            appliedServiceFee: number | string;
+            /** Format: double */
+            actualRefund: null | number | string;
+            approveStatus: components["schemas"]["RefundApproveStatus"];
+            refundStatus: components["schemas"]["RefundStatus"];
+            reviewBy: null | string;
+            /** Format: date-time */
+            reviewTime: null | string;
+            reviewRemark: null | string;
+            /** Format: date-time */
+            completeTime: null | string;
+            /** Format: date-time */
+            createTime: string;
+            items: components["schemas"]["RefundItemResponse"][];
+        };
+        /** @enum {string} */
+        RefundStatus: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+        RefundSummaryResponse: {
+            /** Format: int64 */
+            refundId: number | string;
+            refundNo: string;
+            /** Format: int64 */
+            orderId: number | string;
+            refundType: components["schemas"]["RefundType"];
+            /** Format: double */
+            actualRefund: null | number | string;
+            approveStatus: components["schemas"]["RefundApproveStatus"];
+            refundStatus: components["schemas"]["RefundStatus"];
+            /** Format: date-time */
+            createTime: string;
+            /** Format: date-time */
+            completeTime: null | string;
+        };
+        /** @enum {string} */
+        RefundType: "FULL" | "PART";
         RegisterRequest: {
             userName: string;
             password: string;
@@ -3022,6 +4199,23 @@ export interface components {
         };
         RegisterResponse: {
             user: components["schemas"]["UserResponse"];
+        };
+        RejectRefundRequest: {
+            remark: string;
+        };
+        SaveRefundPolicyRequest: {
+            /** Format: int64 */
+            showId: null | number | string;
+            policyName: string;
+            /** Format: int32 */
+            refundDeadlineHour: number | string;
+            /** Format: double */
+            refundRate: number | string;
+            /** Format: double */
+            serviceFee: number | string;
+            /** Format: int32 */
+            priority: number | string;
+            remark: null | string;
         };
         SeatLockBatchRequest: {
             seatIds: (number | string)[];
@@ -3325,6 +4519,10 @@ export interface components {
             orderItemId: number | string;
             ticketStatus: components["schemas"]["ETicketStatus"];
             qrCode: string;
+        };
+        UpdateRefundPolicyStatusRequest: {
+            /** Format: uint8 */
+            status: number | string;
         };
         UpdateSessionStatusRequest: {
             status: components["schemas"]["SessionStatus"];
