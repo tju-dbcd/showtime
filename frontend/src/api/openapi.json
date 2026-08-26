@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:5002/"
+      "url": "http://localhost:5146/"
     }
   ],
   "paths": {
@@ -7467,7 +7467,7 @@
               "integer",
               "string"
             ],
-            "format": "int64"
+            "format": "int32"
           }
         }
       },
