@@ -4274,6 +4274,20 @@ export interface components {
             priority: number | string;
             remark: null | string;
         };
+        SeatBatchUpdateRequest: {
+            seatIds: (number | string)[];
+            seatType: null | string;
+            seatStatus: null | string;
+            isAisleSide: null | boolean;
+            isSellable: null | boolean;
+        };
+        SeatBatchUpdateResponse: {
+            /** Format: int64 */
+            seatSectionId: number | string;
+            /** Format: int32 */
+            updatedCount: number | string;
+            seats: components["schemas"]["SeatResponse"][];
+        };
         SeatLockBatchRequest: {
             seatIds: (number | string)[];
         };
