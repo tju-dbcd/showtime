@@ -5,7 +5,10 @@ public sealed record OrderTicketAuditEvent(
     long OrderId,
     string Actor,
     int TicketCount,
-    DateTime OccurredAt);
+    DateTime OccurredAt,
+    long? RefundId = null,
+    decimal? ActualRefund = null,
+    IReadOnlyDictionary<string, string>? Metadata = null);
 
 public interface IOrderTicketAuditSink
 {
