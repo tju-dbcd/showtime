@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:5200/"
+      "url": "http://127.0.0.1:5077/"
     }
   ],
   "paths": {
@@ -531,7 +531,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -675,7 +675,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -830,7 +830,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -976,7 +976,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1050,7 +1050,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1134,7 +1134,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1200,7 +1200,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1304,7 +1304,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1388,7 +1388,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1514,7 +1514,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1620,7 +1620,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1706,7 +1706,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1758,7 +1758,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1804,7 +1804,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1868,7 +1868,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -1895,7 +1895,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -1969,7 +1969,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2021,7 +2021,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2067,7 +2067,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2131,7 +2131,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2158,7 +2158,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2204,7 +2204,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2268,7 +2268,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2297,7 +2297,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2395,7 +2395,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2459,7 +2459,111 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Seat Zone Administration - Seats"
+        ],
+        "parameters": [
+          {
+            "name": "seatSectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatBatchUpdateRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatBatchUpdateRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatBatchUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatBatchUpdateResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatBatchUpdateResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatBatchUpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatBatchUpdateResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatBatchUpdateResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatBatchUpdateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatBatchUpdateResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatBatchUpdateResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfSeatBatchUpdateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
           }
         ]
       }
@@ -2505,7 +2609,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2569,7 +2673,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2596,7 +2700,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2680,7 +2784,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2744,7 +2848,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -2790,7 +2894,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2854,7 +2958,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -2881,7 +2985,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3076,7 +3180,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3182,7 +3286,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3308,7 +3412,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3454,7 +3558,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3521,7 +3625,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       },
@@ -3573,7 +3677,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3619,7 +3723,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3665,7 +3769,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3751,7 +3855,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3797,7 +3901,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -3963,7 +4067,7 @@
         },
         "security": [
           {
-            "Bearer": []
+            "Bearer": [ ]
           }
         ]
       }
@@ -4302,7 +4406,7 @@
           "success": {
             "type": "boolean"
           },
-          "data": {},
+          "data": { },
           "code": {
             "type": [
               "null",
@@ -4630,6 +4734,39 @@
               },
               {
                 "$ref": "#/components/schemas/RegisterResponse"
+              }
+            ]
+          },
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseOfSeatBatchUpdateResponse": {
+        "required": [
+          "success",
+          "data",
+          "code",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SeatBatchUpdateResponse"
               }
             ]
           },
@@ -6164,6 +6301,85 @@
         "properties": {
           "user": {
             "$ref": "#/components/schemas/UserResponse"
+          }
+        }
+      },
+      "SeatBatchUpdateRequest": {
+        "required": [
+          "seatIds",
+          "seatType",
+          "seatStatus",
+          "isAisleSide",
+          "isSellable"
+        ],
+        "type": "object",
+        "properties": {
+          "seatIds": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          },
+          "seatType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "seatStatus": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "isAisleSide": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "isSellable": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "SeatBatchUpdateResponse": {
+        "required": [
+          "seatSectionId",
+          "updatedCount",
+          "seats"
+        ],
+        "type": "object",
+        "properties": {
+          "seatSectionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "updatedCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "seats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeatResponse"
+            }
           }
         }
       },
