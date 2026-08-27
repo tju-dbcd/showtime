@@ -35,16 +35,15 @@ import {
 
 const SEAT_TYPES = [
   { value: 'NORMAL', label: '普通座' },
-  { value: 'VIP', label: 'VIP座' },
-  { value: 'DISABLED', label: '无障碍座' },
+  { value: 'COUPLE', label: '情侣座' },
+  { value: 'ACCESSIBLE', label: '无障碍座' },
   { value: 'COMPANION', label: '陪同座' },
 ];
 
 const SEAT_STATUSES = [
-  { value: 'AVAILABLE', label: '可用' },
-  { value: 'SOLD', label: '已售' },
-  { value: 'LOCKED', label: '锁定' },
+  { value: 'ENABLED', label: '启用' },
   { value: 'DISABLED', label: '禁用' },
+  { value: 'MAINTENANCE', label: '维护中' },
 ];
 
 const SeatMapEditor = () => {
@@ -107,7 +106,7 @@ const SeatMapEditor = () => {
         xCoord: values.xCoord || 0,
         yCoord: values.yCoord || 0,
         seatType: values.seatType || 'NORMAL',
-        seatStatus: values.seatStatus || 'AVAILABLE',
+        seatStatus: values.seatStatus || 'ENABLED',
         isAisleSide: values.isAisleSide || false,
         isSellable: values.isSellable !== false,
         remark: values.remark || null,
@@ -142,7 +141,8 @@ const SeatMapEditor = () => {
         isSellable: values.isSellable ?? null,
       });
       if (res.error) {
-        message.error('批量编辑失败');
+        const errMsg = (res.error as { message?: string })?.message || '批量编辑失败';
+        message.error(errMsg);
         return;
       }
       message.success(`成功更新 ${res.data?.data?.updatedCount || 0} 个座位`);
@@ -159,13 +159,17 @@ const SeatMapEditor = () => {
   };
 
   const handleDelete = async (seatId: number) => {
-    const res = await deleteSeat(seatId);
-    if (res.error) {
+    try {
+      const res = await deleteSeat(seatId);
+      if (res.error) {
+        message.error('删除失败');
+        return;
+      }
+      message.success('删除成功');
+      if (selectedSectionId) loadSeats(selectedSectionId);
+    } catch {
       message.error('删除失败');
-      return;
     }
-    message.success('删除成功');
-    if (selectedSectionId) loadSeats(selectedSectionId);
   };
 
   const toggleSelectAll = () => {
@@ -190,7 +194,7 @@ const SeatMapEditor = () => {
       title: '状态', dataIndex: 'seatStatus', key: 'seatStatus', width: 100,
       render: (status: string) => {
         const found = SEAT_STATUSES.find(s => s.value === status);
-        const color = status === 'AVAILABLE' ? 'green' : status === 'SOLD' ? 'red' : 'default';
+        const color = status === 'ENABLED' ? 'green' : status === 'DISABLED' ? 'red' : 'orange';
         return <Tag color={color}>{found ? found.label : status}</Tag>;
       },
     },
@@ -294,7 +298,7 @@ const SeatMapEditor = () => {
             size="small"
             pagination={{ pageSize: 50, showSizeChanger: true, showTotal: t => `共 ${t} 个座位` }}
             rowSelection={{
-              selectedRowKeys: Array.from(selectedSeatIds).map(String),
+              selectedRowKeys: Array.from(selectedSeatIds),
               onChange: keys => setSelectedSeatIds(new Set(keys.map(Number))),
             }}
           />
@@ -312,7 +316,7 @@ const SeatMapEditor = () => {
         cancelText="取消"
         width={520}
       >
-        <Form form={addForm} layout="vertical" initialValues={{ seatType: 'NORMAL', seatStatus: 'AVAILABLE', isAisleSide: false, isSellable: true }}>
+        <Form form={addForm} layout="vertical" initialValues={{ seatType: 'NORMAL', seatStatus: 'ENABLED', isAisleSide: false, isSellable: true }}>
           <Space size="large" style={{ width: '100%' }}>
             <Form.Item label="排号" name="rowCode" rules={[{ required: true, message: '请输入排号' }]} style={{ width: 120 }}>
               <Input maxLength={5} />
