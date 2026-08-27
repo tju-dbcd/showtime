@@ -19,6 +19,7 @@ using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
 using ShowtimeBackend.Services.SeatZone;
 using Scalar.AspNetCore;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +31,19 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
         ?? throw new InvalidOperationException(
             "Connection string 'Oracle' is not set."));
 });
+
+// Redis：懒连接注册，启动不阻塞；Redis 未启动时应用照常启动，选座锁守卫自动降级为纯 Oracle 流程。
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
+    ?? "localhost:6379,abortConnect=false,connectRetry=3,connectTimeout=3000";
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    // 常规缓存（场次/演出热点缓存等里程碑 5 场景直接使用 IDistributedCache）
+    options.Configuration = redisConnectionString;
+    options.InstanceName = "showtime:";
+});
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(redisConnectionString)));
+builder.Services.AddSingleton<ISeatLockGuard, RedisSeatLockGuard>();
 
 builder.Services
     .AddOptions<JwtOptions>()
@@ -129,7 +143,14 @@ builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();
 builder.Services.AddSingleton<IOrderTicketAuditSink, NullOrderTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
-builder.Services.AddScoped<ISeatLockService, SeatLockService>();
+builder.Services.AddScoped<ISeatLockService>(serviceProvider =>
+    new SeatLockService(
+        serviceProvider.GetRequiredService<AppDbContext>(),
+        serviceProvider.GetRequiredService<TimeProvider>(),
+        serviceProvider.GetRequiredService<ISeatLockGuard>(),
+        // Redis:SeatLockGuardEnabled 为 kill-switch，false 时完全走纯 Oracle 流程
+        serviceProvider.GetRequiredService<IConfiguration>()
+            .GetValue("Redis:SeatLockGuardEnabled", true)));
 builder.Services.AddScoped<IAdminShowService, AdminShowService>();
 builder.Services.AddScoped<IClientShowService, ClientShowService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();

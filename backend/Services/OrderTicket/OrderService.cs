@@ -8,11 +8,15 @@ using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Entities.UserPermission;
+using ShowtimeBackend.Services.SeatZone;
 using ShowtimeBackend.Services.ShowSession;
 
 namespace ShowtimeBackend.Services.OrderTicket;
 
-public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvider) : IOrderService
+public sealed class OrderService(
+    AppDbContext dbContext,
+    TimeProvider timeProvider,
+    ISeatLockGuard? seatLockGuard = null) : IOrderService
 {
     // 与座位规则 NUMBER(3) 的取值范围保持一致，并避免生成过大的 Oracle IN 查询。
     private const int MaxSeatsPerOrder = 999;
@@ -396,7 +400,27 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             throw;
         }
 
+        // DB 侧锁已全部 CONVERTED（事务已提交/内存库保存成功），释放 Redis 座位锁，避免残留 key 阻塞后续锁座。
+        await ReleaseGuardKeysAsync(request.SessionId, locks.Values);
+
         return OrderTicketResult<OrderResponse>.Success(ToResponse(order));
+    }
+
+    /// <summary>下单转换成功后释放订单项对应的 Redis 座位锁（按 token 比对防误删；失败由 TTL 兜底）。</summary>
+    private async Task ReleaseGuardKeysAsync(
+        long sessionId,
+        IEnumerable<SeatLock> locks)
+    {
+        if (seatLockGuard is null)
+        {
+            return;
+        }
+
+        foreach (var seatLock in locks)
+        {
+            await seatLockGuard.ReleaseAsync(
+                sessionId, seatLock.SeatId, seatLock.LockToken);
+        }
     }
 
     public async Task<OrderTicketResult<OrderResponse>> CancelAsync(
