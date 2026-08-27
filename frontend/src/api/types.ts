@@ -1582,7 +1582,58 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    seatSectionId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SeatBatchUpdateRequest"];
+                    "text/json": components["schemas"]["SeatBatchUpdateRequest"];
+                    "application/*+json": components["schemas"]["SeatBatchUpdateRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfSeatBatchUpdateResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfSeatBatchUpdateResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfSeatBatchUpdateResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfSeatBatchUpdateResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfSeatBatchUpdateResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfSeatBatchUpdateResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfSeatBatchUpdateResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfSeatBatchUpdateResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfSeatBatchUpdateResponse"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/api/admin/seats/{seatId}": {
@@ -3724,6 +3775,12 @@ export interface components {
             code: null | string;
             message: string;
         };
+        ApiResponseOfSeatBatchUpdateResponse: {
+            success: boolean;
+            data: null | components["schemas"]["SeatBatchUpdateResponse"];
+            code: null | string;
+            message: string;
+        };
         ApiResponseOfSeatLockBatchResponse: {
             success: boolean;
             data: null | components["schemas"]["SeatLockBatchResponse"];
@@ -4216,6 +4273,20 @@ export interface components {
             /** Format: int32 */
             priority: number | string;
             remark: null | string;
+        };
+        SeatBatchUpdateRequest: {
+            seatIds: (number | string)[];
+            seatType: null | string;
+            seatStatus: null | string;
+            isAisleSide: null | boolean;
+            isSellable: null | boolean;
+        };
+        SeatBatchUpdateResponse: {
+            /** Format: int64 */
+            seatSectionId: number | string;
+            /** Format: int32 */
+            updatedCount: number | string;
+            seats: components["schemas"]["SeatResponse"][];
         };
         SeatLockBatchRequest: {
             seatIds: (number | string)[];

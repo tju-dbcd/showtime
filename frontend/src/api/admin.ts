@@ -103,6 +103,10 @@ export const updateSessionStatus = (sessionId: number, data: UpdateSessionStatus
 // ========== 座位图/票区相关 ==========
 export type SeatMapResponse = components['schemas']['SeatMapResponse'];
 export type SeatSectionResponse = components['schemas']['SeatSectionResponse'];
+export type SeatResponse = components['schemas']['SeatResponse'];
+export type SeatRequest = components['schemas']['SeatRequest'];
+export type SeatBatchUpdateRequest = components['schemas']['SeatBatchUpdateRequest'];
+export type SeatBatchUpdateResponse = components['schemas']['SeatBatchUpdateResponse'];
 
 // 获取座位图列表
 export const getSeatMapList = (params?: {
@@ -126,6 +130,51 @@ export const getSeatSections = (seatMapId: number, params?: {
 }) => {
   return client.GET('/api/admin/seat-maps/{seatMapId}/sections', {
     params: { path: { seatMapId }, query: params },
+  });
+};
+
+// 获取某票区下的座位列表
+export const getSeats = (seatSectionId: number, params?: {
+  SeatType?: string;
+  SeatStatus?: string;
+  IsSellable?: boolean;
+  RowCode?: string;
+  Page?: number;
+  PageSize?: number;
+}) => {
+  return client.GET('/api/admin/seat-sections/{seatSectionId}/seats', {
+    params: { path: { seatSectionId }, query: params },
+  });
+};
+
+// 单个创建座位
+export const createSeat = (seatSectionId: number, data: SeatRequest) => {
+  return client.POST('/api/admin/seat-sections/{seatSectionId}/seats', {
+    params: { path: { seatSectionId } },
+    body: data,
+  });
+};
+
+// 批量编辑座位（PATCH）
+export const batchUpdateSeats = (seatSectionId: number, data: SeatBatchUpdateRequest) => {
+  return client.PATCH('/api/admin/seat-sections/{seatSectionId}/seats', {
+    params: { path: { seatSectionId } },
+    body: data,
+  });
+};
+
+// 更新单个座位
+export const updateSeat = (seatId: number, data: SeatRequest) => {
+  return client.PUT('/api/admin/seats/{seatId}', {
+    params: { path: { seatId } },
+    body: data,
+  });
+};
+
+// 删除单个座位
+export const deleteSeat = (seatId: number) => {
+  return client.DELETE('/api/admin/seats/{seatId}', {
+    params: { path: { seatId } },
   });
 };
 
