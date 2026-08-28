@@ -139,6 +139,54 @@ public sealed class OpenApiTests
     }
 
     [Fact]
+    public async Task OpenApiDocument_DeclaresTicketRedemptionContract()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+
+        using var document = JsonDocument.Parse(
+            await client.GetStringAsync("/openapi/v1.json"));
+        var root = document.RootElement;
+        var paths = root.GetProperty("paths");
+        var operation = paths
+            .GetProperty("/api/admin/tickets/redeem")
+            .GetProperty("post");
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+        var requestSchema = schemas.GetProperty("RedeemTicketRequest");
+        var required = requestSchema.GetProperty("required")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .ToHashSet();
+
+        Assert.Contains("qrCode", required);
+        Assert.Contains("checkDevice", required);
+        var qrCode = requestSchema.GetProperty("properties").GetProperty("qrCode");
+        var checkDevice = requestSchema.GetProperty("properties").GetProperty("checkDevice");
+        Assert.Equal("string", qrCode.GetProperty("type").GetString());
+        Assert.Equal(255, qrCode.GetProperty("maxLength").GetInt32());
+        Assert.Equal("string", checkDevice.GetProperty("type").GetString());
+        Assert.Equal(100, checkDevice.GetProperty("maxLength").GetInt32());
+        AssertResponseCodes(operation, "200", "400", "401", "403", "404", "409", "500");
+        AssertSecurityApplied(
+            paths,
+            "/api/admin/tickets/redeem",
+            "post",
+            expectApplied: true);
+        AssertSchemaProperties(
+            schemas,
+            "TicketRedemptionResponse",
+            "eTicketId",
+            "eTicketNo",
+            "orderId",
+            "orderItemId",
+            "sessionId",
+            "ticketStatus",
+            "checkTime",
+            "checkDevice",
+            "checkBy");
+    }
+
+    [Fact]
     public async Task OpenApiDocument_DeclaresRefundWorkflowContracts()
     {
         using var factory = new AuthTestFactory();
