@@ -10,4 +10,6 @@ public enum AuthFailure
     AccountDisabled,
     AccountLocked,
     DefaultRoleUnavailable,
+    UserNotFound,
+    InvalidAvatarUrl,
 }

@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons';
 import type { Address } from '@/mock/user';
 import FileUploader from '@/components/FileUploader';
+import { updateAvatar } from '@/api/user';
 import './UserCenter.css';
 
 const { Sider, Content } = Layout;
@@ -37,6 +38,7 @@ const UserCenter = () => {
   const { user, updateUser } = useUser();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
+  const [avatarUpdating, setAvatarUpdating] = useState(false);
   const [editingAddress, setEditingAddress] = useState<Address | null>(null);
   const [form] = Form.useForm();
   const [addressForm] = Form.useForm();
@@ -49,12 +51,19 @@ const UserCenter = () => {
     }
   }, [navigate]);
 
-  // 头像经 OSS 上传后只存 URL（不再存 base64）；
-  // 头像列落库（AVATAR_URL）属 M4 的 DDL 变更，当前沿用 localStorage 持久化。
-  const handleAvatarChange = (url?: string) => {
+  // 头像经 OSS 上传后先调后端持久化（AVATAR_URL），成功再更新本地 context/localStorage，刷新后仍显示。
+  const handleAvatarChange = async (url?: string) => {
     if (!url) return;
-    updateUser({ avatar: url });
-    message.success('头像更新成功！');
+    try {
+      setAvatarUpdating(true);
+      await updateAvatar(url);
+      updateUser({ avatar: url });
+      message.success('头像更新成功！');
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '头像保存失败，请重试');
+    } finally {
+      setAvatarUpdating(false);
+    }
   };
 
   // 渲染个人资料
@@ -72,7 +81,9 @@ const UserCenter = () => {
           >
             <Avatar src={user.avatar} size={100} />
           </FileUploader>
-          <div style={{ marginTop: 12, color: '#999', fontSize: 12 }}>点击头像更换</div>
+          <div style={{ marginTop: 12, color: '#999', fontSize: 12 }}>
+            {avatarUpdating ? '正在保存...' : '点击头像更换'}
+          </div>
         </div>
         <div className="profile-details">
           <div className="detail-row">
