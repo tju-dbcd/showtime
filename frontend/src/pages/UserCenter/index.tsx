@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useUser } from '@/context/UserContext';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Menu, Avatar, Typography, Button, Form, Input, Modal, message, Table, Tag, Divider, Card } from 'antd';
@@ -9,13 +9,13 @@ import {
   UnorderedListOutlined,
   HomeOutlined,
   LogoutOutlined,
-  EditOutlined,
   PlusOutlined,
   DeleteOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
 } from '@ant-design/icons';
 import type { Address } from '@/mock/user';
+import FileUploader from '@/components/FileUploader';
 import './UserCenter.css';
 
 const { Sider, Content } = Layout;
@@ -35,7 +35,6 @@ const UserCenter = () => {
   const navigate = useNavigate();
   const [selectedKey, setSelectedKey] = useState('profile');
   const { user, updateUser } = useUser();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
   const [editingAddress, setEditingAddress] = useState<Address | null>(null);
@@ -50,26 +49,12 @@ const UserCenter = () => {
     }
   }, [navigate]);
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 2 * 1024 * 1024) {
-      message.warning('图片大小不能超过 2MB');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      updateUser({ avatar: dataUrl });
-      message.success('头像更新成功！');
-    };
-    reader.onerror = () => {
-      message.error('读取文件失败，请重试');
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+  // 头像经 OSS 上传后只存 URL（不再存 base64）；
+  // 头像列落库（AVATAR_URL）属 M4 的 DDL 变更，当前沿用 localStorage 持久化。
+  const handleAvatarChange = (url?: string) => {
+    if (!url) return;
+    updateUser({ avatar: url });
+    message.success('头像更新成功！');
   };
 
   // 渲染个人资料
@@ -79,22 +64,15 @@ const UserCenter = () => {
       <Divider />
       <div className="profile-info">
         <div className="profile-avatar">
-          <Avatar src={user.avatar} size={100} />
-          <Button
-            icon={<EditOutlined />}
-            size="small"
-            style={{ marginTop: 12 }}
-            onClick={() => fileInputRef.current?.click()}
+          <FileUploader
+            folder="avatar"
+            value={user.avatar}
+            onChange={handleAvatarChange}
+            showUploadList={false}
           >
-            更换头像
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            style={{ display: 'none' }}
-            onChange={handleAvatarUpload}
-          />
+            <Avatar src={user.avatar} size={100} />
+          </FileUploader>
+          <div style={{ marginTop: 12, color: '#999', fontSize: 12 }}>点击头像更换</div>
         </div>
         <div className="profile-details">
           <div className="detail-row">
