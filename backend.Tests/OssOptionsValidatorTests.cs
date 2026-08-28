@@ -7,7 +7,8 @@ namespace ShowtimeBackend.Tests;
 
 /// <summary>
 /// 验证 OssOptions 启动期校验：kill-switch 关闭时不做任何必填校验，
-/// 开启时要求 Endpoint/Bucket/BaseUrl 已配置（AccessKey 属运行时敏感项，不在此校验）。
+/// 开启时要求 Endpoint/Bucket/BaseUrl/AccessKeyId/AccessKeySecret 均已配置
+/// （AccessKey 缺失会让 OssClient 构造即抛异常，故启用后一并 fail-fast）。
 /// </summary>
 public sealed class OssOptionsValidatorTests
 {
@@ -19,9 +20,6 @@ public sealed class OssOptionsValidatorTests
         var options = new OssOptions
         {
             Enabled = false,
-            Endpoint = string.Empty,
-            Bucket = string.Empty,
-            BaseUrl = string.Empty,
         };
 
         var result = _validator.Validate(null, options);
@@ -32,13 +30,7 @@ public sealed class OssOptionsValidatorTests
     [Fact]
     public void Validate_EnabledAndComplete_Succeeds()
     {
-        var options = new OssOptions
-        {
-            Enabled = true,
-            Endpoint = "https://oss-cn-hangzhou.aliyuncs.com",
-            Bucket = "showtime-assets",
-            BaseUrl = "https://showtime-assets.oss-cn-hangzhou.aliyuncs.com",
-        };
+        var options = NewEnabledOptions();
 
         var result = _validator.Validate(null, options);
 
@@ -49,54 +41,78 @@ public sealed class OssOptionsValidatorTests
     [InlineData("Endpoint", "")]
     [InlineData("Bucket", "")]
     [InlineData("BaseUrl", " ")]
+    [InlineData("AccessKeyId", "")]
+    [InlineData("AccessKeySecret", " ")]
     public void Validate_EnabledMissingField_Fails(
         string missingField,
         string missingValue)
     {
-        var options = new OssOptions
+        var options = NewEnabledOptions();
+        options = missingField switch
         {
-            Enabled = true,
-            Endpoint = "https://oss-cn-hangzhou.aliyuncs.com",
-            Bucket = "showtime-assets",
-            BaseUrl = "https://showtime-assets.oss-cn-hangzhou.aliyuncs.com",
+            "Endpoint" => new OssOptions
+            {
+                Enabled = true,
+                Endpoint = missingValue,
+                Bucket = options.Bucket,
+                BaseUrl = options.BaseUrl,
+                AccessKeyId = options.AccessKeyId,
+                AccessKeySecret = options.AccessKeySecret,
+            },
+            "Bucket" => new OssOptions
+            {
+                Enabled = true,
+                Endpoint = options.Endpoint,
+                Bucket = missingValue,
+                BaseUrl = options.BaseUrl,
+                AccessKeyId = options.AccessKeyId,
+                AccessKeySecret = options.AccessKeySecret,
+            },
+            "BaseUrl" => new OssOptions
+            {
+                Enabled = true,
+                Endpoint = options.Endpoint,
+                Bucket = options.Bucket,
+                BaseUrl = missingValue,
+                AccessKeyId = options.AccessKeyId,
+                AccessKeySecret = options.AccessKeySecret,
+            },
+            "AccessKeyId" => new OssOptions
+            {
+                Enabled = true,
+                Endpoint = options.Endpoint,
+                Bucket = options.Bucket,
+                BaseUrl = options.BaseUrl,
+                AccessKeyId = missingValue,
+                AccessKeySecret = options.AccessKeySecret,
+            },
+            "AccessKeySecret" => new OssOptions
+            {
+                Enabled = true,
+                Endpoint = options.Endpoint,
+                Bucket = options.Bucket,
+                BaseUrl = options.BaseUrl,
+                AccessKeyId = options.AccessKeyId,
+                AccessKeySecret = missingValue,
+            },
+            _ => options,
         };
-
-        switch (missingField)
-        {
-            case "Endpoint":
-                options = new OssOptions
-                {
-                    Enabled = true,
-                    Endpoint = missingValue,
-                    Bucket = options.Bucket,
-                    BaseUrl = options.BaseUrl,
-                };
-                break;
-            case "Bucket":
-                options = new OssOptions
-                {
-                    Enabled = true,
-                    Endpoint = options.Endpoint,
-                    Bucket = missingValue,
-                    BaseUrl = options.BaseUrl,
-                };
-                break;
-            case "BaseUrl":
-                options = new OssOptions
-                {
-                    Enabled = true,
-                    Endpoint = options.Endpoint,
-                    Bucket = options.Bucket,
-                    BaseUrl = missingValue,
-                };
-                break;
-        }
 
         var result = _validator.Validate(null, options);
 
         Assert.True(result.Failed);
         Assert.Contains($"Oss:{missingField}", result.Failures.First());
     }
+
+    private static OssOptions NewEnabledOptions() => new()
+    {
+        Enabled = true,
+        Endpoint = "https://oss-cn-hangzhou.aliyuncs.com",
+        Bucket = "showtime-assets",
+        BaseUrl = "https://showtime-assets.oss-cn-hangzhou.aliyuncs.com",
+        AccessKeyId = "test-access-key-id",
+        AccessKeySecret = "test-access-key-secret",
+    };
 
     [Fact]
     public void Defaults_MatchPlan()
@@ -119,6 +135,8 @@ public sealed class OssOptionsValidatorTests
             {
                 ["Oss:Enabled"] = "true",
                 ["Oss:Endpoint"] = "https://oss-cn-hangzhou.aliyuncs.com",
+                ["Oss:AccessKeyId"] = "test-access-key-id",
+                ["Oss:AccessKeySecret"] = "test-access-key-secret",
                 ["Oss:Bucket"] = "showtime-assets",
                 ["Oss:BaseUrl"] = "https://showtime-assets.oss-cn-hangzhou.aliyuncs.com",
                 ["Oss:MaxFileSizeBytes"] = "1048576",

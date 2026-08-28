@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
+using ShowtimeBackend.Services.FileStorage;
 
 namespace ShowtimeBackend.Tests;
 
@@ -25,10 +26,17 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
     private readonly FixedTimeProvider _timeProvider;
     private readonly string? _jwtKey;
+    private readonly bool _ossEnabled;
+    private readonly bool _replaceWithFakeStorage;
 
-    public AuthTestFactory(string? jwtKey = TestKey)
+    public AuthTestFactory(
+        string? jwtKey = TestKey,
+        bool ossEnabled = false,
+        bool replaceWithFakeStorage = false)
     {
         _jwtKey = jwtKey;
+        _ossEnabled = ossEnabled;
+        _replaceWithFakeStorage = replaceWithFakeStorage;
         UtcNow = DateTimeOffset.UtcNow;
         _timeProvider = new FixedTimeProvider(UtcNow);
         _connection.Open();
@@ -107,9 +115,18 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
                 ["Jwt:ExpirationMinutes"] = "120",
                 ["TicketSecurity:SigningKeyBase64"] =
                     "ERERERERERERERERERERERERERERERERERERERERERE=",
-                // 测试环境不启用 OSS（kill-switch 关闭，跳过启动期配置校验）；
-                // 上传相关测试直接注入 FakeFileStorageService，不依赖真实 OSS。
-                ["Oss:Enabled"] = "false",
+                // 测试环境默认不启用 OSS（kill-switch 关闭，跳过启动期配置校验）；
+                // ossEnabled=true 时给出合法占位配置（AccessKey 由测试注入 fake 或在校验前短路，不真连 OSS）。
+                ["Oss:Enabled"] = _ossEnabled ? "true" : "false",
+                ["Oss:Endpoint"] = "https://oss-cn-hangzhou.aliyuncs.com",
+                // 非空测试密钥：满足启动校验且 OssClient 可构造；
+                // 校验类用例在触网前短路，成功路径用 fake 覆盖，不会真连 OSS。
+                ["Oss:AccessKeyId"] = "test-access-key-id",
+                ["Oss:AccessKeySecret"] = "test-access-key-secret",
+                ["Oss:Bucket"] = "showtime-assets",
+                ["Oss:BaseUrl"] = "https://showtime-assets.oss-cn-hangzhou.aliyuncs.com",
+                // 测试用小体积上限，超限用例无需真的发 5MB
+                ["Oss:MaxFileSizeBytes"] = "2048",
             });
         });
         builder.ConfigureServices(services =>
@@ -118,6 +135,13 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
             services.RemoveAll<TimeProvider>();
+
+            if (_ossEnabled && _replaceWithFakeStorage)
+            {
+                // 上传全链路（含成功路径）测试：注入内存 fake，不依赖真实 OSS
+                services.RemoveAll<IFileStorageService>();
+                services.AddSingleton<IFileStorageService, FakeFileStorageService>();
+            }
 
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
             services.AddSingleton<TimeProvider>(_timeProvider);

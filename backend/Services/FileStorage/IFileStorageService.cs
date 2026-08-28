@@ -2,8 +2,8 @@ namespace ShowtimeBackend.Services.FileStorage;
 
 /// <summary>
 /// 文件存储服务抽象（上行/下行）。
-/// 默认实现基于阿里云 OSS（OssFileStorageService，M2 引入）；
-/// 单测与无 OSS 环境使用 FakeFileStorageService（内存实现），不依赖真实 OSS。
+/// 默认实现为 OssFileStorageService（阿里云 OSS）；
+/// 单测与未启用 OSS（Oss:Enabled=false）的环境使用 FakeFileStorageService（内存实现）。
 /// </summary>
 public interface IFileStorageService
 {

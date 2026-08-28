@@ -20,6 +20,8 @@ using ShowtimeBackend.Services.OrderTicket;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
 using ShowtimeBackend.Services.SeatZone;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
 
@@ -56,8 +58,22 @@ builder.Services
 builder.Services.AddSingleton<
     Microsoft.Extensions.Options.IValidateOptions<OssOptions>,
     OssOptionsValidator>();
-// 文件存储服务：M1 先用内存 fake 打通骨架；M2 替换为 OssFileStorageService（真实 OSS 实现）。
-builder.Services.AddSingleton<IFileStorageService, FakeFileStorageService>();
+// 文件存储服务：Oss:Enabled=false（kill-switch，如本地无 OSS 环境）时用内存 fake 继续开发；
+// 启用后走真实 OSS 实现（AccessKey 只存在后端，代理上传）。
+// 注意：通过已解析的 IOptions<OssOptions> 懒判断，而非配置的即时读取——
+// 这样测试/运行时注入的 Oss:Enabled 覆盖才生效（即时读取会错过后置配置源）。
+builder.Services.AddSingleton<OssFileStorageService>();
+builder.Services.AddSingleton<FakeFileStorageService>();
+builder.Services.AddSingleton<IFileStorageService>(serviceProvider =>
+{
+    var ossEnabled = serviceProvider
+        .GetRequiredService<IOptions<OssOptions>>()
+        .Value
+        .Enabled;
+    return ossEnabled
+        ? serviceProvider.GetRequiredService<OssFileStorageService>()
+        : serviceProvider.GetRequiredService<FakeFileStorageService>();
+});
 
 builder.Services
     .AddOptions<JwtOptions>()
