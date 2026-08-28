@@ -10,10 +10,12 @@ using ShowtimeBackend.Common;
 using ShowtimeBackend.Common.Jwt;
 using ShowtimeBackend.Common.Middlewares;
 using ShowtimeBackend.Common.OpenApi;
+using ShowtimeBackend.Common.Oss;
 using ShowtimeBackend.Common.TicketSecurity;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.UserPermission;
+using ShowtimeBackend.Services.FileStorage;
 using ShowtimeBackend.Services.OrderTicket;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
@@ -44,6 +46,18 @@ builder.Services.AddStackExchangeRedisCache(options =>
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(redisConnectionString)));
 builder.Services.AddSingleton<ISeatLockGuard, RedisSeatLockGuard>();
+
+// OSS 文件存储配置：启动即校验（仅 Oss:Enabled=true 时要求 Endpoint/Bucket/BaseUrl）；
+// AccessKeyId/Secret 走环境变量 Oss__AccessKeyId / Oss__AccessKeySecret 注入，不落仓库。
+builder.Services
+    .AddOptions<OssOptions>()
+    .Bind(builder.Configuration.GetSection(OssOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<
+    Microsoft.Extensions.Options.IValidateOptions<OssOptions>,
+    OssOptionsValidator>();
+// 文件存储服务：M1 先用内存 fake 打通骨架；M2 替换为 OssFileStorageService（真实 OSS 实现）。
+builder.Services.AddSingleton<IFileStorageService, FakeFileStorageService>();
 
 builder.Services
     .AddOptions<JwtOptions>()

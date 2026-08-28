@@ -107,6 +107,9 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
                 ["Jwt:ExpirationMinutes"] = "120",
                 ["TicketSecurity:SigningKeyBase64"] =
                     "ERERERERERERERERERERERERERERERERERERERERERE=",
+                // 测试环境不启用 OSS（kill-switch 关闭，跳过启动期配置校验）；
+                // 上传相关测试直接注入 FakeFileStorageService，不依赖真实 OSS。
+                ["Oss:Enabled"] = "false",
             });
         });
         builder.ConfigureServices(services =>
