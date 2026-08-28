@@ -9,6 +9,8 @@ on:
 
 env:
   DOTNET_VERSION: '10.0.x'
+  # ✅ 修复1：添加后端启动所需的环境变量
+  TicketSecurity__SigningKeyBase64: 'dummy-key-for-ci-only-do-not-use-in-production'
 
 jobs:
   build:
@@ -194,6 +196,7 @@ jobs:
         env:
           ASPNETCORE_ENVIRONMENT: Development
           ASPNETCORE_URLS: http://127.0.0.1:5000
+          TicketSecurity__SigningKeyBase64: ${{ env.TicketSecurity__SigningKeyBase64 }}
         run: |
           dotnet ./bin/Release/net10.0/ShowtimeBackend.dll &
           APP_PID=$!
@@ -243,13 +246,14 @@ jobs:
           fi
 
   # ============================================================
-  # ✅ 新增：Playwright E2E Tests
+  # Playwright E2E Tests
   # ============================================================
   e2e-test:
     name: Playwright E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [build, frontend]
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/Develop'
 
     steps:
       - name: Checkout repository
@@ -293,15 +297,12 @@ jobs:
         env:
           ASPNETCORE_ENVIRONMENT: Development
           ASPNETCORE_URLS: http://127.0.0.1:5000
+          TicketSecurity__SigningKeyBase64: ${{ env.TicketSecurity__SigningKeyBase64 }}
         run: |
           echo "=== Starting services ==="
-          
-          # 检查 dotnet 是否可用
+
           dotnet --version
-          
-          # 检查后端 DLL 是否存在
-          ls -la backend/bin/Release/net10.0/ || echo "❌ Backend DLL not found"
-          
+
           echo "Starting backend..."
           cd backend
           dotnet ./bin/Release/net10.0/ShowtimeBackend.dll &
@@ -319,7 +320,7 @@ jobs:
 
           echo "Starting frontend..."
           cd ../frontend
-          npm run dev -- --port 5173 &
+          npm run dev -- --port 5173 --host 127.0.0.1 &
           FRONTEND_PID=$!
 
           echo "Waiting for frontend..."
@@ -332,7 +333,6 @@ jobs:
             sleep 2
           done
 
-          # 检查服务是否真的在运行
           echo "=== Service check ==="
           curl -v http://127.0.0.1:5000 || echo "❌ Backend check failed"
           curl -v http://127.0.0.1:5173 || echo "❌ Frontend check failed"
