@@ -1,0 +1,14 @@
+# 本地开发一键依赖：docker compose up -d redis
+# 用法：docker compose ps 确认 redis 健康后，再 dotnet run 启动后端。
+services:
+  redis:
+    image: redis:7
+    container_name: showtime-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

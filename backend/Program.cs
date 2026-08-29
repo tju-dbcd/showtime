@@ -10,15 +10,20 @@ using ShowtimeBackend.Common;
 using ShowtimeBackend.Common.Jwt;
 using ShowtimeBackend.Common.Middlewares;
 using ShowtimeBackend.Common.OpenApi;
+using ShowtimeBackend.Common.Oss;
 using ShowtimeBackend.Common.TicketSecurity;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.UserPermission;
+using ShowtimeBackend.Services.FileStorage;
 using ShowtimeBackend.Services.OrderTicket;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
 using ShowtimeBackend.Services.SeatZone;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,6 +34,45 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
         configuration.GetConnectionString("Oracle")
         ?? throw new InvalidOperationException(
             "Connection string 'Oracle' is not set."));
+});
+
+// Redis：懒连接注册，启动不阻塞；Redis 未启动时应用照常启动，选座锁守卫自动降级为纯 Oracle 流程。
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
+    ?? "localhost:6379,abortConnect=false,connectRetry=3,connectTimeout=3000";
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    // 常规缓存（场次/演出热点缓存等里程碑 5 场景直接使用 IDistributedCache）
+    options.Configuration = redisConnectionString;
+    options.InstanceName = "showtime:";
+});
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(redisConnectionString)));
+builder.Services.AddSingleton<ISeatLockGuard, RedisSeatLockGuard>();
+
+// OSS 文件存储配置：启动即校验（仅 Oss:Enabled=true 时要求 Endpoint/Bucket/BaseUrl）；
+// AccessKeyId/Secret 走环境变量 Oss__AccessKeyId / Oss__AccessKeySecret 注入，不落仓库。
+builder.Services
+    .AddOptions<OssOptions>()
+    .Bind(builder.Configuration.GetSection(OssOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<
+    Microsoft.Extensions.Options.IValidateOptions<OssOptions>,
+    OssOptionsValidator>();
+// 文件存储服务：Oss:Enabled=false（kill-switch，如本地无 OSS 环境）时用内存 fake 继续开发；
+// 启用后走真实 OSS 实现（AccessKey 只存在后端，代理上传）。
+// 注意：通过已解析的 IOptions<OssOptions> 懒判断，而非配置的即时读取——
+// 这样测试/运行时注入的 Oss:Enabled 覆盖才生效（即时读取会错过后置配置源）。
+builder.Services.AddSingleton<OssFileStorageService>();
+builder.Services.AddSingleton<FakeFileStorageService>();
+builder.Services.AddSingleton<IFileStorageService>(serviceProvider =>
+{
+    var ossEnabled = serviceProvider
+        .GetRequiredService<IOptions<OssOptions>>()
+        .Value
+        .Enabled;
+    return ossEnabled
+        ? serviceProvider.GetRequiredService<OssFileStorageService>()
+        : serviceProvider.GetRequiredService<FakeFileStorageService>();
 });
 
 builder.Services
@@ -136,7 +180,14 @@ builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();
 builder.Services.AddSingleton<IOrderTicketAuditSink, NullOrderTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
-builder.Services.AddScoped<ISeatLockService, SeatLockService>();
+builder.Services.AddScoped<ISeatLockService>(serviceProvider =>
+    new SeatLockService(
+        serviceProvider.GetRequiredService<AppDbContext>(),
+        serviceProvider.GetRequiredService<TimeProvider>(),
+        serviceProvider.GetRequiredService<ISeatLockGuard>(),
+        // Redis:SeatLockGuardEnabled 为 kill-switch，false 时完全走纯 Oracle 流程
+        serviceProvider.GetRequiredService<IConfiguration>()
+            .GetValue("Redis:SeatLockGuardEnabled", true)));
 builder.Services.AddScoped<IAdminShowService, AdminShowService>();
 builder.Services.AddScoped<IClientShowService, ClientShowService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();

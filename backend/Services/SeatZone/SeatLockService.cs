@@ -11,7 +11,9 @@ namespace ShowtimeBackend.Services.SeatZone;
 /// </summary>
 public sealed class SeatLockService(
     AppDbContext dbContext,
-    TimeProvider timeProvider) : ISeatLockService
+    TimeProvider timeProvider,
+    ISeatLockGuard? seatLockGuard = null,
+    bool guardEnabled = true) : ISeatLockService
 {
     // NUMBER(3) 的选座规则最多允许 999 个座位，同时避免超过 Oracle IN 条件数量限制。
     private const int MaxSeatsPerRequest = 999;
@@ -144,6 +146,22 @@ public sealed class SeatLockService(
             UpdateBy = actor
         }).ToList();
 
+        // Redis 前置快速判定（在 DB 只读校验之后、写事务之前）：
+        // 抢不到的请求直接 409，避免大量 INSERT 撞活动锁唯一索引的无效往返。
+        // Unavailable（Redis 异常）时跳过守卫，降级为纯 Oracle 流程，购票不被阻断。
+        if (seatLockGuard is not null && guardEnabled)
+        {
+            var acquireResult = await seatLockGuard.TryAcquireAsync(
+                sessionId, locks, LockDuration, cancellationToken);
+            if (acquireResult == SeatLockGuardAcquireResult.Conflict)
+            {
+                return SeatZoneResult<SeatLockBatchResponse>.Fail(
+                    SeatZoneFailure.Conflict,
+                    "SEAT_LOCK_CONFLICT",
+                    "One or more seats are already locked.");
+            }
+        }
+
         await using var transaction = dbContext.Database.IsRelational()
             ? await dbContext.Database.BeginTransactionAsync(cancellationToken)
             : null;
@@ -171,7 +189,9 @@ public sealed class SeatLockService(
         }
         catch (DbUpdateException exception) when (ContainsOracleError(exception, 1))
         {
-            // 两个请求同时通过前置查询时，最终由 Oracle 唯一索引决定谁获得座位。
+            // 两个请求同时通过前置查询/Redis 判定时，最终由 Oracle 唯一索引决定谁获得座位。
+            // 仲裁失败方回滚 Redis 已获取的锁，保持双通道一致。
+            await ReleaseGuardKeysAsync(sessionId, locks);
             return SeatZoneResult<SeatLockBatchResponse>.Fail(
                 SeatZoneFailure.Conflict,
                 "SEAT_LOCK_CONFLICT",
@@ -271,8 +291,28 @@ public sealed class SeatLockService(
             await transaction.CommitAsync(cancellationToken);
         }
 
+        // DB 释放成功后才释放 Redis 锁；Redis 侧失败由 TTL 兜底，不影响释放结果。
+        await ReleaseGuardKeysAsync(sessionId, locks);
+
         return SeatZoneResult<SeatLockReleaseResponse>.Success(
             new SeatLockReleaseResponse(sessionId, locks.Count));
+    }
+
+    /// <summary>尽力释放一批座位锁的 Redis key（每把按 token 比对防误删）；无守卫时跳过。</summary>
+    private async Task ReleaseGuardKeysAsync(
+        long sessionId,
+        IReadOnlyCollection<SeatLock> locks)
+    {
+        if (seatLockGuard is null)
+        {
+            return;
+        }
+
+        foreach (var seatLock in locks)
+        {
+            await seatLockGuard.ReleaseAsync(
+                sessionId, seatLock.SeatId, seatLock.LockToken);
+        }
     }
 
     private static bool ContainsOracleError(Exception exception, int number)
