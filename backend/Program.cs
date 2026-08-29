@@ -27,14 +27,15 @@ using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
-{
-    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-    options.UseOracle(
-        configuration.GetConnectionString("Oracle")
-        ?? throw new InvalidOperationException(
-            "Connection string 'Oracle' is not set."));
-});
+// Oracle/SQLite 共用连接配置：业务上下文走 scoped AddDbContext；
+// 审计 sink（DbOperationTicketAuditSink）经 IDbContextFactory 创建独立实例，
+// 保证审计写入不卷入业务事务。
+Action<DbContextOptionsBuilder> configureDatabase = options => options.UseOracle(
+    builder.Configuration.GetConnectionString("Oracle")
+    ?? throw new InvalidOperationException(
+        "Connection string 'Oracle' is not set."));
+builder.Services.AddDbContext<AppDbContext>(configureDatabase);
+builder.Services.AddDbContextFactory<AppDbContext>(configureDatabase);
 
 // Redis：懒连接注册，启动不阻塞；Redis 未启动时应用照常启动，选座锁守卫自动降级为纯 Oracle 流程。
 var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
@@ -177,7 +178,7 @@ builder.Services.AddSingleton<RefundPolicyEngine>();
 builder.Services.AddScoped<IRefundLockCoordinator, OracleRefundLockCoordinator>();
 builder.Services.AddScoped<IRefundApplicationService, RefundApplicationService>();
 builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();
-builder.Services.AddSingleton<IOrderTicketAuditSink, NullOrderTicketAuditSink>();
+builder.Services.AddScoped<IOrderTicketAuditSink, DbOperationTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
 builder.Services.AddScoped<ISeatLockService>(serviceProvider =>
