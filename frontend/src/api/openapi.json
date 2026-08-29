@@ -4929,6 +4929,180 @@
         ]
       }
     },
+    "/api/admin/tickets/redeem": {
+      "post": {
+        "tags": [
+          "Admin Tickets"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemTicketRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemTicketRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemTicketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfTicketRedemptionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
+      }
+    },
     "/api/orders": {
       "get": {
         "tags": [
@@ -7215,6 +7389,39 @@
           }
         }
       },
+      "ApiResponseOfTicketRedemptionResponse": {
+        "required": [
+          "success",
+          "data",
+          "code",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TicketRedemptionResponse"
+              }
+            ]
+          },
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "ApproveRefundRequest": {
         "required": [
           "remark"
@@ -8501,6 +8708,23 @@
           },
           "status": {
             "$ref": "#/components/schemas/PriceStrategyStatus"
+          }
+        }
+      },
+      "RedeemTicketRequest": {
+        "required": [
+          "qrCode",
+          "checkDevice"
+        ],
+        "type": "object",
+        "properties": {
+          "qrCode": {
+            "maxLength": 255,
+            "type": "string"
+          },
+          "checkDevice": {
+            "maxLength": 100,
+            "type": "string"
           }
         }
       },
@@ -10476,6 +10700,70 @@
           }
         }
       },
+      "TicketRedemptionResponse": {
+        "required": [
+          "eTicketId",
+          "eTicketNo",
+          "orderId",
+          "orderItemId",
+          "sessionId",
+          "ticketStatus",
+          "checkTime",
+          "checkDevice",
+          "checkBy"
+        ],
+        "type": "object",
+        "properties": {
+          "eTicketId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "eTicketNo": {
+            "type": "string"
+          },
+          "orderId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "orderItemId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "sessionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "ticketStatus": {
+            "$ref": "#/components/schemas/ETicketStatus"
+          },
+          "checkTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "checkDevice": {
+            "type": "string"
+          },
+          "checkBy": {
+            "type": "string"
+          }
+        }
+      },
       "TicketResponse": {
         "required": [
           "eTicketId",
@@ -10688,6 +10976,9 @@
     },
     {
       "name": "Admin Refunds"
+    },
+    {
+      "name": "Admin Tickets"
     },
     {
       "name": "Orders"
