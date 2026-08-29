@@ -93,6 +93,12 @@ builder.Services.AddSingleton<
     TicketSecurityOptionsValidator>();
 
 builder.Services
+    .AddOptions<TicketRedemptionOptions>()
+    .Bind(builder.Configuration.GetSection(TicketRedemptionOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -164,6 +170,7 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ITicketIssuanceService, TicketIssuanceService>();
 builder.Services.AddScoped<ITicketQueryService, TicketQueryService>();
+builder.Services.AddScoped<ITicketRedemptionService, TicketRedemptionService>();
 builder.Services.AddScoped<IAdminTicketIssuanceService, AdminTicketIssuanceService>();
 builder.Services.AddScoped<IRefundPolicyAdminService, RefundPolicyAdminService>();
 builder.Services.AddSingleton<RefundPolicyEngine>();
@@ -190,6 +197,7 @@ builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
     options.AddSchemaTransformer<EnumStringSchemaTransformer>();
+    options.AddSchemaTransformer<TicketRedemptionSchemaTransformer>();
 });
 
 var app = builder.Build();

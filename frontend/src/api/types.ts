@@ -3118,6 +3118,115 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/tickets/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RedeemTicketRequest"];
+                    "text/json": components["schemas"]["RedeemTicketRequest"];
+                    "application/*+json": components["schemas"]["RedeemTicketRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfTicketRedemptionResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/orders": {
         parameters: {
             query?: never;
@@ -4107,6 +4216,12 @@ export interface components {
             code: null | string;
             message: string;
         };
+        ApiResponseOfTicketRedemptionResponse: {
+            success: boolean;
+            data: null | components["schemas"]["TicketRedemptionResponse"];
+            code: null | string;
+            message: string;
+        };
         ApiResponseOfUserResponse: {
             success: boolean;
             data: null | components["schemas"]["UserResponse"];
@@ -4421,6 +4536,10 @@ export interface components {
             /** Format: double */
             price: number | string;
             status: components["schemas"]["PriceStrategyStatus"];
+        };
+        RedeemTicketRequest: {
+            qrCode: string;
+            checkDevice: string;
         };
         /** @enum {string} */
         RefundApproveStatus: "PENDING" | "APPROVED" | "REJECTED";
@@ -4871,6 +4990,22 @@ export interface components {
             totalTicketCount: number | string;
             /** Format: date-time */
             issueTime: string;
+        };
+        TicketRedemptionResponse: {
+            /** Format: int64 */
+            eTicketId: number | string;
+            eTicketNo: string;
+            /** Format: int64 */
+            orderId: number | string;
+            /** Format: int64 */
+            orderItemId: number | string;
+            /** Format: int64 */
+            sessionId: number | string;
+            ticketStatus: components["schemas"]["ETicketStatus"];
+            /** Format: date-time */
+            checkTime: string;
+            checkDevice: string;
+            checkBy: string;
         };
         TicketResponse: {
             /** Format: int64 */
