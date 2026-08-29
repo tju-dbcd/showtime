@@ -10,14 +10,18 @@ using ShowtimeBackend.Common;
 using ShowtimeBackend.Common.Jwt;
 using ShowtimeBackend.Common.Middlewares;
 using ShowtimeBackend.Common.OpenApi;
+using ShowtimeBackend.Common.Oss;
 using ShowtimeBackend.Common.TicketSecurity;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.UserPermission;
+using ShowtimeBackend.Services.FileStorage;
 using ShowtimeBackend.Services.OrderTicket;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
 using ShowtimeBackend.Services.SeatZone;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
 
@@ -44,6 +48,32 @@ builder.Services.AddStackExchangeRedisCache(options =>
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(redisConnectionString)));
 builder.Services.AddSingleton<ISeatLockGuard, RedisSeatLockGuard>();
+
+// OSS 文件存储配置：启动即校验（仅 Oss:Enabled=true 时要求 Endpoint/Bucket/BaseUrl）；
+// AccessKeyId/Secret 走环境变量 Oss__AccessKeyId / Oss__AccessKeySecret 注入，不落仓库。
+builder.Services
+    .AddOptions<OssOptions>()
+    .Bind(builder.Configuration.GetSection(OssOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<
+    Microsoft.Extensions.Options.IValidateOptions<OssOptions>,
+    OssOptionsValidator>();
+// 文件存储服务：Oss:Enabled=false（kill-switch，如本地无 OSS 环境）时用内存 fake 继续开发；
+// 启用后走真实 OSS 实现（AccessKey 只存在后端，代理上传）。
+// 注意：通过已解析的 IOptions<OssOptions> 懒判断，而非配置的即时读取——
+// 这样测试/运行时注入的 Oss:Enabled 覆盖才生效（即时读取会错过后置配置源）。
+builder.Services.AddSingleton<OssFileStorageService>();
+builder.Services.AddSingleton<FakeFileStorageService>();
+builder.Services.AddSingleton<IFileStorageService>(serviceProvider =>
+{
+    var ossEnabled = serviceProvider
+        .GetRequiredService<IOptions<OssOptions>>()
+        .Value
+        .Enabled;
+    return ossEnabled
+        ? serviceProvider.GetRequiredService<OssFileStorageService>()
+        : serviceProvider.GetRequiredService<FakeFileStorageService>();
+});
 
 builder.Services
     .AddOptions<JwtOptions>()

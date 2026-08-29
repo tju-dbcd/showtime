@@ -17,9 +17,12 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        // 如果后端返回的是 userName，映射到 username
+        // 如果后端返回的是 userName，映射到 username；avatarUrl 映射到 avatar
         if (parsed.userName && !parsed.username) {
           parsed.username = parsed.userName;
+        }
+        if (parsed.avatarUrl && !parsed.avatar) {
+          parsed.avatar = parsed.avatarUrl;
         }
         return { ...mockUser, ...parsed };
       } catch {

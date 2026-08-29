@@ -6,4 +6,5 @@ public sealed record UserResponse(
     string? Nickname,
     string Phone,
     string? Email,
-    IReadOnlyList<string> Roles);
+    IReadOnlyList<string> Roles,
+    string? AvatarUrl);

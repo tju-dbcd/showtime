@@ -59,6 +59,12 @@ public class SysUserConfiguration : IEntityTypeConfiguration<SysUser>
             .HasMaxLength(100)
             .IsUnicode(false);
 
+        builder.Property(entity => entity.AvatarUrl)
+            .HasColumnName("AVATAR_URL")
+            .HasColumnType("VARCHAR2(500 CHAR)")
+            .HasMaxLength(500)
+            .IsUnicode(false);
+
         builder.Property(entity => entity.OrgId)
             .HasColumnName("ORG_ID")
             .HasColumnType("NUMBER(19)");

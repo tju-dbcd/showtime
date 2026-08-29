@@ -191,6 +191,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateAvatarRequest"];
+                    "text/json": components["schemas"]["UpdateAvatarRequest"];
+                    "application/*+json": components["schemas"]["UpdateAvatarRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfUserResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfUserResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfUserResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfUserResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfUserResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfUserResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfUserResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfUserResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfUserResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfUserResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfUserResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfUserResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/categories": {
         parameters: {
             query?: never;
@@ -567,6 +643,95 @@ export interface paths {
                     "application/json": components["schemas"]["CreatePriceStrategyRequest"][];
                     "text/json": components["schemas"]["CreatePriceStrategyRequest"][];
                     "application/*+json": components["schemas"]["CreatePriceStrategyRequest"][];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfObject"];
+                        "application/json": components["schemas"]["ApiResponseOfObject"];
+                        "text/json": components["schemas"]["ApiResponseOfObject"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfObject"];
+                        "application/json": components["schemas"]["ApiResponseOfObject"];
+                        "text/json": components["schemas"]["ApiResponseOfObject"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfObject"];
+                        "application/json": components["schemas"]["ApiResponseOfObject"];
+                        "text/json": components["schemas"]["ApiResponseOfObject"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfObject"];
+                        "application/json": components["schemas"]["ApiResponseOfObject"];
+                        "text/json": components["schemas"]["ApiResponseOfObject"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfObject"];
+                        "application/json": components["schemas"]["ApiResponseOfObject"];
+                        "text/json": components["schemas"]["ApiResponseOfObject"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/sessions/{sessionId}/dynamic-pricing-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sessionId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateDynamicPricingRuleRequest"][];
+                    "text/json": components["schemas"]["CreateDynamicPricingRuleRequest"][];
+                    "application/*+json": components["schemas"]["CreateDynamicPricingRuleRequest"][];
                 };
             };
             responses: {
@@ -3610,6 +3775,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/files/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        File?: components["schemas"]["IFormFile"];
+                        Folder?: string;
+                        ContentType?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                    };
+                };
+                /** @description Payload Too Large */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3636,6 +3890,12 @@ export interface components {
             expireTime: string;
             /** Format: date-time */
             createTime: string;
+        };
+        ApiResponseOfFileUploadResponse: {
+            success: boolean;
+            data: null | components["schemas"]["FileUploadResponse"];
+            code: null | string;
+            message: string;
         };
         ApiResponseOfIEnumerableOfCategoryResponse: {
             success: boolean;
@@ -3847,6 +4107,12 @@ export interface components {
             code: null | string;
             message: string;
         };
+        ApiResponseOfUserResponse: {
+            success: boolean;
+            data: null | components["schemas"]["UserResponse"];
+            code: null | string;
+            message: string;
+        };
         ApproveRefundRequest: {
             remark: null | string;
         };
@@ -3858,6 +4124,24 @@ export interface components {
             parentId: null | number | string;
             /** Format: int32 */
             sortOrder: number | string;
+        };
+        CreateDynamicPricingRuleRequest: {
+            /** Format: int64 */
+            seatSectionId: null | number | string;
+            ruleName: string;
+            triggerType: string;
+            /** Format: int32 */
+            startOffsetMinutes: null | number | string;
+            /** Format: int32 */
+            endOffsetMinutes: null | number | string;
+            adjustmentType: string;
+            /** Format: double */
+            adjustmentValue: number | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            priority: number | string;
         };
         CreateOrderItemRequest: {
             /** Format: int64 */
@@ -3877,20 +4161,20 @@ export interface components {
         CreatePriceStrategyRequest: {
             /** Format: int64 */
             seatSectionId: number | string;
-            strategyName: null | string;
             priceType: components["schemas"]["PriceType"];
             /** Format: double */
             price: number | string;
+            strategyName?: null | string;
             /** Format: date-time */
-            saleStartTime: null | string;
+            saleStartTime?: null | string;
             /** Format: date-time */
-            saleEndTime: null | string;
+            saleEndTime?: null | string;
             /**
              * Format: int32
              * @default 0
              */
             priority: number | string;
-            /** Format: int64 */
+            /** Format: int32 */
             quota?: null | number | string;
         };
         CreateRefundRequest: {
@@ -3928,6 +4212,12 @@ export interface components {
             orderItemId: number | string;
             ticketStatus: components["schemas"]["ETicketStatus"];
         };
+        FileUploadResponse: {
+            url: string;
+            objectKey: string;
+        };
+        /** Format: binary */
+        IFormFile: string;
         LoginRequest: {
             account: string;
             password: string;
@@ -4591,6 +4881,9 @@ export interface components {
             ticketStatus: components["schemas"]["ETicketStatus"];
             qrCode: string;
         };
+        UpdateAvatarRequest: {
+            avatarUrl?: null | string;
+        };
         UpdateRefundPolicyStatusRequest: {
             /** Format: uint8 */
             status: number | string;
@@ -4616,6 +4909,7 @@ export interface components {
             phone: string;
             email: null | string;
             roles: string[];
+            avatarUrl: null | string;
         };
     };
     responses: never;

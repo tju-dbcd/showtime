@@ -41,10 +41,20 @@
      - 新功能的 Redis 用法一律走 `ISeatLockGuard`（锁）或 `IDistributedCache`（缓存，已注册好依赖），key 统一 `showtime:` 前缀
      - 锁的合法生命周期（ACTIVE→CONVERTED/RELEASED/EXPIRED）只在 DB 裁决；Redis key 只是加速版的存在性标记，双通道不一致时靠 TTL 自愈，不要手工改 Redis 里的锁
      - 单测不依赖真实 Redis（fake 注入），改动选座锁相关代码后 `dotnet test` 必须全绿
-4. 其他：
+4. OSS（阿里云对象存储：演出海报/营销图/头像等图片资源统一存储，里程碑 5 引入）：
+   - 角色定位：图片只存阿里云 OSS（Bucket **公共读**，URL 可直接用于 `<img>`）；**后端代理上传**——AccessKey 只存在后端，前端一律调 `POST /api/files/upload`（需认证）或 `FileUploader` 组件。业务表照旧存 URL 字符串（`Show.PosterUrl` 等 **VARCHAR2(500)，无需改字段**）。
+   - Kill-switch `Oss:Enabled`（默认 true）：false 时上传接口返回 `503 OSS_NOT_CONFIGURED`。本地无 OSS 环境默认置 false（`backend/appsettings.Development.json` 已内置），不装 OSS 也能照常开发/跑单测/上线其他功能。
+   - 敏感项：`Oss:AccessKeyId` / `Oss:AccessKeySecret` **不入库不入 git**；本地用 `dotnet user-secrets set "Oss:AccessKeyId" "<ram-key>"`（及 Secret），生产用环境变量 `Oss__AccessKeyId` / `Oss__AccessKeySecret`（或 KMS/Docker secret）注入，不要写进任何提交进仓库的文件。启用时启动即校验 Endpoint/Bucket/BaseUrl/AccessKey 非空（fail-fast）。
+   - 对象键（统一 `showtime/` 前缀，顶层目录即业务类型，GUID 服务端生成防猜测）：
+     - `showtime/{folder}/{yyyy}/{MM}/{guid}.{ext}`；folder 白名单：`show`（演出海报）/ `marketing`（营销内容图）/ `avatar`（用户头像）/ `tmp`（临时）
+     - 原文件名仅用于推断扩展名，落盘键一律服务端生成 GUID，杜绝路径穿越/重名覆盖
+   - 安全：扩展名白名单（默认 jpg/jpeg/png/webp/gif）+ Content-Type `image/*` 二次校验 + 大小上限（默认 5MB，超限返回 413 `FILE_TOO_LARGE`）+ 请求体 `RequestSizeLimit` 兜底，禁 .html/.svg/.js 等脚本类。
+   - 资源准备（一次性控制台操作）：Bucket（如 `showtime-assets`，**公共读**，Region 与 Endpoint 一致）+ RAM 子账号最小权限（仅 `oss:PutObject`/`oss:DeleteObject`，Resource 限定 `acs:oss:*:*:showtime-assets/showtime/*`）+（可选）`showtime/tmp/` 生命周期 1 天清理。
+   - 使用规则：新图片上传一律走统一上传接口/`FileUploader`，禁止前端手拼 URL；删除资源可选调 `IFileStorageService.DeleteObjectAsync` 清理对象；头像 URL 经 `PUT /api/users/me/avatar` 持久化到 `SYS_USER.AVATAR_URL`（DDL 走第 2 节 Alter 脚本流程）；单测不依赖真实 OSS（fake 注入 + 校验纯函数），改动相关代码后 `dotnet test` 必须全绿。
+5. 其他：
    - 尽可能遵守项目时间线的规定，如果有困难可以大家讨论调整时间线。如果无法遵守也没有及时告知大家，会拖慢整个项目的进度。
    - 如果数据库有什么问题或者有什么需要，请及时说出来，大家讨论解决。
-5. 运行/配置：
+6. 运行/配置：
    - 数据库连接串 `ConnectionStrings:Oracle`（完整连接串，如 `User Id=liborui;Password=liborui;Data Source=120.27.157.163:1521/XEPDB1`）**不提交仓库**：
      - 本地开发：用 `dotnet user-secrets` 注入（Development 环境自动加载，只存在你本机 `~/.microsoft/usersecrets` 下）：
        ```bash
@@ -57,9 +67,12 @@
      - 本地开发：仓库根 `docker compose up -d redis` 一键起（起不来时详见第 3 节 Redis 的端口占用说明）
      - 生产环境：通过环境变量 `ConnectionStrings__Redis`（或 KMS/Docker secret）注入，不要写进 `appsettings.json` 或任何提交进仓库的文件
      - Redis 配置项 `Redis:SeatLockGuardEnabled`（选座锁前置判定开关，默认 true）与 `Redis:SeatLockTtlSeconds`（锁 key TTL 秒，须与 DB 锁期一致）见第 3 节。
+   - OSS 配置 `Oss:` 节（Endpoint/Bucket/BaseUrl 本地已内置在 `backend/appsettings.Development.json`，`Enabled` 默认 false）：
+     - 本地联调 OSS：user-secrets 注入 AccessKey（`Oss:AccessKeyId` / `Oss:AccessKeySecret`），并把 `Oss:Enabled` 置 true；具体见第 4 节与 `backend/appsettings.example.json` 模板
+     - 生产环境：通过环境变量 `Oss__Endpoint` / `Oss__Bucket` / `Oss__BaseUrl` / `Oss__AccessKeyId` / `Oss__AccessKeySecret` / `Oss__Enabled`（或 KMS/Docker secret）注入，AccessKey 严禁写进任何提交进仓库的文件
    - 前端环境变量：`frontend/.env.production`、`frontend/.env.development` 已移出版本控制，真实值由 CI/部署注入；仓库内只保留 `frontend/.env.example` 占位模板。
    - JWT 签名密钥 `Jwt:Key` 在 `backend/appsettings.Development.json` 中配置了一个**仅限本地开发（DEV-ONLY）**的随机密钥，保证本地可直接启动。该值仅用于 Development 环境，**生产环境严禁复用**，必须通过环境变量 `Jwt__Key`（或其他密钥管理机制）覆盖，切勿把开发密钥写入 `appsettings.json` 或生产配置。
-6. 新人环境准备：
+7. 新人环境准备：
    - 前置条件：Git、**.NET 10 SDK**、**Node.js 22+**、**Docker**（可选，仅本地起 Redis 用）；个人数据库账号（账号密码均为姓名全拼，如 liborui/liborui），未开通找数据库管理员。编辑器编码保持 **UTF-8 无 BOM + LF**（Windows cmd 乱码用 `chcp 65001`）。
    - 拉代码：`git clone <仓库地址>` → `git checkout Develop` → `git checkout -b Feature/xxx功能`。
    - 后端：
@@ -72,6 +85,10 @@
      # （可选）本地起 Redis，供选座锁 Redis 前置判定使用；不装也不影响启动和单测，锁座会自动降级为纯 Oracle
      docker compose up -d redis
      redis-cli ping    # 返回 PONG 即就绪（需本机安装 redis-cli）
+
+     # （可选）联调 OSS 时才需要：注入 AccessKey（见第 4 节），并把 Development 里 Oss:Enabled 置 true；不配不影响启动/单测
+     dotnet user-secrets set "Oss:AccessKeyId" "<ram-access-key-id>"
+     dotnet user-secrets set "Oss:AccessKeySecret" "<ram-access-key-secret>"
 
      dotnet run        # 监听 http://localhost:5146
      ```
