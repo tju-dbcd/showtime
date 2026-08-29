@@ -81,7 +81,8 @@ const FileUploader = ({
     } catch (error) {
       const err = error instanceof Error ? error : new Error('上传失败，请重试');
       message.error(err.message);
-      onChange?.(undefined);
+      // 失败时不清空已存在的值（受控 value 保持不变）：
+      // 发布页表单中已填的海报 URL 不应因一次失败上传而被抹掉。
       onError?.(err as never);
     }
   };

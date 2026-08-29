@@ -3834,6 +3834,17 @@ export interface paths {
                         "text/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
                     };
                 };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfFileUploadResponse"];
+                    };
+                };
                 /** @description Service Unavailable */
                 503: {
                     headers: {

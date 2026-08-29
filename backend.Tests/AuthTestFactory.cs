@@ -28,15 +28,18 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
     private readonly string? _jwtKey;
     private readonly bool _ossEnabled;
     private readonly bool _replaceWithFakeStorage;
+    private readonly IFileStorageService? _customFileStorage;
 
     public AuthTestFactory(
         string? jwtKey = TestKey,
         bool ossEnabled = false,
-        bool replaceWithFakeStorage = false)
+        bool replaceWithFakeStorage = false,
+        IFileStorageService? customFileStorage = null)
     {
         _jwtKey = jwtKey;
         _ossEnabled = ossEnabled;
         _replaceWithFakeStorage = replaceWithFakeStorage;
+        _customFileStorage = customFileStorage;
         UtcNow = DateTimeOffset.UtcNow;
         _timeProvider = new FixedTimeProvider(UtcNow);
         _connection.Open();
@@ -136,7 +139,13 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
             services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
             services.RemoveAll<TimeProvider>();
 
-            if (_ossEnabled && _replaceWithFakeStorage)
+            if (_customFileStorage is not null)
+            {
+                // 指定注入的自定义实现（如模拟 OSS 故障的测试 double）优先
+                services.RemoveAll<IFileStorageService>();
+                services.AddSingleton(_customFileStorage);
+            }
+            else if (_ossEnabled && _replaceWithFakeStorage)
             {
                 // 上传全链路（含成功路径）测试：注入内存 fake，不依赖真实 OSS
                 services.RemoveAll<IFileStorageService>();

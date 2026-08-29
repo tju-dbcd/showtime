@@ -27,13 +27,16 @@ public sealed class FakeFileStorageService : IFileStorageService
         return new FileUploadResult(objectKey, objectKey);
     }
 
-    public Task<FileUploadResult> UploadFromMultipartAsync(
+    public async Task<FileUploadResult> UploadFromMultipartAsync(
         IFormFile file,
         string folder,
         CancellationToken cancellationToken = default)
     {
         using var stream = file.OpenReadStream();
-        return UploadFileAsync(stream, file.FileName, file.ContentType, folder, cancellationToken);
+        // 必须 await 后再离开 using 作用域：上传为异步过程，直接返回未 await 的
+        // task 会在方法返回时立即释放流，导致上传期间读取已被 Dispose 的流。
+        return await UploadFileAsync(
+            stream, file.FileName, file.ContentType, folder, cancellationToken);
     }
 
     public Task DeleteObjectAsync(

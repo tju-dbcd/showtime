@@ -31,6 +31,7 @@ public sealed class FilesController(
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status413PayloadTooLarge)]
+    [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<ApiResponse<FileUploadResponse>>> Upload(
         [FromForm] FileUploadRequest request,
@@ -82,6 +83,10 @@ public sealed class FilesController(
             {
                 FileUploadValidator.ErrorFileTooLarge
                     => StatusCodes.Status413PayloadTooLarge,
+                // 服务端与 OSS 通信故障属内部错误：500 而非 400，
+                // 避免客户端按"请求错误"无谓重试。
+                FileStorageException.ErrorUploadFailed
+                    => StatusCodes.Status500InternalServerError,
                 _ => StatusCodes.Status400BadRequest,
             };
             return StatusCode(

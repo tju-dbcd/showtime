@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using Microsoft.AspNetCore.Http;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.Files;
 using ShowtimeBackend.DTOs.UserPermission;
+using ShowtimeBackend.Services.FileStorage;
 
 namespace ShowtimeBackend.Tests;
 
@@ -142,6 +144,24 @@ public sealed class FilesControllerTests
     }
 
     [Fact]
+    public async Task Upload_StorageFailure_Returns500UploadFailed()
+    {
+        // OSS 服务端故障（模拟存储实现抛 UPLOAD_FAILED）：应映射 500，而非 400
+        using var factory = new AuthTestFactory(
+            ossEnabled: true,
+            customFileStorage: new ThrowingFileStorage());
+        using var client = await CreateAuthenticatedClientAsync(factory);
+
+        using var content = BuildMultipart("poster.png", "image/png", folder: "show");
+        var response = await client.PostAsync(UploadPath, content);
+        var envelope = await AuthTestFactory.ReadResponseAsync<FileUploadResponse>(response);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.False(envelope.Success);
+        Assert.Equal("UPLOAD_FAILED", envelope.Code);
+    }
+
+    [Fact]
     public async Task Upload_WithoutFolder_DefaultsToTmp()
     {
         using var factory = new AuthTestFactory(
@@ -175,6 +195,33 @@ public sealed class FilesControllerTests
     }
 
     // ---------- helpers ----------
+
+    /// <summary>模拟 OSS 服务端故障的文件存储（上传即抛 UPLOAD_FAILED）。</summary>
+    private sealed class ThrowingFileStorage : IFileStorageService
+    {
+        public Task<FileUploadResult> UploadFileAsync(
+            Stream content,
+            string fileName,
+            string contentType,
+            string folder,
+            CancellationToken cancellationToken = default) =>
+            throw new FileStorageException(
+                FileStorageException.ErrorUploadFailed,
+                "OSS unavailable (simulated).");
+
+        public Task<FileUploadResult> UploadFromMultipartAsync(
+            IFormFile file,
+            string folder,
+            CancellationToken cancellationToken = default) =>
+            throw new FileStorageException(
+                FileStorageException.ErrorUploadFailed,
+                "OSS unavailable (simulated).");
+
+        public Task DeleteObjectAsync(
+            string objectKey,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+    }
 
     private static async Task<HttpClient> CreateAuthenticatedClientAsync(
         AuthTestFactory factory)

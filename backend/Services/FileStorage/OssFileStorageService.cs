@@ -65,7 +65,7 @@ public sealed class OssFileStorageService(
                 objectKey,
                 ex.ErrorCode);
             throw new FileStorageException(
-                "UPLOAD_FAILED",
+                FileStorageException.ErrorUploadFailed,
                 "The file upload failed. Please try again later.");
         }
 
@@ -74,14 +74,16 @@ public sealed class OssFileStorageService(
             $"{_options.BaseUrl.TrimEnd('/')}/{objectKey}");
     }
 
-    public Task<FileUploadResult> UploadFromMultipartAsync(
+    public async Task<FileUploadResult> UploadFromMultipartAsync(
         IFormFile file,
         string folder,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(file);
         using var stream = file.OpenReadStream();
-        return UploadFileAsync(
+        // 必须 await 后再离开 using 作用域：上传为异步过程，直接返回未 await 的
+        // task 会在方法返回时立即释放流，导致上传期间读取已被 Dispose 的流。
+        return await UploadFileAsync(
             stream,
             file.FileName,
             file.ContentType,
@@ -112,7 +114,7 @@ public sealed class OssFileStorageService(
                 objectKey,
                 ex.ErrorCode);
             throw new FileStorageException(
-                "DELETE_FAILED",
+                FileStorageException.ErrorDeleteFailed,
                 "The file deletion failed. Please try again later.");
         }
     }
