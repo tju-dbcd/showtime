@@ -1,1 +1,361 @@
-﻿# SHOWTIME 部署文档本文档说明 SHOWTIME 项目从本地开发到生产部署的完整流程，包含环境依赖、配置项清单、数据库初始化、后端与前端部署、反向代理及常见问题排查。> 生产部署部分（第 5 节）为**通用骨架**，具体服务器信息（操作系统、域名、进程托管方式）确认后请据此补充完善。---## 目录1. [环境依赖](#1-环境依赖)2. [配置项清单](#2-配置项清单)3. [数据库初始化](#3-数据库初始化)4. [本地开发部署](#4-本地开发部署)5. [生产部署骨架](#5-生产部署骨架)6. [常见问题排查](#6-常见问题排查)7. [阿里云 OSS 配置](#7-阿里云-oss-配置)---## 1. 环境依赖| 软件 | 版本要求 | 用途 | 说明 ||------|----------|------|------|| .NET SDK | **10.0** | 后端编译运行 | 对应 `net10.0` TargetFramework || Node.js | 18+（建议 20 LTS） | 前端构建 | Vite 8 要求 || npm | 随 Node 附带 | 前端依赖管理 | 锁文件为 `package-lock.json` || Oracle 数据库 | **21c XE** | 数据存储 | 项目连接：`120.27.157.163:1521/XEPDB1` || Git | 2.x | 版本控制 | 遵循 [CONVENTIONS.md](../CONVENTIONS.md) 的分支规范 |**可选依赖**（尚未在仓库中引入，属规划能力）：| 软件 | 用途 | 状态 ||------|------|------|| Redis | 选座分布式锁（防超卖） | 规划中（PLAN 第 4 周） || 阿里云 OSS | 图片资源（演出海报/头像等）存储 | 可选（未启用时 `Oss:Enabled=false`，不影响其他功能；配置见第 7 节） || RabbitMQ | 订单状态异步通知 | 规划中（PLAN 第 5 周） || Loki + Grafana | 日志监控看板 | 规划中（PLAN 第 5 周） |---## 2. 配置项清单### 2.1 后端环境变量后端连接串由环境变量拼装（见 `backend/Program.cs`），**缺失时启动即抛异常**：| 变量名 | 必填 | 说明 | 示例 ||--------|------|------|------|| `Oracle_UserId` | 是 | 数据库用户名 | `liborui` || `Oracle_Password` | 是 | 数据库密码 | `liborui` || `ASPNETCORE_ENVIRONMENT` | 否 | 运行环境 | `Development` / `Production` |> 生产环境强烈建议通过进程托管系统的 Secret 管理（systemd `EnvironmentFile`、CI/CD 变量、K8s Secret 等）注入，**不要写死在 `appsettings.json` 或代码中**。### 2.2 后端连接串信息`Program.cs` 中的固定连接信息（如需变更环境，应改为可配置）：| 项 | 值 ||----|----|| 主机 | `120.27.157.163` || 端口 | `1521` || 服务名 | `XEPDB1` || 默认 Schema | `APP_OWNER`（见 `AppDbContext.HasDefaultSchema`） |### 2.3 前端配置前端当前**未配置代理与统一请求层**。接入后端时需在 `frontend/vite.config.ts` 增加代理：```tsexport default defineConfig({  plugins: [react()],  server: {    proxy: {      '/api': {        target: 'http://localhost:5146',        changeOrigin: true,      },    },  },})```生产构建后，前端为静态资源，需由反向代理转发 `/api` 到后端（见第 5 节）。---## 3. 数据库初始化### 3.1 账号与权限遵循 [CONVENTIONS.md](../CONVENTIONS.md)：- Schema 由 `APP_OWNER` 持有。- **所有 DDL 变更必须由 `DEPLOY_USER` 执行**。- 日常开发使用个人账号（账号密码均为姓名全拼），只能执行 DML，不能 DROP/ALTER。- 个人账号可用 `ALTER SESSION SET CURRENT_SCHEMA = APP_OWNER;` 将默认 Schema 切换到 `APP_OWNER`。### 3.2 首次建库由 `DEPLOY_USER`（或具备 DDL 权限的账号）按顺序执行基线脚本：```bash# 推荐直接执行合并版（包含全部 36 张表、序列、触发器、索引）sqlplus deploy_user/密码@//120.27.157.163:1521/XEPDB1 @db/baseline/merged_ddl.sql```或按模块分别执行 `db/baseline/` 下的四个模块脚本，注意**按表依赖关系从底层到上层**执行。### 3.3 增量变更历史增量脚本位于 `db/migrations/`，按 `日期__模块描述.sql` 命名，例如：- `20260726__order_ticket_change.sql` —— 订单模块结构调整- `20260827__sys_user_avatar_url.sql` —— SYS_USER 新增头像列 AVATAR_URL（用户头像持久化）新增变更时，约定流程为：**讨论 → 编写 Alter 脚本 → 存入 `db/migrations/` → 由 `DEPLOY_USER` 执行**。### 3.4 测试数据用 `db/testdata` 下的 Bogus 生成器灌入虚拟数据：```bashcd db/testdata# 先按实际账号修改 appsettings.json 中的 DefaultConnectiondotnet run```生成参数（`DataGeneration`）：`ShowCount`（演出数，默认 10）、`MinSessionsPerShow`/`MaxSessionsPerShow`（每场次 3~5）、`SeatsPerSession`（每场座位数，默认 200）。详见 [db/testdata/README.md](../db/testdata/README.md)。---## 4. 本地开发部署### 4.1 后端```bash# 1. 设置环境变量（PowerShell）$env:Oracle_UserId = "你的个人账号"$env:Oracle_Password = "你的密码"# 2. 还原并运行cd backenddotnet restoredotnet run```默认地址：`http://localhost:5146`；HTTPS 配置见 `backend/Properties/launchSettings.json`（`https://localhost:7186`）。验证：```bashcurl http://localhost:5146/            # 返回 "Showtime API is running."curl http://localhost:5146/scalar/v1   # Scalar 文档页```### 4.2 前端```bashcd frontendnpm installnpm run dev       # 启动开发服务器（默认 http://localhost:5173）```常用脚本：| 命令 | 说明 ||------|------|| `npm run dev` | 启动开发服务器（HMR） || `npm run build` | 类型检查 + 生产构建（产物在 `dist/`） || `npm run preview` | 本地预览生产构建 || `npm run lint` | Oxlint 代码检查 |---## 5. 生产部署骨架> 以下为通用推荐方案，具体服务器环境确认后替换相应占位符。### 5.1 后端部署推荐 Linux 服务器 + `systemd` 托管：1. **发布**：在具备 .NET SDK 的机器上构建自包含/框架依赖发布包：   ```bash   cd backend   dotnet publish -c Release -o ./publish   ```2. **上传**至服务器（如 `/opt/showtime/backend`）。3. **创建 systemd 单元** `/etc/systemd/system/showtime-backend.service`：   ```ini   [Unit]   Description=Showtime Backend   After=network.target   [Service]   WorkingDirectory=/opt/showtime/backend   ExecStart=/usr/bin/dotnet /opt/showtime/backend/ShowtimeBackend.dll   EnvironmentFile=/etc/showtime/backend.env   Restart=always   RestartSec=5   [Install]   WantedBy=multi-user.target   ```4. **环境变量文件** `/etc/showtime/backend.env`：   ```ini   Oracle_UserId=<个人/服务账号>   Oracle_Password=<密码>   ASPNETCORE_ENVIRONMENT=Production   ```5. 启动并自启：   ```bash   sudo systemctl daemon-reload   sudo systemctl enable --now showtime-backend   ```### 5.2 前端部署1. **构建**：   ```bash   cd frontend   npm install   npm run build   # 产物在 frontend/dist/   ```2. 将 `dist/` 内容上传至 Web 服务器目录（如 `/var/www/showtime`）。3. 由反向代理托管静态资源并将 `/api` 转发到后端。### 5.3 Nginx 反向代理（示例）```nginxserver {    listen 80;    server_name example.com;          # 替换为实际域名/IP    root /var/www/showtime;    index index.html;    # 前端静态资源 + 前端路由（History 模式回退）    location / {        try_files $uri $uri/ /index.html;    }    # 后端 API 反向代理    location /api/ {        proxy_pass http://127.0.0.1:5146;        proxy_set_header Host $host;        proxy_set_header X-Real-IP $remote_addr;        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;        proxy_set_header X-Forwarded-Proto $scheme;    }    # OpenAPI / Scalar（如生产需要暴露）    location ~ ^/(openapi|scalar)/ {        proxy_pass http://127.0.0.1:5146;    }}```> HTTPS 建议通过 `certbot` 等工具配置 Let's Encrypt 证书。---## 6. 常见问题排查| 现象 | 可能原因 | 处理 ||------|----------|------|| 后端启动报 `Environment variable 'Oracle_UserId' is not set` | 未配置环境变量 | 设置 `Oracle_UserId` / `Oracle_Password` 后重启 || 连接 Oracle 报 `ORA-12154` / `ORA-12541` | 主机/端口/服务名错误或网络不通 | 核对 `120.27.157.163:1521/XEPDB1`，确认防火墙放行 || `ORA-01950` 无权限 / `ORA-01031` | 个人账号无权 DDL | DDL 交由 `DEPLOY_USER` 执行，个人账号仅 DML || 前端请求后端跨域失败 | 未配置代理 | 开发环境配置 Vite proxy，生产配置 Nginx 转发 || 前端详情页打不开 | 缺少 `orderId` 路由 | 补充 `/order/:orderId` 路由（见 [API.md](API.md) 5.5 节） || `dotnet` 找不到 10.0 | SDK 版本不符 | 安装 .NET SDK 10.0 || 建表后查询不到表 | Schema 不一致 | 确认当前 Schema 为 `APP_OWNER`，必要时 `ALTER SESSION SET CURRENT_SCHEMA = APP_OWNER` || 上传图片返回 `403 AccessDenied` | Bucket 未设为公共读 | 控制台把该 Bucket 读写权限改为**公共读（Public Read）** || 上传返回 `NoSuchBucket` | Bucket 不存在，或与 Endpoint 地域不一致 | 核对 Bucket 名称与 Region（Endpoint 必须与 Bucket 同 Region） || 上传接口返回 `503 OSS_NOT_CONFIGURED` | `Oss:Enabled=false`（kill-switch） | 联调/上线时置 true 并配置 Endpoint/Bucket/BaseUrl/AccessKey || 头像保存报 `ORA-00904: AVATAR_URL` | 头像迁移脚本未执行 | 由 DEPLOY_USER 执行 `db/migrations/20260827__sys_user_avatar_url.sql` |---## 7. 阿里云 OSS 配置（图片资源存储）> 图片资源（演出海报、营销图、用户头像）统一存储于阿里云 OSS，**后端代理上传**（AccessKey 只存在后端）。> OSS 为**可选依赖**：未启用时 `Oss:Enabled=false`，上传接口返回 `503 OSS_NOT_CONFIGURED`，不影响其他功能。### 7.1 资源准备（一次性，阿里云控制台）| 项 | 建议 | 说明 ||----|------|------|| Bucket | `showtime-assets` | 全局唯一；**读写权限 = 公共读**（Public Read），否则公开 URL 匿名访问 403 || Region / Endpoint | `cn-hangzhou` | Endpoint 必须与 Bucket 同 Region：`https://oss-cn-hangzhou.aliyuncs.com` || RAM 子账号 | 最小权限 | 仅 `oss:PutObject` / `oss:DeleteObject`，Resource 限定 `acs:oss:*:*:showtime-assets/showtime/*` || 生命周期（可选） | 1 天 | 前缀 `showtime/tmp/` 自动清理，兜底异常残留 |### 7.2 后端配置配置节 `Oss`（模板见 `backend/appsettings.example.json`），**AccessKey 不入库不入 git**：| 配置项 | 必填 | 说明 ||--------|------|------|| `Oss:Enabled` | 否 | kill-switch，默认 true；本地无 OSS 时置 false（`appsettings.Development.json` 默认已为 false） || `Oss:Endpoint` | 启用时必填 | 如 `https://oss-cn-hangzhou.aliyuncs.com`，与 Bucket 同 Region || `Oss:Bucket` | 启用时必填 | 如 `showtime-assets`（全局唯一） || `Oss:BaseUrl` | 启用时必填 | Bucket 外网访问域名，如 `https://showtime-assets.oss-cn-hangzhou.aliyuncs.com` || `Oss:MaxFileSizeBytes` | 否 | 单文件大小上限，默认 5242880（5MB） || `Oss:AllowedExtensions` | 否 | 扩展名白名单，默认 jpg/jpeg/png/webp/gif |本地开发（user-secrets，生产请勿使用）：```bashcd backenddotnet user-secrets set "Oss:AccessKeyId" "<ram-access-key-id>"dotnet user-secrets set "Oss:AccessKeySecret" "<ram-access-key-secret>"```生产环境（systemd `EnvironmentFile` / K8s Secret，与 `ConnectionStrings__Oracle` 同理）：```iniOss__Endpoint=https://oss-cn-hangzhou.aliyuncs.comOss__Bucket=showtime-assetsOss__BaseUrl=https://showtime-assets.oss-cn-hangzhou.aliyuncs.comOss__AccessKeyId=<ram-access-key-id>Oss__AccessKeySecret=<ram-access-key-secret>Oss__Enabled=true```> 启用后启动即校验 Endpoint/Bucket/BaseUrl/AccessKey 非空，缺失时启动报错（fail-fast）。### 7.3 上传接口与对象键- `POST /api/files/upload`（multipart，需认证）：字段 `file`（必填）、`folder`（可选，白名单 `show`/`marketing`/`avatar`/`tmp`，默认 `tmp`）、`contentType`（可选）。- 成功响应 `{ "success": true, "data": { "url", "objectKey" } }`，业务表直接存 `url`。- 对象键：`showtime/{folder}/{yyyy}/{MM}/{guid}.{ext}`，GUID 服务端生成防猜测；公开 URL = `BaseUrl + "/" + objectKey`。- 校验：大小 ≤ `MaxFileSizeBytes`（超限 413 `FILE_TOO_LARGE`）、扩展名白名单 + Content-Type `image/*` 二次校验（`400 UNSUPPORTED_FILE_TYPE`）、`RequestSizeLimit` 兜底。- 前端：`FileUploader` 组件（`frontend/src/components/FileUploader`）封装上传与回显；头像上传后经 `PUT /api/users/me/avatar` 持久化到 `SYS_USER.AVATAR_URL`（迁移脚本 `db/migrations/20260827__sys_user_avatar_url.sql`，由 DEPLOY_USER 执行）。### 7.4 联调验证管理端登录拿到 token 后上传一张小图：```bashTOKEN=$(curl -s -X POST http://localhost:5146/api/auth/login -H "Content-Type: application/json" \  -d '{"account":"<账号>","password":"<密码>"}' | jq -r '.data.accessToken')curl -s -X POST http://localhost:5146/api/files/upload \  -H "Authorization: Bearer $TOKEN" -F "file=@poster.png" -F "folder=show"```期望：`success=true`，`data.url` 可直接在浏览器打开（公开读，无需签名）。
+# SHOWTIME 部署文档
+
+本文档说明 SHOWTIME 项目从本地开发到生产部署的完整流程，包含环境依赖、配置项清单、数据库初始化、后端与前端部署、反向代理及常见问题排查。
+
+> 生产部署部分（第 5 节）为**通用骨架**，具体服务器信息（操作系统、域名、进程托管方式）确认后请据此补充完善。
+
+---
+
+## 目录
+
+1. [环境依赖](#1-环境依赖)
+2. [配置项清单](#2-配置项清单)
+3. [数据库初始化](#3-数据库初始化)
+4. [本地开发部署](#4-本地开发部署)
+5. [生产部署骨架](#5-生产部署骨架)
+6. [常见问题排查](#6-常见问题排查)
+7. [阿里云 OSS 配置](#7-阿里云-oss-配置)
+
+---
+
+## 1. 环境依赖
+
+| 软件 | 版本要求 | 用途 | 说明 |
+|------|----------|------|------|
+| .NET SDK | **10.0** | 后端编译运行 | 对应 `net10.0` TargetFramework |
+| Node.js | 18+（建议 20 LTS） | 前端构建 | Vite 8 要求 |
+| npm | 随 Node 附带 | 前端依赖管理 | 锁文件为 `package-lock.json` |
+| Oracle 数据库 | **21c XE** | 数据存储 | 项目连接：`120.27.157.163:1521/XEPDB1` |
+| Git | 2.x | 版本控制 | 遵循 [CONVENTIONS.md](../CONVENTIONS.md) 的分支规范 |
+
+**可选依赖**（尚未在仓库中引入，属规划能力）：
+
+| 软件 | 用途 | 状态 |
+|------|------|------|
+| Redis | 选座分布式锁（防超卖） | 规划中（PLAN 第 4 周） |
+| 阿里云 OSS | 图片资源（演出海报/头像等）存储 | 可选（未启用时 `Oss:Enabled=false`，不影响其他功能；配置见第 7 节） |
+| RabbitMQ | 订单状态异步通知 | 规划中（PLAN 第 5 周） |
+| Loki + Grafana | 日志监控看板 | 规划中（PLAN 第 5 周） |
+
+---
+
+## 2. 配置项清单
+
+### 2.1 后端环境变量
+
+后端连接串由环境变量拼装（见 `backend/Program.cs`），**缺失时启动即抛异常**：
+
+| 变量名 | 必填 | 说明 | 示例 |
+|--------|------|------|------|
+| `Oracle_UserId` | 是 | 数据库用户名 | `liborui` |
+| `Oracle_Password` | 是 | 数据库密码 | `liborui` |
+| `ASPNETCORE_ENVIRONMENT` | 否 | 运行环境 | `Development` / `Production` |
+
+> 生产环境强烈建议通过进程托管系统的 Secret 管理（systemd `EnvironmentFile`、CI/CD 变量、K8s Secret 等）注入，**不要写死在 `appsettings.json` 或代码中**。
+
+### 2.2 后端连接串信息
+
+`Program.cs` 中的固定连接信息（如需变更环境，应改为可配置）：
+
+| 项 | 值 |
+|----|----|
+| 主机 | `120.27.157.163` |
+| 端口 | `1521` |
+| 服务名 | `XEPDB1` |
+| 默认 Schema | `APP_OWNER`（见 `AppDbContext.HasDefaultSchema`） |
+
+### 2.3 前端配置
+
+前端当前**未配置代理与统一请求层**。接入后端时需在 `frontend/vite.config.ts` 增加代理：
+
+```ts
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5146',
+        changeOrigin: true,
+      },
+    },
+  },
+})
+```
+
+生产构建后，前端为静态资源，需由反向代理转发 `/api` 到后端（见第 5 节）。
+
+---
+
+## 3. 数据库初始化
+
+### 3.1 账号与权限
+
+遵循 [CONVENTIONS.md](../CONVENTIONS.md)：
+
+- Schema 由 `APP_OWNER` 持有。
+- **所有 DDL 变更必须由 `DEPLOY_USER` 执行**。
+- 日常开发使用个人账号（账号密码均为姓名全拼），只能执行 DML，不能 DROP/ALTER。
+- 个人账号可用 `ALTER SESSION SET CURRENT_SCHEMA = APP_OWNER;` 将默认 Schema 切换到 `APP_OWNER`。
+
+### 3.2 首次建库
+
+由 `DEPLOY_USER`（或具备 DDL 权限的账号）按顺序执行基线脚本：
+
+```bash
+# 推荐直接执行合并版（包含全部 36 张表、序列、触发器、索引）
+sqlplus deploy_user/密码@//120.27.157.163:1521/XEPDB1 @db/baseline/merged_ddl.sql
+```
+
+或按模块分别执行 `db/baseline/` 下的四个模块脚本，注意**按表依赖关系从底层到上层**执行。
+
+### 3.3 增量变更
+
+历史增量脚本位于 `db/migrations/`，按 `日期__模块描述.sql` 命名，例如：
+
+- `20260726__order_ticket_change.sql` —— 订单模块结构调整
+- `20260827__sys_user_avatar_url.sql` —— SYS_USER 新增头像列 AVATAR_URL（用户头像持久化）
+
+新增变更时，约定流程为：**讨论 → 编写 Alter 脚本 → 存入 `db/migrations/` → 由 `DEPLOY_USER` 执行**。
+
+### 3.4 测试数据
+
+用 `db/testdata` 下的 Bogus 生成器灌入虚拟数据：
+
+```bash
+cd db/testdata
+# 先按实际账号修改 appsettings.json 中的 DefaultConnection
+dotnet run
+```
+
+生成参数（`DataGeneration`）：`ShowCount`（演出数，默认 10）、`MinSessionsPerShow`/`MaxSessionsPerShow`（每场次 3~5）、`SeatsPerSession`（每场座位数，默认 200）。详见 [db/testdata/README.md](../db/testdata/README.md)。
+
+---
+
+## 4. 本地开发部署
+
+### 4.1 后端
+
+```bash
+# 1. 设置环境变量（PowerShell）
+$env:Oracle_UserId = "你的个人账号"
+$env:Oracle_Password = "你的密码"
+
+# 2. 还原并运行
+cd backend
+dotnet restore
+dotnet run
+```
+
+默认地址：`http://localhost:5146`；HTTPS 配置见 `backend/Properties/launchSettings.json`（`https://localhost:7186`）。
+
+验证：
+
+```bash
+curl http://localhost:5146/            # 返回 "Showtime API is running."
+curl http://localhost:5146/scalar/v1   # Scalar 文档页
+```
+
+### 4.2 前端
+
+```bash
+cd frontend
+npm install
+npm run dev       # 启动开发服务器（默认 http://localhost:5173）
+```
+
+常用脚本：
+
+| 命令 | 说明 |
+|------|------|
+| `npm run dev` | 启动开发服务器（HMR） |
+| `npm run build` | 类型检查 + 生产构建（产物在 `dist/`） |
+| `npm run preview` | 本地预览生产构建 |
+| `npm run lint` | Oxlint 代码检查 |
+
+---
+
+## 5. 生产部署骨架
+
+> 以下为通用推荐方案，具体服务器环境确认后替换相应占位符。
+
+### 5.1 后端部署
+
+推荐 Linux 服务器 + `systemd` 托管：
+
+1. **发布**：在具备 .NET SDK 的机器上构建自包含/框架依赖发布包：
+
+   ```bash
+   cd backend
+   dotnet publish -c Release -o ./publish
+   ```
+
+2. **上传**至服务器（如 `/opt/showtime/backend`）。
+
+3. **创建 systemd 单元** `/etc/systemd/system/showtime-backend.service`：
+
+   ```ini
+   [Unit]
+   Description=Showtime Backend
+   After=network.target
+
+   [Service]
+   WorkingDirectory=/opt/showtime/backend
+   ExecStart=/usr/bin/dotnet /opt/showtime/backend/ShowtimeBackend.dll
+   EnvironmentFile=/etc/showtime/backend.env
+   Restart=always
+   RestartSec=5
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+4. **环境变量文件** `/etc/showtime/backend.env`：
+
+   ```ini
+   Oracle_UserId=<个人/服务账号>
+   Oracle_Password=<密码>
+   ASPNETCORE_ENVIRONMENT=Production
+   ```
+
+5. 启动并自启：
+
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now showtime-backend
+   ```
+
+### 5.2 前端部署
+
+1. **构建**：
+
+   ```bash
+   cd frontend
+   npm install
+   npm run build   # 产物在 frontend/dist/
+   ```
+
+2. 将 `dist/` 内容上传至 Web 服务器目录（如 `/var/www/showtime`）。
+
+3. 由反向代理托管静态资源并将 `/api` 转发到后端。
+
+### 5.3 Nginx 反向代理（示例）
+
+```nginx
+server {
+    listen 80;
+    server_name example.com;          # 替换为实际域名/IP
+
+    root /var/www/showtime;
+    index index.html;
+
+    # 前端静态资源 + 前端路由（History 模式回退）
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 后端 API 反向代理
+    location /api/ {
+        proxy_pass http://127.0.0.1:5146;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # OpenAPI / Scalar（如生产需要暴露）
+    location ~ ^/(openapi|scalar)/ {
+        proxy_pass http://127.0.0.1:5146;
+    }
+}
+```
+
+> HTTPS 建议通过 `certbot` 等工具配置 Let's Encrypt 证书。
+
+---
+
+## 6. 常见问题排查
+
+| 现象 | 可能原因 | 处理 |
+|------|----------|------|
+| 后端启动报 `Environment variable 'Oracle_UserId' is not set` | 未配置环境变量 | 设置 `Oracle_UserId` / `Oracle_Password` 后重启 |
+| 连接 Oracle 报 `ORA-12154` / `ORA-12541` | 主机/端口/服务名错误或网络不通 | 核对 `120.27.157.163:1521/XEPDB1`，确认防火墙放行 |
+| `ORA-01950` 无权限 / `ORA-01031` | 个人账号无权 DDL | DDL 交由 `DEPLOY_USER` 执行，个人账号仅 DML |
+| 前端请求后端跨域失败 | 未配置代理 | 开发环境配置 Vite proxy，生产配置 Nginx 转发 |
+| 前端详情页打不开 | 缺少 `orderId` 路由 | 补充 `/order/:orderId` 路由（见 [API.md](API.md) 5.5 节） |
+| `dotnet` 找不到 10.0 | SDK 版本不符 | 安装 .NET SDK 10.0 |
+| 建表后查询不到表 | Schema 不一致 | 确认当前 Schema 为 `APP_OWNER`，必要时 `ALTER SESSION SET CURRENT_SCHEMA = APP_OWNER` |
+| 上传图片返回 `403 AccessDenied` | Bucket 未设为公共读 | 控制台把该 Bucket 读写权限改为**公共读（Public Read）** |
+| 上传返回 `NoSuchBucket` | Bucket 不存在，或与 Endpoint 地域不一致 | 核对 Bucket 名称与 Region（Endpoint 必须与 Bucket 同 Region） |
+| 上传接口返回 `503 OSS_NOT_CONFIGURED` | `Oss:Enabled=false`（kill-switch） | 联调/上线时置 true 并配置 Endpoint/Bucket/BaseUrl/AccessKey |
+| 头像保存报 `ORA-00904: AVATAR_URL` | 头像迁移脚本未执行 | 由 DEPLOY_USER 执行 `db/migrations/20260827__sys_user_avatar_url.sql` |
+
+---
+
+## 7. 阿里云 OSS 配置（图片资源存储）
+
+> 图片资源（演出海报、营销图、用户头像）统一存储于阿里云 OSS，**后端代理上传**（AccessKey 只存在后端）。
+> OSS 为**可选依赖**：未启用时 `Oss:Enabled=false`，上传接口返回 `503 OSS_NOT_CONFIGURED`，不影响其他功能。
+
+### 7.1 资源准备（一次性，阿里云控制台）
+
+| 项 | 建议 | 说明 |
+|----|------|------|
+| Bucket | `showtime-assets` | 全局唯一；**读写权限 = 公共读**（Public Read），否则公开 URL 匿名访问 403 |
+| Region / Endpoint | `cn-hangzhou` | Endpoint 必须与 Bucket 同 Region：`https://oss-cn-hangzhou.aliyuncs.com` |
+| RAM 子账号 | 最小权限 | 仅 `oss:PutObject` / `oss:DeleteObject`，Resource 限定 `acs:oss:*:*:showtime-assets/showtime/*` |
+| 生命周期（可选） | 1 天 | 前缀 `showtime/tmp/` 自动清理，兜底异常残留 |
+
+### 7.2 后端配置
+
+配置节 `Oss`（模板见 `backend/appsettings.example.json`），**AccessKey 不入库不入 git**：
+
+| 配置项 | 必填 | 说明 |
+|--------|------|------|
+| `Oss:Enabled` | 否 | kill-switch，默认 true；本地无 OSS 时置 false（`appsettings.Development.json` 默认已为 false） |
+| `Oss:Endpoint` | 启用时必填 | 如 `https://oss-cn-hangzhou.aliyuncs.com`，与 Bucket 同 Region |
+| `Oss:Bucket` | 启用时必填 | 如 `showtime-assets`（全局唯一） |
+| `Oss:BaseUrl` | 启用时必填 | Bucket 外网访问域名，如 `https://showtime-assets.oss-cn-hangzhou.aliyuncs.com` |
+| `Oss:MaxFileSizeBytes` | 否 | 单文件大小上限，默认 5242880（5MB） |
+| `Oss:AllowedExtensions` | 否 | 扩展名白名单，默认 jpg/jpeg/png/webp/gif |
+
+本地开发（user-secrets，生产请勿使用）：
+
+```bash
+cd backend
+dotnet user-secrets set "Oss:AccessKeyId" "<ram-access-key-id>"
+dotnet user-secrets set "Oss:AccessKeySecret" "<ram-access-key-secret>"
+```
+
+生产环境（systemd `EnvironmentFile` / K8s Secret，与 `ConnectionStrings__Oracle` 同理）：
+
+```ini
+Oss__Endpoint=https://oss-cn-hangzhou.aliyuncs.com
+Oss__Bucket=showtime-assets
+Oss__BaseUrl=https://showtime-assets.oss-cn-hangzhou.aliyuncs.com
+Oss__AccessKeyId=<ram-access-key-id>
+Oss__AccessKeySecret=<ram-access-key-secret>
+Oss__Enabled=true
+```
+
+> 启用后启动即校验 Endpoint/Bucket/BaseUrl/AccessKey 非空，缺失时启动报错（fail-fast）。
+
+### 7.3 上传接口与对象键
+
+- `POST /api/files/upload`（multipart，需认证）：字段 `file`（必填）、`folder`（可选，白名单 `show`/`marketing`/`avatar`/`tmp`，默认 `tmp`）、`contentType`（可选）。
+- 成功响应 `{ "success": true, "data": { "url", "objectKey" } }`，业务表直接存 `url`。
+- 对象键：`showtime/{folder}/{yyyy}/{MM}/{guid}.{ext}`，GUID 服务端生成防猜测；公开 URL = `BaseUrl + "/" + objectKey`。
+- 校验：大小 ≤ `MaxFileSizeBytes`（超限 413 `FILE_TOO_LARGE`）、扩展名白名单 + Content-Type `image/*` 二次校验（`400 UNSUPPORTED_FILE_TYPE`）、`RequestSizeLimit` 兜底。
+- 前端：`FileUploader` 组件（`frontend/src/components/FileUploader`）封装上传与回显；头像上传后经 `PUT /api/users/me/avatar` 持久化到 `SYS_USER.AVATAR_URL`（迁移脚本 `db/migrations/20260827__sys_user_avatar_url.sql`，由 DEPLOY_USER 执行）。
+
+### 7.4 联调验证
+
+管理端登录拿到 token 后上传一张小图：
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:5146/api/auth/login -H "Content-Type: application/json" \
+  -d '{"account":"<账号>","password":"<密码>"}' | jq -r '.data.accessToken')
+curl -s -X POST http://localhost:5146/api/files/upload \
+  -H "Authorization: Bearer $TOKEN" -F "file=@poster.png" -F "folder=show"
+```
+
+期望：`success=true`，`data.url` 可直接在浏览器打开（公开读，无需签名）。
