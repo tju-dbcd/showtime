@@ -24,18 +24,29 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Oracle/SQLite 共用连接配置：业务上下文走 scoped AddDbContext；
-// 审计 sink（DbOperationTicketAuditSink）经 IDbContextFactory 创建独立实例，
-// 保证审计写入不卷入业务事务。
+// Serilog：结构化日志（控制台 + 文件滚动），为里程碑 5 的 Loki+Grafana 日志采集铺路；
+// 等级/输出/模板全部来自 appsettings 的 Serilog 节，生产可无代码调整。
+builder.Host.UseSerilog((context, services, configuration) =>
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext());
+
+// Oracle 连接配置单一来源：业务上下文用 scoped 桥接（每请求作用域共享一个实例，语义与 AddDbContext 一致）；
+// 审计 sink（DbOperationTicketAuditSink）经 IDbContextFactory 创建独立实例，保证审计写入不卷入业务事务。
+// 注意：不得再对 AppDbContext 调用 AddDbContext，否则其注册的 scoped DbContextOptions 会与
+// singleton DbContextFactory 冲突（Cannot consume scoped service from singleton）。
 Action<DbContextOptionsBuilder> configureDatabase = options => options.UseOracle(
     builder.Configuration.GetConnectionString("Oracle")
     ?? throw new InvalidOperationException(
         "Connection string 'Oracle' is not set."));
-builder.Services.AddDbContext<AppDbContext>(configureDatabase);
 builder.Services.AddDbContextFactory<AppDbContext>(configureDatabase);
+builder.Services.AddScoped<AppDbContext>(provider =>
+    provider.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
 
 // Redis：懒连接注册，启动不阻塞；Redis 未启动时应用照常启动，选座锁守卫自动降级为纯 Oracle 流程。
 var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
