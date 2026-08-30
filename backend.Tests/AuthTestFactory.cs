@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
+using ShowtimeBackend.Services.FileStorage;
 
 namespace ShowtimeBackend.Tests;
 
@@ -25,10 +26,20 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
     private readonly FixedTimeProvider _timeProvider;
     private readonly string? _jwtKey;
+    private readonly bool _ossEnabled;
+    private readonly bool _replaceWithFakeStorage;
+    private readonly IFileStorageService? _customFileStorage;
 
-    public AuthTestFactory(string? jwtKey = TestKey)
+    public AuthTestFactory(
+        string? jwtKey = TestKey,
+        bool ossEnabled = false,
+        bool replaceWithFakeStorage = false,
+        IFileStorageService? customFileStorage = null)
     {
         _jwtKey = jwtKey;
+        _ossEnabled = ossEnabled;
+        _replaceWithFakeStorage = replaceWithFakeStorage;
+        _customFileStorage = customFileStorage;
         UtcNow = DateTimeOffset.UtcNow;
         _timeProvider = new FixedTimeProvider(UtcNow);
         _connection.Open();
@@ -97,12 +108,28 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Oracle_UserId"] = "tests",
-                ["Oracle_Password"] = "tests",
+                // 测试环境不使用真实数据库（AppDbContext 在下方被替换为 SQLite），
+                // 这里只提供合法的连接串占位，保证 Program.cs 的配置读取不会抛异常。
+                ["ConnectionStrings:Oracle"] =
+                    "User Id=tests;Password=tests;Data Source=localhost:1521/XEPDB1",
                 ["Jwt:Key"] = _jwtKey,
                 ["Jwt:Issuer"] = TestIssuer,
                 ["Jwt:Audience"] = TestAudience,
                 ["Jwt:ExpirationMinutes"] = "120",
+                ["TicketSecurity:SigningKeyBase64"] =
+                    "ERERERERERERERERERERERERERERERERERERERERERE=",
+                // 测试环境默认不启用 OSS（kill-switch 关闭，跳过启动期配置校验）；
+                // ossEnabled=true 时给出合法占位配置（AccessKey 由测试注入 fake 或在校验前短路，不真连 OSS）。
+                ["Oss:Enabled"] = _ossEnabled ? "true" : "false",
+                ["Oss:Endpoint"] = "https://oss-cn-hangzhou.aliyuncs.com",
+                // 非空测试密钥：满足启动校验且 OssClient 可构造；
+                // 校验类用例在触网前短路，成功路径用 fake 覆盖，不会真连 OSS。
+                ["Oss:AccessKeyId"] = "test-access-key-id",
+                ["Oss:AccessKeySecret"] = "test-access-key-secret",
+                ["Oss:Bucket"] = "showtime-assets",
+                ["Oss:BaseUrl"] = "https://showtime-assets.oss-cn-hangzhou.aliyuncs.com",
+                // 测试用小体积上限，超限用例无需真的发 5MB
+                ["Oss:MaxFileSizeBytes"] = "2048",
             });
         });
         builder.ConfigureServices(services =>
@@ -111,6 +138,19 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
             services.RemoveAll<TimeProvider>();
+
+            if (_customFileStorage is not null)
+            {
+                // 指定注入的自定义实现（如模拟 OSS 故障的测试 double）优先
+                services.RemoveAll<IFileStorageService>();
+                services.AddSingleton(_customFileStorage);
+            }
+            else if (_ossEnabled && _replaceWithFakeStorage)
+            {
+                // 上传全链路（含成功路径）测试：注入内存 fake，不依赖真实 OSS
+                services.RemoveAll<IFileStorageService>();
+                services.AddSingleton<IFileStorageService, FakeFileStorageService>();
+            }
 
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
             services.AddSingleton<TimeProvider>(_timeProvider);

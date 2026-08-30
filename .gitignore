@@ -34,7 +34,8 @@ build/
 
 ## dotenv
 .env
-*.env
+.env.*
+!.env.example
 
 ## Frontend (React + Vite)
 frontend/node_modules/
@@ -42,3 +43,7 @@ frontend/dist/
 frontend/dist-ssr/
 frontend/*.local
 
+
+## Test results
+[Ll]og/
+[Tt]est[Rr]esults/

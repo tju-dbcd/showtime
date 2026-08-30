@@ -5,6 +5,7 @@ import {
   ScheduleOutlined,
   ShoppingCartOutlined,
   PlusCircleOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons'
 
 const { Sider, Content } = Layout
@@ -34,6 +35,11 @@ const AdminLayout = () => {
       key: '/admin/publish',
       icon: <PlusCircleOutlined />,
       label: '演出发布',
+    },
+    {
+      key: '/admin/seat-map',
+      icon: <AppstoreOutlined />,
+      label: '座位图管理',
     },
   ]
 

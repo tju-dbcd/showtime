@@ -9,7 +9,7 @@ public interface IPaymentService
         long orderId,
         CancellationToken cancellationToken);
 
-    Task<OrderTicketResult<PaymentResponse>> PayAsync(
+    Task<OrderTicketResult<PaymentProcessResponse>> PayAsync(
         long userId,
         string actor,
         long orderId,

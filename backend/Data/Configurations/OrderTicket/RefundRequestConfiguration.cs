@@ -20,6 +20,17 @@ public class RefundRequestConfiguration : IEntityTypeConfiguration<RefundRequest
             table.HasCheckConstraint(
                 "CHK_REFUND_STATUS",
                 "REFUND_STATUS IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')");
+            table.HasCheckConstraint(
+                "CHK_REFUND_APPLIED_FEE",
+                "APPLIED_SERVICE_FEE >= 0");
+            table.HasCheckConstraint(
+                "CHK_REFUND_ACTUAL_POSITIVE",
+                "ACTUAL_REFUND IS NULL OR ACTUAL_REFUND > 0");
+            table.HasCheckConstraint(
+                "CHK_REFUND_STATE_COMBO",
+                "(APPROVE_STATUS = 'PENDING' AND REFUND_STATUS = 'PENDING') OR " +
+                "(APPROVE_STATUS = 'APPROVED' AND REFUND_STATUS IN ('PROCESSING', 'COMPLETED', 'FAILED')) OR " +
+                "(APPROVE_STATUS = 'REJECTED' AND REFUND_STATUS = 'FAILED')");
         });
 
         builder.HasKey(entity => entity.RefundId)
@@ -78,12 +89,24 @@ public class RefundRequestConfiguration : IEntityTypeConfiguration<RefundRequest
             .HasDefaultValue(0m)
             .IsRequired();
 
+        builder.Property(entity => entity.AppliedPolicyId)
+            .HasColumnName("APPLIED_POLICY_ID")
+            .HasColumnType("NUMBER(19)");
+
+        builder.Property(entity => entity.AppliedServiceFee)
+            .HasColumnName("APPLIED_SERVICE_FEE")
+            .HasColumnType("NUMBER(10,2)")
+            .HasPrecision(10, 2)
+            .HasDefaultValue(0m)
+            .IsRequired();
+
         builder.Property(entity => entity.ApproveStatus)
             .HasColumnName("APPROVE_STATUS")
             .HasColumnType("VARCHAR2(20 CHAR)")
             .HasMaxLength(20)
             .IsUnicode(false)
             .HasDefaultValue("PENDING")
+            .IsConcurrencyToken()
             .IsRequired();
 
         builder.Property(entity => entity.ReviewBy)
@@ -108,6 +131,7 @@ public class RefundRequestConfiguration : IEntityTypeConfiguration<RefundRequest
             .HasMaxLength(20)
             .IsUnicode(false)
             .HasDefaultValue("PENDING")
+            .IsConcurrencyToken()
             .IsRequired();
 
         builder.Property(entity => entity.CompleteTime)
@@ -135,6 +159,9 @@ public class RefundRequestConfiguration : IEntityTypeConfiguration<RefundRequest
         builder.HasIndex(entity => entity.CompleteTime)
             .HasDatabaseName("IDX_REFUND_COMPLETE");
 
+        builder.HasIndex(entity => entity.AppliedPolicyId)
+            .HasDatabaseName("IDX_REFUND_APPLIED_POLICY");
+
         builder.HasIndex(entity => new { entity.OrderId, entity.RefundStatus })
             .HasDatabaseName("IDX_REFUND_ORDER_STATUS");
 
@@ -149,5 +176,11 @@ public class RefundRequestConfiguration : IEntityTypeConfiguration<RefundRequest
             .HasForeignKey(entity => entity.UserId)
             .OnDelete(DeleteBehavior.NoAction)
             .HasConstraintName("FK_REFUND_USER");
+
+        builder.HasOne(entity => entity.AppliedPolicy)
+            .WithMany()
+            .HasForeignKey(entity => entity.AppliedPolicyId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_REFUND_APPLIED_POLICY");
     }
 }

@@ -32,6 +32,7 @@ public abstract class OrderTicketControllerBase : ControllerBase
             OrderTicketFailure.InvalidRequest => StatusCodes.Status400BadRequest,
             OrderTicketFailure.NotFound => StatusCodes.Status404NotFound,
             OrderTicketFailure.Conflict => StatusCodes.Status409Conflict,
+            OrderTicketFailure.Internal => StatusCodes.Status500InternalServerError,
             _ => StatusCodes.Status500InternalServerError
         };
 

@@ -44,16 +44,56 @@ public sealed class SeatMapAdminService
 
         var totalCount = await maps.CountAsync(cancellationToken);
         var skip = ((long)query.Page - 1) * query.PageSize;
-        var items = await maps.OrderBy(map => map.VenueId).ThenBy(map => map.MapCode).ThenBy(map => map.SeatMapId)
-            .Skip((int)skip).Take(query.PageSize)
-            .Select(map => ToResponse(map)).ToListAsync(cancellationToken);
+        // 一次查询同时取得座位图和场馆名称，供管理端直接展示下拉选项。
+        var items = await maps
+            .Join(
+                _db.Venues.AsNoTracking(),
+                map => map.VenueId,
+                venue => venue.VenueId,
+                (map, venue) => new { Map = map, venue.VenueName })
+            .OrderBy(item => item.Map.VenueId)
+            .ThenBy(item => item.Map.MapCode)
+            .ThenBy(item => item.Map.SeatMapId)
+            .Skip((int)skip)
+            .Take(query.PageSize)
+            .Select(item => new SeatMapResponse(
+                item.Map.SeatMapId,
+                item.Map.VenueId,
+                item.VenueName,
+                item.Map.MapCode,
+                item.Map.MapName,
+                item.Map.MapVersion,
+                item.Map.IsDefault,
+                item.Map.MapWidth,
+                item.Map.MapHeight,
+                item.Map.MapStatus,
+                item.Map.Remark))
+            .ToListAsync(cancellationToken);
         return ServiceResult<PagedResponse<SeatMapResponse>>.Success(new PagedResponse<SeatMapResponse>(items, query.Page, query.PageSize, totalCount));
     }
 
     public async Task<ServiceResult<SeatMapResponse>> GetMapAsync(long seatMapId, CancellationToken cancellationToken)
     {
-        var map = await _db.SeatMaps.AsNoTracking().Where(item => item.SeatMapId == seatMapId)
-            .Select(item => ToResponse(item)).SingleOrDefaultAsync(cancellationToken);
+        var map = await _db.SeatMaps
+            .AsNoTracking()
+            .Where(item => item.SeatMapId == seatMapId)
+            .Join(
+                _db.Venues.AsNoTracking(),
+                item => item.VenueId,
+                venue => venue.VenueId,
+                (item, venue) => new SeatMapResponse(
+                    item.SeatMapId,
+                    item.VenueId,
+                    venue.VenueName,
+                    item.MapCode,
+                    item.MapName,
+                    item.MapVersion,
+                    item.IsDefault,
+                    item.MapWidth,
+                    item.MapHeight,
+                    item.MapStatus,
+                    item.Remark))
+            .SingleOrDefaultAsync(cancellationToken);
         return map is null
             ? ServiceResult<SeatMapResponse>.Failure(404, "Seat map not found", $"Seat map {seatMapId} does not exist.")
             : ServiceResult<SeatMapResponse>.Success(map);
@@ -63,7 +103,10 @@ public sealed class SeatMapAdminService
     {
         var validation = ValidateMap(request);
         if (validation is not null) return ServiceResult<SeatMapResponse>.Failure(400, "Invalid seat map", validation);
-        if (await _db.Venues.CountAsync(venue => venue.VenueId == request.VenueId, cancellationToken) == 0)
+        // 读取场馆实体，校验存在性的同时保留响应所需的场馆名称。
+        var venue = await _db.Venues.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.VenueId == request.VenueId, cancellationToken);
+        if (venue is null)
             return ServiceResult<SeatMapResponse>.Failure(404, "Venue not found", $"Venue {request.VenueId} does not exist.");
         var mapCode = request.MapCode.Trim();
         if (await _db.SeatMaps.CountAsync(map => map.VenueId == request.VenueId && map.MapCode == mapCode, cancellationToken) > 0)
@@ -88,7 +131,7 @@ public sealed class SeatMapAdminService
         {
             return ServiceResult<SeatMapResponse>.Failure(409, "Unable to create seat map", "The seat map conflicts with existing data.");
         }
-        return ServiceResult<SeatMapResponse>.Success(ToResponse(map));
+        return ServiceResult<SeatMapResponse>.Success(ToResponse(map, venue.VenueName));
     }
 
     public async Task<ServiceResult<SeatMapResponse>> UpdateMapAsync(long seatMapId, SeatMapRequest request, CancellationToken cancellationToken)
@@ -97,7 +140,9 @@ public sealed class SeatMapAdminService
         if (validation is not null) return ServiceResult<SeatMapResponse>.Failure(400, "Invalid seat map", validation);
         var map = await _db.SeatMaps.SingleOrDefaultAsync(item => item.SeatMapId == seatMapId, cancellationToken);
         if (map is null) return ServiceResult<SeatMapResponse>.Failure(404, "Seat map not found", $"Seat map {seatMapId} does not exist.");
-        if (await _db.Venues.CountAsync(venue => venue.VenueId == request.VenueId, cancellationToken) == 0)
+        var venue = await _db.Venues.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.VenueId == request.VenueId, cancellationToken);
+        if (venue is null)
             return ServiceResult<SeatMapResponse>.Failure(404, "Venue not found", $"Venue {request.VenueId} does not exist.");
         var mapCode = request.MapCode.Trim();
         if (await _db.SeatMaps.CountAsync(item => item.SeatMapId != seatMapId && item.VenueId == request.VenueId && item.MapCode == mapCode, cancellationToken) > 0)
@@ -120,7 +165,7 @@ public sealed class SeatMapAdminService
         {
             return ServiceResult<SeatMapResponse>.Failure(409, "Unable to update seat map", "The seat map conflicts with existing data.");
         }
-        return ServiceResult<SeatMapResponse>.Success(ToResponse(map));
+        return ServiceResult<SeatMapResponse>.Success(ToResponse(map, venue.VenueName));
     }
 
     public async Task<ServiceResult<bool>> DeleteMapAsync(long seatMapId, CancellationToken cancellationToken)
@@ -312,6 +357,6 @@ public sealed class SeatMapAdminService
         section.Remark = request.Remark;
     }
 
-    private static SeatMapResponse ToResponse(SeatMap map) => new(map.SeatMapId, map.VenueId, map.MapCode, map.MapName, map.MapVersion, map.IsDefault, map.MapWidth, map.MapHeight, map.MapStatus, map.Remark);
+    private static SeatMapResponse ToResponse(SeatMap map, string venueName) => new(map.SeatMapId, map.VenueId, venueName, map.MapCode, map.MapName, map.MapVersion, map.IsDefault, map.MapWidth, map.MapHeight, map.MapStatus, map.Remark);
     private static SeatSectionResponse ToResponse(SeatSection section) => new(section.SeatSectionId, section.SeatMapId, section.SectionCode, section.SectionName, section.SectionType, section.SectionColor, section.FloorNo, section.IsSellable, section.DisplayOrder, section.Remark);
 }

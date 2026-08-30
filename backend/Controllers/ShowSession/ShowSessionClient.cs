@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.ShowSessionDto;
+using ShowtimeBackend.DTOs.Show;
 using ShowtimeBackend.Services.ShowSession;
 
 namespace ShowtimeBackend.Controllers.ShowSession.Client;
@@ -13,10 +14,12 @@ namespace ShowtimeBackend.Controllers.ShowSession.Client;
 public class ShowSessionClientController : ControllerBase
 {
     private readonly IClientShowSessionService _sessionService;
+    private readonly IClientShowService _showService;
 
-    public ShowSessionClientController(IClientShowSessionService sessionService)
+    public ShowSessionClientController(IClientShowSessionService sessionService, IClientShowService showService)
     {
         _sessionService = sessionService;
+        _showService = showService;
     }
 
     /// <summary>
@@ -70,6 +73,46 @@ public class ShowSessionClientController : ControllerBase
         catch (KeyNotFoundException ex)
         {
             return NotFound(ApiResponse<IEnumerable<PricingStrategyDto>>.Fail("NOT_FOUND", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// 首页/搜索页获取演出列表
+    /// </summary>
+    [HttpGet("shows")]
+    [ProducesResponseType(typeof(ApiResponse<PagedResponse<ShowDto>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResponse<ShowDto>>>> GetShows(
+        [FromQuery] ShowQueryRequest query,
+        CancellationToken cancellationToken)
+    {
+        var result = await _showService.GetClientShowsAsync(query, cancellationToken);
+        return Ok(ApiResponse<PagedResponse<ShowDto>>.Ok(result, "获取演出列表成功"));
+    }
+
+    /// <summary>
+    /// 获取已上架演出的详情
+    /// </summary>
+    [HttpGet("shows/{showId:long}")]
+    [ProducesResponseType(typeof(ApiResponse<ShowDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ShowDto>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<ShowDto>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<ShowDto>>> GetShowById(
+        [FromRoute] long showId,
+        CancellationToken cancellationToken)
+    {
+        if (showId <= 0)
+        {
+            return BadRequest(ApiResponse<ShowDto>.Fail("INVALID_PARAM", "无效的演出 ID"));
+        }
+
+        try
+        {
+            var show = await _showService.GetClientShowByIdAsync(showId, cancellationToken);
+            return Ok(ApiResponse<ShowDto>.Ok(show, "获取演出详情成功"));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ApiResponse<ShowDto>.Fail("NOT_FOUND", ex.Message));
         }
     }
 }

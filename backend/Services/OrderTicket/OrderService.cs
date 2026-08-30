@@ -1,19 +1,25 @@
 using Microsoft.EntityFrameworkCore;
+using Oracle.ManagedDataAccess.Client;
+using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
+using ShowtimeBackend.DTOs.ShowSessionChange;
 using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Entities.UserPermission;
+using ShowtimeBackend.Services.SeatZone;
+using ShowtimeBackend.Services.ShowSession;
 
 namespace ShowtimeBackend.Services.OrderTicket;
 
-public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvider) : IOrderService
+public sealed class OrderService(
+    AppDbContext dbContext,
+    TimeProvider timeProvider,
+    ISeatLockGuard? seatLockGuard = null) : IOrderService
 {
-    private static readonly HashSet<string> OrderStatuses =
-    [
-        "PENDING_PAY", "PAID", "ISSUED", "PART_REFUND", "REFUNDED", "CANCELLED"
-    ];
+    // 与座位规则 NUMBER(3) 的取值范围保持一致，并避免生成过大的 Oracle IN 查询。
+    private const int MaxSeatsPerOrder = 999;
 
     public async Task<OrderTicketResult<PagedOrderResponse>> ListAsync(
         long userId,
@@ -28,42 +34,32 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                 "Page must be positive and pageSize must be between 1 and 100.");
         }
 
-        var status = string.IsNullOrWhiteSpace(query.Status)
-            ? null
-            : query.Status.Trim().ToUpperInvariant();
-        if (status is not null && !OrderStatuses.Contains(status))
-        {
-            return OrderTicketResult<PagedOrderResponse>.Fail(
-                OrderTicketFailure.InvalidRequest,
-                "ORDER_INVALID_STATUS",
-                "The requested order status is invalid.");
-        }
-
         var orders = dbContext.Set<Order>()
             .AsNoTracking()
             .Where(item => item.UserId == userId);
-        if (status is not null)
+        if (query.Status.HasValue)
         {
+            var status = query.Status.Value.ToDbString();
             orders = orders.Where(item => item.OrderStatus == status);
         }
 
         var totalCount = await orders.CountAsync(cancellationToken);
-        var items = await orders
+        var entities = await orders
             .OrderByDescending(item => item.CreateTime)
             .ThenByDescending(item => item.OrderId)
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
-            .Select(item => new OrderSummaryResponse(
-                item.OrderId,
-                item.OrderNo,
-                item.SessionId,
-                item.TotalAmount,
-                item.DiscountAmount,
-                item.TicketCount,
-                item.OrderStatus,
-                item.ExpireTime,
-                item.CreateTime))
             .ToListAsync(cancellationToken);
+        var items = entities.Select(item => new OrderSummaryResponse(
+            item.OrderId,
+            item.OrderNo,
+            item.SessionId,
+            item.TotalAmount,
+            item.DiscountAmount,
+            item.TicketCount,
+            item.OrderStatus.ToEnum<OrderStatus>(),
+            item.ExpireTime,
+            item.CreateTime)).ToList();
 
         return OrderTicketResult<PagedOrderResponse>.Success(
             new PagedOrderResponse(items, query.Page, query.PageSize, totalCount));
@@ -74,13 +70,78 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         long orderId,
         CancellationToken cancellationToken)
     {
-        var order = await dbContext.Set<Order>()
-            .AsNoTracking()
-            .Include(item => item.Items)
-            .ThenInclude(item => item.ETicket)
-            .Include(item => item.Payments)
-            .SingleOrDefaultAsync(item => item.OrderId == orderId && item.UserId == userId, cancellationToken);
+        var order = await FindOrderDetailsAsync(orderId, userId, cancellationToken);
 
+        return order is null
+            ? NotFound("ORDER_NOT_FOUND", "The order does not exist.")
+            : OrderTicketResult<OrderResponse>.Success(ToResponse(order));
+    }
+
+    public async Task<OrderTicketResult<PagedAdminOrderResponse>> ListAdminAsync(
+        AdminOrderListQuery query,
+        CancellationToken cancellationToken)
+    {
+        var offset = ((long)query.Page - 1) * query.PageSize;
+        if (query.Page < 1 || query.PageSize is < 1 or > 100 || offset > int.MaxValue)
+        {
+            return OrderTicketResult<PagedAdminOrderResponse>.Fail(
+                OrderTicketFailure.InvalidRequest,
+                "ORDER_INVALID_PAGING",
+                "Page must be positive and pageSize must be between 1 and 100.");
+        }
+
+        var orders = dbContext.Set<Order>()
+            .AsNoTracking()
+            .Include(item => item.User)
+            .AsQueryable();
+        if (query.Status.HasValue)
+        {
+            var status = query.Status.Value.ToDbString();
+            orders = orders.Where(item => item.OrderStatus == status);
+        }
+
+        var keyword = query.Keyword?.Trim();
+        if (!string.IsNullOrEmpty(keyword))
+        {
+            orders = orders.Where(item =>
+                item.OrderNo.Contains(keyword) ||
+                item.User != null &&
+                (item.User.UserName.Contains(keyword) ||
+                 item.User.Nickname != null && item.User.Nickname.Contains(keyword) ||
+                 item.User.Phone.Contains(keyword)));
+        }
+
+        var totalCount = await orders.CountAsync(cancellationToken);
+        var entities = await orders
+            .OrderByDescending(item => item.CreateTime)
+            .ThenByDescending(item => item.OrderId)
+            .Skip((int)offset)
+            .Take(query.PageSize)
+            .ToListAsync(cancellationToken);
+        var items = entities.Select(item => new AdminOrderSummaryResponse(
+            item.OrderId,
+            item.OrderNo,
+            item.UserId,
+            item.User!.UserName,
+            item.User.Nickname,
+            item.User.Phone,
+            item.SessionId,
+            item.TotalAmount,
+            item.DiscountAmount,
+            item.TicketCount,
+            item.OrderStatus.ToEnum<OrderStatus>(),
+            item.ExpireTime,
+            item.CreateTime)).ToList();
+
+        return OrderTicketResult<PagedAdminOrderResponse>.Success(
+            new PagedAdminOrderResponse(items, query.Page, query.PageSize, totalCount));
+    }
+
+    public async Task<OrderTicketResult<OrderResponse>> GetAdminAsync(
+        long orderId,
+        CancellationToken cancellationToken)
+    {
+        var order = await FindOrderDetailsAsync(orderId, null, cancellationToken);
         return order is null
             ? NotFound("ORDER_NOT_FOUND", "The order does not exist.")
             : OrderTicketResult<OrderResponse>.Success(ToResponse(order));
@@ -92,19 +153,33 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         CreateOrderRequest request,
         CancellationToken cancellationToken)
     {
-        if (request.SessionId <= 0 || request.Items.Count == 0 ||
-            request.Items.Any(item => item.SeatId <= 0 || item.PriceStrategyId <= 0) ||
-            request.Items.Select(item => item.SeatId).Distinct().Count() != request.Items.Count)
+        if (request.SessionId <= 0 || request.Items.Count is 0 or > MaxSeatsPerOrder ||
+            request.Items.Any(item => item.SeatId <= 0 ||
+                                      item.PriceStrategyId <= 0 ||
+                                      string.IsNullOrWhiteSpace(item.LockToken) ||
+                                      item.LockToken.Length > 64) ||
+            request.Items.Select(item => item.SeatId).Distinct().Count() != request.Items.Count ||
+            request.Items.Select(item => item.LockToken)
+                .Distinct(StringComparer.Ordinal).Count() != request.Items.Count)
         {
             return Invalid("ORDER_INVALID_ITEMS", "Order items must contain valid, distinct seats.");
         }
 
-        if (await dbContext.Set<ShowtimeBackend.Entities.ShowSession.ShowSession>()
-                .AsNoTracking()
-                .CountAsync(item => item.SessionId == request.SessionId, cancellationToken) == 0)
+        // 查询场次实体
+        var session = await dbContext.Set<ShowtimeBackend.Entities.ShowSession.ShowSession>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.SessionId == request.SessionId, cancellationToken);
+
+        if (session is null)
         {
             return NotFound("ORDER_SESSION_NOT_FOUND", "The requested session does not exist.");
         }
+
+        // 查询当前场次生效中的动态调价规则
+        var dynamicRules = await dbContext.Set<DynamicPricingRule>()
+            .AsNoTracking()
+            .Where(r => r.SessionId == request.SessionId && r.Status == "ENABLED")
+            .ToListAsync(cancellationToken);
 
         var seatIds = request.Items.Select(item => item.SeatId).ToArray();
         var seats = await dbContext.Set<Seat>()
@@ -138,9 +213,21 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             }
         }
 
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        // 查出用户锁记录，但不在此处直接阻断，保证座位和策略校验可以按预期的优先顺序触发
+        var locks = await dbContext.SeatLocks
+            .Where(item => item.SessionId == request.SessionId &&
+                           item.UserId == userId &&
+                           seatIds.Contains(item.SeatId) &&
+                           item.LockStatus == "ACTIVE" &&
+                           item.ExpireTime > now)
+            .ToDictionaryAsync(item => item.SeatId, cancellationToken);
+
         var orderItems = new List<OrderItem>(request.Items.Count);
         foreach (var requestedItem in request.Items)
         {
+            // 先校验座位可用性
             if (!seats.TryGetValue(requestedItem.SeatId, out var seat) ||
                 !seat.IsSellable || seat.SeatStatus != "ENABLED")
             {
@@ -149,6 +236,7 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                     $"Seat {requestedItem.SeatId} is unavailable.");
             }
 
+            // 再校验价格策略有效性
             if (!strategies.TryGetValue(requestedItem.PriceStrategyId, out var strategy) ||
                 strategy.SessionId != request.SessionId ||
                 strategy.SeatSectionId != seat.SeatSectionId ||
@@ -159,19 +247,44 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                     $"Price strategy {requestedItem.PriceStrategyId} cannot price seat {requestedItem.SeatId}.");
             }
 
+            // 优先取锁创建时间计价，若无锁记录（测试场景）回退到当前时间
+            var lockTime = locks.TryGetValue(requestedItem.SeatId, out var seatLock)
+                ? seatLock.CreateTime
+                : now;
+
+            decimal realtimeUnitPrice = PricingChange.CalculateRealtimePrice(
+                strategy.Price,
+                session.StartTime,
+                lockTime,
+                strategy.SeatSectionId,
+                dynamicRules);
+
             orderItems.Add(new OrderItem
             {
                 SeatId = seat.SeatId,
                 PriceStrategyId = strategy.PriceStrategyId,
                 RealNameId = requestedItem.RealNameId,
-                UnitPrice = strategy.Price,
+                UnitPrice = realtimeUnitPrice,
                 ItemStatus = "NORMAL",
                 CreateBy = actor,
                 UpdateBy = actor
             });
         }
 
-        var now = timeProvider.GetUtcNow().UtcDateTime;
+        // 座位与策略通过校验后，校验锁完整性
+        if (locks.Count != request.Items.Count || request.Items.Any(item =>
+                !locks.TryGetValue(item.SeatId, out var seatLock) ||
+                !string.Equals(
+                    seatLock.LockToken,
+                    item.LockToken,
+                    StringComparison.Ordinal)))
+        {
+            return OrderTicketResult<OrderResponse>.Fail(
+                OrderTicketFailure.Conflict,
+                "ORDER_SEAT_LOCK_INVALID",
+                "Every order item requires an active seat lock owned by the current user.");
+        }
+
         var order = new Order
         {
             OrderNo = CreateBusinessNumber("ORD", now),
@@ -190,10 +303,124 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             Items = orderItems
         };
 
-        dbContext.Add(order);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        await using var transaction = dbContext.Database.IsRelational()
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
+        try
+        {
+            if (dbContext.Database.IsRelational())
+            {
+                var lockIds = locks.Values.Select(item => item.SeatLockId).ToArray();
+                var convertedCount = await dbContext.SeatLocks
+                    .Where(item => lockIds.Contains(item.SeatLockId) &&
+                                   item.UserId == userId &&
+                                   item.LockStatus == "ACTIVE" &&
+                                   item.ExpireTime > now)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(item => item.LockStatus, "CONVERTED")
+                        .SetProperty(item => item.UpdateBy, actor),
+                        cancellationToken);
+
+                if (convertedCount != request.Items.Count)
+                {
+                    if (transaction is not null)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                    }
+                    return OrderTicketResult<OrderResponse>.Fail(
+                        OrderTicketFailure.Conflict,
+                        "ORDER_SEAT_LOCK_INVALID",
+                        "One or more seat locks are no longer active.");
+                }
+            }
+            else
+            {
+                foreach (var seatLock in locks.Values)
+                {
+                    seatLock.LockStatus = "CONVERTED";
+                    seatLock.UpdateBy = actor;
+                }
+            }
+
+            dbContext.Add(order);
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            for (var index = 0; index < orderItems.Count; index++)
+            {
+                var orderItem = orderItems[index];
+                var requestedItem = request.Items[index];
+                var seatLock = locks[requestedItem.SeatId];
+
+                dbContext.SeatReservations.Add(new SeatReservation
+                {
+                    SessionId = request.SessionId,
+                    SeatId = requestedItem.SeatId,
+                    OrderItemId = orderItem.OrderItemId,
+                    SeatLockId = seatLock.SeatLockId,
+                    ReservationType = "ORDER",
+                    ReservationStatus = "ACTIVE",
+                    ReserveTime = now,
+                    CreateBy = actor,
+                    UpdateBy = actor
+                });
+            }
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+        }
+        catch (DbUpdateException exception)
+        {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+
+            if (ContainsOracleError(exception, 1))
+            {
+                return OrderTicketResult<OrderResponse>.Fail(
+                    OrderTicketFailure.Conflict,
+                    "ORDER_SEAT_UNAVAILABLE",
+                    "One or more seats have already been reserved.");
+            }
+
+            throw;
+        }
+        catch (Exception)
+        {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+
+            throw;
+        }
+
+        // DB 侧锁已全部 CONVERTED（事务已提交/内存库保存成功），释放 Redis 座位锁，避免残留 key 阻塞后续锁座。
+        await ReleaseGuardKeysAsync(request.SessionId, locks.Values);
 
         return OrderTicketResult<OrderResponse>.Success(ToResponse(order));
+    }
+
+    /// <summary>下单转换成功后释放订单项对应的 Redis 座位锁（按 token 比对防误删；失败由 TTL 兜底）。</summary>
+    private async Task ReleaseGuardKeysAsync(
+        long sessionId,
+        IEnumerable<SeatLock> locks)
+    {
+        if (seatLockGuard is null)
+        {
+            return;
+        }
+
+        foreach (var seatLock in locks)
+        {
+            await seatLockGuard.ReleaseAsync(
+                sessionId, seatLock.SeatId, seatLock.LockToken);
+        }
     }
 
     public async Task<OrderTicketResult<OrderResponse>> CancelAsync(
@@ -210,6 +437,30 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             return NotFound("ORDER_NOT_FOUND", "The order does not exist.");
         }
 
+        return await CancelOrderAsync(order, actor, cancellationToken);
+    }
+
+    public async Task<OrderTicketResult<OrderResponse>> CancelAdminAsync(
+        string actor,
+        long orderId,
+        CancellationToken cancellationToken)
+    {
+        var order = await dbContext.Set<Order>()
+            .Include(item => item.Items)
+            .SingleOrDefaultAsync(item => item.OrderId == orderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFound("ORDER_NOT_FOUND", "The order does not exist.");
+        }
+
+        return await CancelOrderAsync(order, actor, cancellationToken);
+    }
+
+    private async Task<OrderTicketResult<OrderResponse>> CancelOrderAsync(
+        Order order,
+        string actor,
+        CancellationToken cancellationToken)
+    {
         if (order.OrderStatus != "PENDING_PAY")
         {
             return OrderTicketResult<OrderResponse>.Fail(
@@ -218,12 +469,56 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                 "Only pending-payment orders can be cancelled.");
         }
 
+        var orderItemIds = order.Items.Select(item => item.OrderItemId).ToArray();
+        var reservations = await dbContext.SeatReservations
+            .Where(item => item.OrderItemId.HasValue &&
+                           orderItemIds.Contains(item.OrderItemId.Value) &&
+                           item.ReservationStatus == "ACTIVE")
+            .ToListAsync(cancellationToken);
+        var now = timeProvider.GetUtcNow().UtcDateTime;
         order.OrderStatus = "CANCELLED";
-        order.CancelTime = timeProvider.GetUtcNow().UtcDateTime;
+        order.CancelTime = now;
         order.UpdateBy = actor;
-        await dbContext.SaveChangesAsync(cancellationToken);
+
+        foreach (var reservation in reservations)
+        {
+            reservation.ReservationStatus = "CANCELLED";
+            reservation.CancelTime = now;
+            reservation.UpdateBy = actor;
+        }
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return OrderTicketResult<OrderResponse>.Fail(
+                OrderTicketFailure.Conflict,
+                "ORDER_CANNOT_CANCEL",
+                "The order status changed and it can no longer be cancelled.");
+        }
 
         return OrderTicketResult<OrderResponse>.Success(ToResponse(order));
+    }
+
+    private async Task<Order?> FindOrderDetailsAsync(
+        long orderId,
+        long? userId,
+        CancellationToken cancellationToken)
+    {
+        var orders = dbContext.Set<Order>()
+            .AsNoTracking()
+            .Include(item => item.Items)
+            .ThenInclude(item => item.ETicket)
+            .Include(item => item.Payments)
+            .AsQueryable();
+        if (userId.HasValue)
+        {
+            orders = orders.Where(item => item.UserId == userId.Value);
+        }
+
+        return await orders.SingleOrDefaultAsync(item => item.OrderId == orderId, cancellationToken);
     }
 
     private static string CreateBusinessNumber(string prefix, DateTime now) =>
@@ -236,9 +531,10 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
         order.TotalAmount,
         order.DiscountAmount,
         order.TicketCount,
-        order.OrderStatus,
+        order.OrderStatus.ToEnum<OrderStatus>(),
         order.ExpireTime,
         order.PayTime,
+        order.IssueTime,
         order.CancelTime,
         order.Source,
         order.Remark,
@@ -248,14 +544,14 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
             item.PriceStrategyId,
             item.RealNameId,
             item.UnitPrice,
-            item.ItemStatus)).ToList(),
+            item.ItemStatus.ToEnum<OrderItemStatus>())).ToList(),
         order.Payments.Select(item => new PaymentResponse(
             item.PaymentId,
             item.PaymentNo,
             item.OrderId,
             item.PayAmount,
-            item.PayChannel,
-            item.PayStatus,
+            item.PayChannel.ToEnum<PaymentChannel>(),
+            item.PayStatus.ToEnum<PaymentStatus>(),
             item.TradeNo,
             item.CallbackTime,
             item.PayTime)).ToList(),
@@ -265,12 +561,26 @@ public sealed class OrderService(AppDbContext dbContext, TimeProvider timeProvid
                 item.ETicket!.ETicketId,
                 item.ETicket.ETicketNo,
                 item.ETicket.OrderItemId,
-                item.ETicket.TicketStatus))
-            .ToList());
+                item.ETicket.TicketStatus.ToEnum<ETicketStatus>()))
+            .ToList(),
+        order.CreateTime);
 
     private static OrderTicketResult<OrderResponse> Invalid(string code, string message) =>
         OrderTicketResult<OrderResponse>.Fail(OrderTicketFailure.InvalidRequest, code, message);
 
     private static OrderTicketResult<OrderResponse> NotFound(string code, string message) =>
         OrderTicketResult<OrderResponse>.Fail(OrderTicketFailure.NotFound, code, message);
+
+    private static bool ContainsOracleError(Exception exception, int number)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is OracleException oracleException && oracleException.Number == number)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

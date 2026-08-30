@@ -24,10 +24,12 @@ public class AppDbContext : DbContext
     public DbSet<ShowSession> ShowSessions => Set<ShowSession>();
     public DbSet<Venue> Venues => Set<Venue>();
     public DbSet<PriceStrategy> PriceStrategy => Set<PriceStrategy>();
-
+    public DbSet<Show> Shows => Set<Show>();
+    public DbSet<DynamicPricingRule> DynamicPricingRules => Set<DynamicPricingRule>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("APP_OWNER");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
     }
 }

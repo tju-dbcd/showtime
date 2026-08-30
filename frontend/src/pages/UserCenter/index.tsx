@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';  // ← 加 useRef
-import { useUser } from '@/context/UserContext';     // ← 新增
+import { useState, useEffect } from 'react';
+import { useUser } from '@/context/UserContext';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Menu, Avatar, Typography, Button, Form, Input, Modal, message, Table, Tag, Divider, Card } from 'antd';
 import {
@@ -9,14 +9,14 @@ import {
   UnorderedListOutlined,
   HomeOutlined,
   LogoutOutlined,
-  EditOutlined,
   PlusOutlined,
   DeleteOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
 } from '@ant-design/icons';
 import type { Address } from '@/mock/user';
-import { mockOrders } from '@/mock/orders';
+import FileUploader from '@/components/FileUploader';
+import { updateAvatar } from '@/api/user';
 import './UserCenter.css';
 
 const { Sider, Content } = Layout;
@@ -36,41 +36,34 @@ const UserCenter = () => {
   const navigate = useNavigate();
   const [selectedKey, setSelectedKey] = useState('profile');
   const { user, updateUser } = useUser();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
+  const [avatarUpdating, setAvatarUpdating] = useState(false);
   const [editingAddress, setEditingAddress] = useState<Address | null>(null);
   const [form] = Form.useForm();
   const [addressForm] = Form.useForm();
 
   // 检查登录状态
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('accessToken');
     if (!token) {
       navigate('/login');
     }
   }, [navigate]);
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 2 * 1024 * 1024) {
-      message.warning('图片大小不能超过 2MB');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      updateUser({ avatar: dataUrl });
+  // 头像经 OSS 上传后先调后端持久化（AVATAR_URL），成功再更新本地 context/localStorage，刷新后仍显示。
+  const handleAvatarChange = async (url?: string) => {
+    if (!url) return;
+    try {
+      setAvatarUpdating(true);
+      await updateAvatar(url);
+      updateUser({ avatar: url });
       message.success('头像更新成功！');
-    };
-    reader.onerror = () => {
-      message.error('读取文件失败，请重试');
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '头像保存失败，请重试');
+    } finally {
+      setAvatarUpdating(false);
+    }
   };
 
   // 渲染个人资料
@@ -80,27 +73,22 @@ const UserCenter = () => {
       <Divider />
       <div className="profile-info">
         <div className="profile-avatar">
-          <Avatar src={user.avatar} size={100} />
-          <Button
-            icon={<EditOutlined />}
-            size="small"
-            style={{ marginTop: 12 }}
-            onClick={() => fileInputRef.current?.click()}
+          <FileUploader
+            folder="avatar"
+            value={user.avatar}
+            onChange={handleAvatarChange}
+            showUploadList={false}
           >
-            更换头像
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            style={{ display: 'none' }}
-            onChange={handleAvatarUpload}
-          />
+            <Avatar src={user.avatar} size={100} />
+          </FileUploader>
+          <div style={{ marginTop: 12, color: '#999', fontSize: 12 }}>
+            {avatarUpdating ? '正在保存...' : '点击头像更换'}
+          </div>
         </div>
         <div className="profile-details">
           <div className="detail-row">
             <span className="label">昵称</span>
-            <span className="value">{user.nickname}</span>
+            <span className="value">{user.nickname || user.username || '用户'}</span>
             <Button type="link" size="small" onClick={() => setIsEditModalOpen(true)}>
               编辑
             </Button>
@@ -224,7 +212,6 @@ const UserCenter = () => {
       </div>
       <Divider />
       <Table
-        dataSource={mockOrders}
         columns={[
           { title: '订单号', dataIndex: 'id', key: 'id', width: 160 },
           { title: '演出名称', dataIndex: 'eventName', key: 'eventName', width: 200 },
@@ -389,7 +376,7 @@ const UserCenter = () => {
         <Sider theme="dark" width={240} className="uc-sider">
           <div className="uc-user-info">
             <Avatar src={user.avatar} size={56} />
-            <div className="uc-user-name">{user.nickname}</div>
+            <div className="uc-user-name">{user.nickname || user.username || '用户'}</div>
             <div className="uc-user-id">ID: {user.username}</div>
           </div>
           <Menu

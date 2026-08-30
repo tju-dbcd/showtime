@@ -3,7 +3,7 @@
   width: 100%;
   min-height: 100vh;
   background: #f5f5f5;
-  padding-bottom: 88px; /* 给底部固定栏留空间 */
+  padding-bottom: 88px;
 }
 
 .order-content {
@@ -73,7 +73,7 @@
   cursor: not-allowed;
 }
 
-/* ========== 付款弹窗 ========== */
+/* ========== 支付弹窗 ========== */
 .payment-modal .ant-modal-content {
   border-radius: 16px;
   overflow: hidden;
@@ -97,21 +97,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
-}
-
-.qr-code-wrapper {
-  background: #ffffff;
-  padding: 16px;
-  border-radius: 12px;
-  border: 2px solid #f0f0f0;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-}
-
-.qr-code {
-  width: 200px;
-  height: 200px;
-  display: block;
+  gap: 12px;
 }
 
 .payment-info {
@@ -134,7 +120,7 @@
 .payment-order {
   font-size: 14px;
   color: #999;
-  margin-bottom: 12px;
+  margin-bottom: 4px;
 }
 
 .payment-order .order-id {
@@ -152,7 +138,33 @@
   margin: 0;
 }
 
-/* ========== 响应式适配 ========== */
+.payment-modal .ant-modal-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.payment-modal .ant-modal-footer .ant-btn-primary {
+  background: #ff4d4f !important;
+  border-color: #ff4d4f !important;
+}
+
+.payment-modal .ant-modal-footer .ant-btn-primary:hover {
+  background: #ff7875 !important;
+  border-color: #ff7875 !important;
+}
+
+.payment-modal .ant-modal-footer .ant-btn-primary:last-child {
+  background: #1890ff !important;
+  border-color: #1890ff !important;
+}
+
+.payment-modal .ant-modal-footer .ant-btn-primary:last-child:hover {
+  background: #40a9ff !important;
+  border-color: #40a9ff !important;
+}
+
+/* ========== 响应式 ========== */
 @media (max-width: 768px) {
   .order-content {
     padding: 16px 12px;
@@ -175,12 +187,5 @@
     height: 40px;
     padding: 0 24px;
     font-size: 15px;
-  }
-  .qr-code {
-    width: 160px;
-    height: 160px;
-  }
-  .payment-amount .amount {
-    font-size: 20px;
   }
 }
