@@ -110,3 +110,100 @@ export const userAPI = {
   updateAvatar: (data: { avatarUrl: string }) =>
     client.PUT('/api/users/me/avatar', { body: data as any }),
 };
+
+// ========== 退票 API ==========
+export const refundAPI = {
+  // 退票报价（获取退票金额估算）
+  getRefundQuote: (orderId: number, data: { orderItemIds: number[] }) =>
+    client.POST('/api/orders/{orderId}/refunds/quote', {
+      params: { path: { orderId } },
+      body: data,
+    }),
+
+  // 申请退票
+  applyRefund: (orderId: number, data: { orderItemIds: number[]; reason: string }) =>
+    client.POST('/api/orders/{orderId}/refunds', {
+      params: { path: { orderId } },
+      body: data,
+    }),
+
+  // 获取退票记录列表（使用枚举类型）
+  getRefundList: (
+    orderId: number,
+    params?: {
+      ApproveStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+      RefundStatus?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+      Page?: number;
+      PageSize?: number;
+    }
+  ) =>
+    client.GET('/api/orders/{orderId}/refunds', {
+      params: { path: { orderId }, query: params },
+    }),
+
+  // 获取退票详情
+  getRefundDetail: (refundId: number) =>
+    client.GET('/api/refunds/{refundId}', {
+      params: { path: { refundId } },
+    }),
+};
+
+// ========== 改签 API ==========
+export const exchangeAPI = {
+  // 改签报价（获取改签估算）
+  getExchangeQuote: (
+    orderId: number,
+    data: {
+      targetSessionId: number;
+      targetItems: {
+        originalOrderItemId: number;
+        seatId: number;
+        priceStrategyId: number;
+        lockToken: string;
+      }[];
+    }
+  ) =>
+    client.POST('/api/orders/{orderId}/exchanges/quote', {
+      params: { path: { orderId } },
+      body: data,
+    }),
+
+  // 申请改签
+  applyExchange: (
+    orderId: number,
+    data: {
+      targetSessionId: number;
+      targetItems: {
+        originalOrderItemId: number;
+        seatId: number;
+        priceStrategyId: number;
+        lockToken: string;
+      }[];
+      reason: string | null;
+    }
+  ) =>
+    client.POST('/api/orders/{orderId}/exchanges', {
+      params: { path: { orderId } },
+      body: data,
+    }),
+
+  // 获取改签记录列表（使用枚举类型）
+  getExchangeList: (
+    orderId: number,
+    params?: {
+      ApproveStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+      ExchangeStatus?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+      Page?: number;
+      PageSize?: number;
+    }
+  ) =>
+    client.GET('/api/orders/{orderId}/exchanges', {
+      params: { path: { orderId }, query: params },
+    }),
+
+  // 获取改签详情
+  getExchangeDetail: (exchangeId: number) =>
+    client.GET('/api/exchanges/{exchangeId}', {
+      params: { path: { exchangeId } },
+    }),
+};
