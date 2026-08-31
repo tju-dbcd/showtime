@@ -209,6 +209,11 @@ public sealed class TicketRedemptionService(
             "REFUNDED" => Conflict(
                 "TICKET_REFUNDED",
                 "The ticket has been refunded."),
+            // 防御性分支：E_TICKET.TICKET_STATUS 的 CHECK 约束当前不含 EXCHANGING
+            // （db/migrations/20260824__refund_workflow_support.sql 与 ETicketConfiguration 一致），
+            // 因此该分支在现有数据库取值下不可达；保留以防未来引入该状态时静默放过。
+            // 注意：EXCHANGING 是 ORDER_ITEM.ITEM_STATUS 的合法值（交易所概念存在），
+            // 若后续实现改签需先发迁移放开 CHK_ETICKET_STATUS 后再启用此分支。
             "EXCHANGING" => Conflict(
                 "TICKET_EXCHANGING",
                 "The ticket is being exchanged."),
