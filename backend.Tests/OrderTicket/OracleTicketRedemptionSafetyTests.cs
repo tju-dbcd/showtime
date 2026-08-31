@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Oracle.EntityFrameworkCore.Infrastructure;
 using Oracle.ManagedDataAccess.Client;
 using ShowtimeBackend.Common.TicketSecurity;
 using ShowtimeBackend.Data;
@@ -57,6 +58,7 @@ public sealed partial class OracleTicketRedemptionSafetyTests
     [OracleTicketRedemptionFact]
     public async Task OracleTicketRedemption_PersonalSchemaMappingPreflight()
     {
+        using var oracleGate = await OracleOrderTicketGate.EnterAsync();
         var connectionString = Environment.GetEnvironmentVariable(
             "SHOWTIME_ORACLE_REDEMPTION_TEST_CONNECTION");
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -112,7 +114,10 @@ public sealed partial class OracleTicketRedemptionSafetyTests
         }
 
         var options = new DbContextOptionsBuilder<OracleRedemptionTestDbContext>()
-            .UseOracle(connection)
+            .UseOracle(
+                connection,
+                oracle => oracle.UseOracleSQLCompatibility(
+                    OracleSQLCompatibility.DatabaseVersion21))
             .ReplaceService<IModelCacheKeyFactory, PersonalSchemaModelCacheKeyFactory>()
             .AddInterceptors(new AppOwnerSqlGuardInterceptor())
             .Options;
@@ -135,6 +140,7 @@ public sealed partial class OracleTicketRedemptionSafetyTests
     [OracleTicketRedemptionFact]
     public async Task OracleTicketRedemption_DualConnectionAllowsExactlyOneWinner()
     {
+        using var oracleGate = await OracleOrderTicketGate.EnterAsync();
         await using var fixture = await OracleRedemptionFixture.CreateAsync();
         var barrier = new TicketUpdateBarrier(expectedArrivals: 2);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(45));
@@ -186,6 +192,7 @@ public sealed partial class OracleTicketRedemptionSafetyTests
     [OracleTicketRedemptionFact]
     public async Task OracleTicketRedemption_CompetingRefundCannotCreateCrossState()
     {
+        using var oracleGate = await OracleOrderTicketGate.EnterAsync();
         await using var fixture = await OracleRedemptionFixture.CreateAsync();
         var barrier = new TicketUpdateBarrier(expectedArrivals: 2);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(45));
@@ -387,7 +394,12 @@ public sealed partial class OracleTicketRedemptionSafetyTests
             var options = new DbContextOptionsBuilder<OracleRedemptionTestDbContext>()
                 .UseOracle(
                     connectionString,
-                    oracle => oracle.CommandTimeout(15))
+                    oracle =>
+                    {
+                        oracle.CommandTimeout(15);
+                        oracle.UseOracleSQLCompatibility(
+                            OracleSQLCompatibility.DatabaseVersion21);
+                    })
                 .ReplaceService<IModelCacheKeyFactory, PersonalSchemaModelCacheKeyFactory>()
                 .AddInterceptors(
                     new IInterceptor[] { new AppOwnerSqlGuardInterceptor() }

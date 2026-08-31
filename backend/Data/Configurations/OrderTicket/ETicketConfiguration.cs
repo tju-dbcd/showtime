@@ -13,7 +13,7 @@ public class ETicketConfiguration : IEntityTypeConfiguration<ETicket>
         {
             table.HasCheckConstraint(
                 "CHK_ETICKET_STATUS",
-                "TICKET_STATUS IN ('UNUSED', 'REFUNDING', 'USED', 'REFUNDED', 'EXCHANGED')");
+                "TICKET_STATUS IN ('UNUSED', 'REFUNDING', 'USED', 'REFUNDED', 'EXCHANGING', 'EXCHANGED')");
         });
 
         builder.HasKey(entity => entity.ETicketId)

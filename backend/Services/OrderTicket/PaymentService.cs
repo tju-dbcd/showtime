@@ -62,6 +62,13 @@ public sealed class PaymentService(
                 return NotFound("ORDER_NOT_FOUND", "The order does not exist.");
             }
 
+            if (order.OrderType == "EXCHANGE")
+            {
+                return Conflict(
+                    "EXCHANGE_PAYMENT_REQUIRES_WORKFLOW",
+                    "Exchange child orders must be paid through the exchange workflow.");
+            }
+
             if (order.Payments.Any(item =>
                 item.PayStatus == PaymentStatus.SUCCESS.ToDbString()))
             {

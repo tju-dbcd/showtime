@@ -11,10 +11,14 @@ public sealed record OrderSummaryResponse(
     long OrderId,
     string OrderNo,
     long SessionId,
+    OrderType OrderType,
+    long? ParentOrderId,
     decimal TotalAmount,
     decimal DiscountAmount,
     int TicketCount,
     OrderStatus OrderStatus,
+    bool CanPay,
+    bool CanCancel,
     DateTime ExpireTime,
     DateTime CreateTime);
 

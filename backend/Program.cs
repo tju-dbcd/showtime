@@ -22,6 +22,7 @@ using ShowtimeBackend.Services.Impl;
 using ShowtimeBackend.Services.SeatZone;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
+using Oracle.EntityFrameworkCore.Infrastructure;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
 
@@ -33,7 +34,9 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
     options.UseOracle(
         configuration.GetConnectionString("Oracle")
         ?? throw new InvalidOperationException(
-            "Connection string 'Oracle' is not set."));
+            "Connection string 'Oracle' is not set."),
+        oracle => oracle.UseOracleSQLCompatibility(
+            OracleSQLCompatibility.DatabaseVersion21));
 });
 
 // Redis：懒连接注册，启动不阻塞；Redis 未启动时应用照常启动，选座锁守卫自动降级为纯 Oracle 流程。
@@ -95,6 +98,14 @@ builder.Services.AddSingleton<
 builder.Services
     .AddOptions<TicketRedemptionOptions>()
     .Bind(builder.Configuration.GetSection(TicketRedemptionOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
+    .AddOptions<ExchangeOptions>()
+    .Bind(
+        builder.Configuration.GetSection(ExchangeOptions.SectionName),
+        binder => binder.ErrorOnUnknownConfiguration = true)
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
@@ -174,6 +185,14 @@ builder.Services.AddScoped<ITicketRedemptionService, TicketRedemptionService>();
 builder.Services.AddScoped<IAdminTicketIssuanceService, AdminTicketIssuanceService>();
 builder.Services.AddScoped<IRefundPolicyAdminService, RefundPolicyAdminService>();
 builder.Services.AddSingleton<RefundPolicyEngine>();
+builder.Services.AddScoped<IExchangePolicyAdminService, ExchangePolicyAdminService>();
+builder.Services.AddSingleton<ExchangePolicyEngine>();
+builder.Services.AddScoped<IExchangeApplicationService, ExchangeApplicationService>();
+builder.Services.AddScoped<IExchangeLockCoordinator, OracleExchangeLockCoordinator>();
+builder.Services.AddScoped<IExchangeReviewService, ExchangeReviewService>();
+builder.Services.AddScoped<IExchangePaymentService, ExchangePaymentService>();
+builder.Services.AddScoped<IExchangeExpirationService, ExchangeExpirationService>();
+builder.Services.AddHostedService<ExchangeExpirationWorker>();
 builder.Services.AddScoped<IRefundLockCoordinator, OracleRefundLockCoordinator>();
 builder.Services.AddScoped<IRefundApplicationService, RefundApplicationService>();
 builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();

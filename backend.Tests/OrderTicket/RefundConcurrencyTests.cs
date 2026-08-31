@@ -232,34 +232,33 @@ public sealed class RefundConcurrencyTests
     }
 
     [Fact]
-    public async Task OracleRefundLockCoordinator_UsesCurrentConnectionTransactionAndParameters()
+    public async Task OracleRefundLockCoordinator_OnSqlite_AcquiresAtomicWriteLocks()
     {
-        await using var connection = new RecordingDbConnection();
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<SqliteAuthDbContext>()
-            .UseSqlite(connection)
-            .Options;
-        await using var db = new SqliteAuthDbContext(options);
-        await using var transaction = await db.Database.BeginTransactionAsync();
-        var coordinator = new OracleRefundLockCoordinator(db);
+        await using var fixture = await RefundTestData.CreateIssuedOrderAsync();
+        fixture.Db.Add(new RefundRequest
+        {
+            RefundId = 401,
+            RefundNo = "REFUND-LOCK-401",
+            OrderId = fixture.OrderId,
+            UserId = fixture.UserId,
+            RefundType = "FULL",
+            RefundAmount = 105m,
+            ActualRefund = 105m,
+            FeeRate = 1m,
+            AppliedServiceFee = 0m,
+            ApproveStatus = "PENDING",
+            RefundStatus = "PENDING",
+        });
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+        await using var transaction = await fixture.Db.Database.BeginTransactionAsync();
+        var coordinator = new OracleRefundLockCoordinator(fixture.Db);
 
         Assert.True(await coordinator.LockRefundRequestAsync(401, CancellationToken.None));
-        Assert.True(await coordinator.LockOrderAsync(11, CancellationToken.None));
-
-        Assert.Collection(
-            connection.Commands,
-            command => AssertOracleLockCommand(
-                command,
-                "APP_OWNER.REFUND_REQUEST",
-                401,
-                connection,
-                transaction.GetDbTransaction()),
-            command => AssertOracleLockCommand(
-                command,
-                "APP_OWNER.T_ORDER",
-                11,
-                connection,
-                transaction.GetDbTransaction()));
+        Assert.True(await coordinator.LockOrderAsync(fixture.OrderId, CancellationToken.None));
+        Assert.False(await coordinator.LockOrderAsync(999_999, CancellationToken.None));
+        Assert.NotNull(fixture.Db.Database.CurrentTransaction);
+        await transaction.RollbackAsync();
     }
 
     [Theory]
@@ -278,6 +277,7 @@ public sealed class RefundConcurrencyTests
     [OracleRefundFact]
     public async Task OracleRefundConcurrency_WhenPersonalSchemaIsExplicitlyConfigured()
     {
+        using var oracleGate = await OracleOrderTicketGate.EnterAsync();
         var connectionString = Environment.GetEnvironmentVariable(
             "SHOWTIME_ORACLE_REFUND_TEST_CONNECTION") ??
             throw new InvalidOperationException(

@@ -54,10 +54,14 @@ public sealed class OrderService(
             item.OrderId,
             item.OrderNo,
             item.SessionId,
+            item.OrderType.ToEnum<OrderType>(),
+            item.ParentOrderId,
             item.TotalAmount,
             item.DiscountAmount,
             item.TicketCount,
             item.OrderStatus.ToEnum<OrderStatus>(),
+            item.OrderType != "EXCHANGE" && item.OrderStatus == "PENDING_PAY",
+            item.OrderType != "EXCHANGE" && item.OrderStatus == "PENDING_PAY",
             item.ExpireTime,
             item.CreateTime)).ToList();
 
@@ -126,10 +130,14 @@ public sealed class OrderService(
             item.User.Nickname,
             item.User.Phone,
             item.SessionId,
+            item.OrderType.ToEnum<OrderType>(),
+            item.ParentOrderId,
             item.TotalAmount,
             item.DiscountAmount,
             item.TicketCount,
             item.OrderStatus.ToEnum<OrderStatus>(),
+            item.OrderType != "EXCHANGE" && item.OrderStatus == "PENDING_PAY",
+            item.OrderType != "EXCHANGE" && item.OrderStatus == "PENDING_PAY",
             item.ExpireTime,
             item.CreateTime)).ToList();
 
@@ -461,6 +469,14 @@ public sealed class OrderService(
         string actor,
         CancellationToken cancellationToken)
     {
+        if (order.OrderType == "EXCHANGE")
+        {
+            return OrderTicketResult<OrderResponse>.Fail(
+                OrderTicketFailure.Conflict,
+                "EXCHANGE_CANCEL_REQUIRES_WORKFLOW",
+                "Exchange child orders must be cancelled through the exchange workflow.");
+        }
+
         if (order.OrderStatus != "PENDING_PAY")
         {
             return OrderTicketResult<OrderResponse>.Fail(
@@ -528,6 +544,8 @@ public sealed class OrderService(
         order.OrderId,
         order.OrderNo,
         order.SessionId,
+        order.OrderType.ToEnum<OrderType>(),
+        order.ParentOrderId,
         order.TotalAmount,
         order.DiscountAmount,
         order.TicketCount,
@@ -538,6 +556,8 @@ public sealed class OrderService(
         order.CancelTime,
         order.Source,
         order.Remark,
+        order.OrderType != "EXCHANGE" && order.OrderStatus == "PENDING_PAY",
+        order.OrderType != "EXCHANGE" && order.OrderStatus == "PENDING_PAY",
         order.Items.Select(item => new OrderItemResponse(
             item.OrderItemId,
             item.SeatId,

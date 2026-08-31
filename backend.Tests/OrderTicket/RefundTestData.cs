@@ -593,6 +593,9 @@ internal sealed class RefundTestData : IAsyncDisposable
         return new SqliteAuthDbContext(options);
     }
 
+    public void BackupTo(SqliteConnection destination) =>
+        _connection.BackupDatabase(destination);
+
     public async Task<OrderTicketResult<RefundResponse>> ApproveWithFreshContextAsync(
         long refundId)
     {

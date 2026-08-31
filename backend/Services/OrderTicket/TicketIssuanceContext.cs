@@ -4,4 +4,5 @@ public enum TicketIssuanceContext
 {
     Payment,
     Compensation,
+    Exchange,
 }

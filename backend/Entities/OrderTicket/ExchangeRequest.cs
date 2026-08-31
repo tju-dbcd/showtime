@@ -23,6 +23,8 @@ public class ExchangeRequest : AuditableEntity
 
     public decimal PriceDiff { get; set; }
 
+    public long? AppliedPolicyId { get; set; }
+
     public string ApproveStatus { get; set; } = "PENDING";
 
     public string? ReviewBy { get; set; }
@@ -36,6 +38,8 @@ public class ExchangeRequest : AuditableEntity
     public DateTime? CompleteTime { get; set; }
 
     public Order? Order { get; set; }
+
+    public ExchangePolicy? AppliedPolicy { get; set; }
 
     public SysUser? User { get; set; }
 

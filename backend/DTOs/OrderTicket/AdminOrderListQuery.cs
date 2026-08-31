@@ -16,10 +16,14 @@ public sealed record AdminOrderSummaryResponse(
     string? Nickname,
     string Phone,
     long SessionId,
+    OrderType OrderType,
+    long? ParentOrderId,
     decimal TotalAmount,
     decimal DiscountAmount,
     int TicketCount,
     OrderStatus OrderStatus,
+    bool CanPay,
+    bool CanCancel,
     DateTime ExpireTime,
     DateTime CreateTime);
 

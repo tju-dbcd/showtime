@@ -29,6 +29,14 @@ public sealed class AdminTicketIssuanceService(
                     "The order does not exist.");
             }
 
+            if (order.OrderType == "EXCHANGE")
+            {
+                return OrderTicketResult<TicketIssuanceResponse>.Fail(
+                    OrderTicketFailure.Conflict,
+                    "EXCHANGE_ISSUANCE_REQUIRES_WORKFLOW",
+                    "Exchange child orders must be issued through the exchange workflow.");
+            }
+
             OrderTicketResult<TicketIssuanceOutcome> issuanceResult;
             try
             {
