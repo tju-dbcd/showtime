@@ -21,10 +21,12 @@ using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
 using ShowtimeBackend.Services.SeatZone;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
 using Serilog;
+using ShowtimeBackend.Common.LocalStorage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -49,14 +51,32 @@ builder.Services.AddScoped<AppDbContext>(provider =>
     provider.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
 
 // Redis：懒连接注册，启动不阻塞；Redis 未启动时应用照常启动，选座锁守卫自动降级为纯 Oracle 流程。
-var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
-    ?? "localhost:6379,abortConnect=false,connectRetry=3,connectTimeout=3000";
-builder.Services.AddStackExchangeRedisCache(options =>
+// 注意：里程碑 5 的常规缓存（场次/演出热点等）落地时再按需注册 AddStackExchangeRedisCache（IDistributedCache），
+// 在此之前不注册，避免为无人使用的缓存通道白白占用一套 Redis 连接配置。
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+if (string.IsNullOrWhiteSpace(redisConnectionString))
 {
-    // 常规缓存（场次/演出热点缓存等里程碑 5 场景直接使用 IDistributedCache）
-    options.Configuration = redisConnectionString;
-    options.InstanceName = "showtime:";
-});
+    // 开发/测试环境：本地 docker compose up -d redis 一键起，未配置时兜底 localhost；
+    // 生产环境：缺配置属于部署错误，直接 fail-fast，禁止静默连 localhost 掩盖"Redis 未配置"的真实问题。
+    if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
+    {
+        redisConnectionString = "localhost:6379,abortConnect=false,connectRetry=3,connectTimeout=3000";
+    }
+    else
+    {
+        throw new InvalidOperationException("Connection string 'Redis' is not set.");
+    }
+}
+
+// 锁期唯一配置源（单位秒）：DB 锁座表 EXPIRE_TIME 与 Redis 锁 key TTL 均取自此值，
+// 消除 SeatLockService 内硬编码魔法值与配置双来源的失配风险。
+var seatLockTtlSeconds = builder.Configuration.GetValue<int>("Redis:SeatLockTtlSeconds");
+if (seatLockTtlSeconds <= 0)
+{
+    throw new InvalidOperationException(
+        "Redis:SeatLockTtlSeconds must be a positive number of seconds.");
+}
+
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(redisConnectionString)));
 builder.Services.AddSingleton<ISeatLockGuard, RedisSeatLockGuard>();
@@ -70,20 +90,45 @@ builder.Services
 builder.Services.AddSingleton<
     Microsoft.Extensions.Options.IValidateOptions<OssOptions>,
     OssOptionsValidator>();
-// 文件存储服务：Oss:Enabled=false（kill-switch，如本地无 OSS 环境）时用内存 fake 继续开发；
-// 启用后走真实 OSS 实现（AccessKey 只存在后端，代理上传）。
+// 文件存储服务候选实现均注册为 singleton，具体选择见下方 IFileStorageService 工厂：
+// OSS（AccessKey 只存在后端，代理上传）→ 本地磁盘（开发/联调中间态）→ 内存 fake（仅测试/占位）。
 // 注意：通过已解析的 IOptions<OssOptions> 懒判断，而非配置的即时读取——
 // 这样测试/运行时注入的 Oss:Enabled 覆盖才生效（即时读取会错过后置配置源）。
 builder.Services.AddSingleton<OssFileStorageService>();
 builder.Services.AddSingleton<FakeFileStorageService>();
+
+// 本地磁盘文件存储（开发/联调中间态）：数据落盘、多实例共享挂载同一卷即可互通，
+// 比内存 fake 更贴近生产，又不依赖云 OSS；安全校验与 OSS 实现共用。
+builder.Services
+    .AddOptions<LocalStorageOptions>()
+    .Bind(builder.Configuration.GetSection(LocalStorageOptions.SectionName))
+    .Validate(
+        options => !options.Enabled
+            || (!string.IsNullOrWhiteSpace(options.RootDirectory)
+                && !string.IsNullOrWhiteSpace(options.BaseUrl)),
+        "LocalStorage:RootDirectory and LocalStorage:BaseUrl must be set when LocalStorage:Enabled=true.")
+    .ValidateOnStart();
+builder.Services.AddSingleton<LocalDiskFileStorageService>();
+
+// 文件存储三态选择：Oss:Enabled → 真实 OSS；否则 LocalStorage:Enabled → 本地磁盘；
+// 两者皆关 → 内存 fake（仅测试/占位，控制器层会先返回 503 未配置错误）。
+// 注意：通过已解析的 IOptions<> 懒判断，而非配置的即时读取——
+// 这样测试/运行时注入的覆盖才生效（即时读取会错过后置配置源）。
 builder.Services.AddSingleton<IFileStorageService>(serviceProvider =>
 {
-    var ossEnabled = serviceProvider
+    var ossOptions = serviceProvider
         .GetRequiredService<IOptions<OssOptions>>()
-        .Value
-        .Enabled;
-    return ossEnabled
-        ? serviceProvider.GetRequiredService<OssFileStorageService>()
+        .Value;
+    if (ossOptions.Enabled)
+    {
+        return serviceProvider.GetRequiredService<OssFileStorageService>();
+    }
+
+    var localOptions = serviceProvider
+        .GetRequiredService<IOptions<LocalStorageOptions>>()
+        .Value;
+    return localOptions.Enabled
+        ? serviceProvider.GetRequiredService<LocalDiskFileStorageService>()
         : serviceProvider.GetRequiredService<FakeFileStorageService>();
 });
 
@@ -196,6 +241,8 @@ builder.Services.AddScoped<ISeatLockService>(serviceProvider =>
     new SeatLockService(
         serviceProvider.GetRequiredService<AppDbContext>(),
         serviceProvider.GetRequiredService<TimeProvider>(),
+        // 锁期单一来源：Redis:SeatLockTtlSeconds（见上方启动校验）
+        TimeSpan.FromSeconds(seatLockTtlSeconds),
         serviceProvider.GetRequiredService<ISeatLockGuard>(),
         // Redis:SeatLockGuardEnabled 为 kill-switch，false 时完全走纯 Oracle 流程
         serviceProvider.GetRequiredService<IConfiguration>()
@@ -224,6 +271,20 @@ app.UseExceptionHandler();
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+
+// 本地磁盘存储启用时，把存储根目录作为公开只读静态资源挂到 /files（与 OSS 公共读语义一致）。
+var localStorage = app.Services.GetRequiredService<IOptions<LocalStorageOptions>>().Value;
+if (localStorage.Enabled)
+{
+    var storageRoot = LocalStoragePaths.ResolveRootDirectory(
+        localStorage.RootDirectory, app.Environment.ContentRootPath);
+    Directory.CreateDirectory(storageRoot);
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(storageRoot),
+        RequestPath = "/files",
+    });
+}
 
 app.MapGet("/", () => "Showtime API is running.");
 app.MapControllers();

@@ -34,16 +34,16 @@
      ```
      Redis 连接串 `ConnectionStrings:Redis` 本地默认 `localhost:6379,abortConnect=false,connectRetry=3,connectTimeout=3000`，已内置在 `backend/appsettings.Development.json`，无需自己配；生产通过环境变量 `ConnectionStrings__Redis` 注入。
    - 锁 key 设计（统一 `showtime:` 前缀，冒号分层）：
-     - 选座锁：`showtime:seatlock:{sessionId}:{seatId}`，value = `SEAT_LOCK.LockToken`（32 位 hex），TTL = `Redis:SeatLockTtlSeconds`（默认 600 秒，必须与后端锁期 10 分钟保持一致，改 DB 锁期时要同步改）
+     - 选座锁：`showtime:seatlock:{sessionId}:{seatId}`，value = `SEAT_LOCK.LockToken`（32 位 hex），TTL 与 DB 锁期均取 `Redis:SeatLockTtlSeconds`（默认 600 秒，锁期唯一配置源，改锁期只改这一处）
      - 排查孤儿 key / 清理环境用 `redis-cli --scan --pattern 'showtime:*'`，**不要在生产执行 `KEYS *` / `flushdb` / `flushall`**
    - 使用规则：
      - 释放锁必须携带 token 比对（`ISeatLockGuard.ReleaseAsync` 已封装），禁止按 key 直接 `DEL` 他人持有的锁
-     - 新功能的 Redis 用法一律走 `ISeatLockGuard`（锁）或 `IDistributedCache`（缓存，已注册好依赖），key 统一 `showtime:` 前缀
+     - 新功能的 Redis 用法一律走 `ISeatLockGuard`（锁），key 统一 `showtime:` 前缀；常规缓存（`IDistributedCache`）待里程碑 5 落地时再注册 `AddStackExchangeRedisCache`（此前不注册，避免空占一套连接配置）
      - 锁的合法生命周期（ACTIVE→CONVERTED/RELEASED/EXPIRED）只在 DB 裁决；Redis key 只是加速版的存在性标记，双通道不一致时靠 TTL 自愈，不要手工改 Redis 里的锁
      - 单测不依赖真实 Redis（fake 注入），改动选座锁相关代码后 `dotnet test` 必须全绿
 4. OSS（阿里云对象存储：演出海报/营销图/头像等图片资源统一存储，里程碑 5 引入）：
    - 角色定位：图片只存阿里云 OSS（Bucket **公共读**，URL 可直接用于 `<img>`）；**后端代理上传**——AccessKey 只存在后端，前端一律调 `POST /api/files/upload`（需认证）或 `FileUploader` 组件。业务表照旧存 URL 字符串（`Show.PosterUrl` 等 **VARCHAR2(500)，无需改字段**）。
-   - Kill-switch `Oss:Enabled`（默认 true）：false 时上传接口返回 `503 OSS_NOT_CONFIGURED`。本地无 OSS 环境默认置 false（`backend/appsettings.Development.json` 已内置），不装 OSS 也能照常开发/跑单测/上线其他功能。
+   - Kill-switch `Oss:Enabled`（默认 true）：true 时上传走阿里云 OSS；false 时若本地磁盘存储 `LocalStorage:Enabled` 为 true（`backend/appsettings.Development.json` 默认开启），上传落本地磁盘并经静态托管 `/files` 读回（开发/联调中间态，多实例共享挂载卷即互通）；**两者皆关闭**时上传接口返回 `503 FILE_STORAGE_NOT_CONFIGURED`。本地无 OSS 环境不装 OSS 也能照常开发/跑单测/上线其他功能。
    - 敏感项：`Oss:AccessKeyId` / `Oss:AccessKeySecret` **不入库不入 git**；本地用 `dotnet user-secrets set "Oss:AccessKeyId" "<ram-key>"`（及 Secret），生产用环境变量 `Oss__AccessKeyId` / `Oss__AccessKeySecret`（或 KMS/Docker secret）注入，不要写进任何提交进仓库的文件。启用时启动即校验 Endpoint/Bucket/BaseUrl/AccessKey 非空（fail-fast）。
    - 对象键（统一 `showtime/` 前缀，顶层目录即业务类型，GUID 服务端生成防猜测）：
      - `showtime/{folder}/{yyyy}/{MM}/{guid}.{ext}`；folder 白名单：`show`（演出海报）/ `marketing`（营销内容图）/ `avatar`（用户头像）/ `tmp`（临时）
@@ -66,7 +66,7 @@
    - Redis 连接串 `ConnectionStrings:Redis`（本地默认已内置在 `backend/appsettings.Development.json`：`localhost:6379,abortConnect=false,connectRetry=3,connectTimeout=3000`，无需 user-secrets 配置）：
      - 本地开发：仓库根 `docker compose up -d redis` 一键起（起不来时详见第 3 节 Redis 的端口占用说明）
      - 生产环境：通过环境变量 `ConnectionStrings__Redis`（或 KMS/Docker secret）注入，不要写进 `appsettings.json` 或任何提交进仓库的文件
-     - Redis 配置项 `Redis:SeatLockGuardEnabled`（选座锁前置判定开关，默认 true）与 `Redis:SeatLockTtlSeconds`（锁 key TTL 秒，须与 DB 锁期一致）见第 3 节。
+     - Redis 配置项 `Redis:SeatLockGuardEnabled`（选座锁前置判定开关，默认 true）与 `Redis:SeatLockTtlSeconds`（锁期唯一来源：DB 锁期与 Redis key TTL 均取自此值）见第 3 节；生产连接串缺失时启动即报错（非开发环境不再静默兜底 localhost）。
    - OSS 配置 `Oss:` 节（Endpoint/Bucket/BaseUrl 本地已内置在 `backend/appsettings.Development.json`，`Enabled` 默认 false）：
      - 本地联调 OSS：user-secrets 注入 AccessKey（`Oss:AccessKeyId` / `Oss:AccessKeySecret`），并把 `Oss:Enabled` 置 true；具体见第 4 节与 `backend/appsettings.example.json` 模板
      - 生产环境：通过环境变量 `Oss__Endpoint` / `Oss__Bucket` / `Oss__BaseUrl` / `Oss__AccessKeyId` / `Oss__AccessKeySecret` / `Oss__Enabled`（或 KMS/Docker secret）注入，AccessKey 严禁写进任何提交进仓库的文件

@@ -12,14 +12,16 @@ namespace ShowtimeBackend.Services.SeatZone;
 public sealed class SeatLockService(
     AppDbContext dbContext,
     TimeProvider timeProvider,
+    TimeSpan lockDuration,
     ISeatLockGuard? seatLockGuard = null,
     bool guardEnabled = true) : ISeatLockService
 {
     // NUMBER(3) 的选座规则最多允许 999 个座位，同时避免超过 Oracle IN 条件数量限制。
     private const int MaxSeatsPerRequest = 999;
 
-    // 锁座时间统一由服务端计算，防止客户端自行延长有效期。
-    private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(10);
+    // 锁座时间统一由服务端计算，防止客户端自行延长有效期；
+    // 锁期（lockDuration）由调用方从配置 Redis:SeatLockTtlSeconds 注入，
+    // 是 DB 锁座表 EXPIRE_TIME 与 Redis 锁 key TTL 的唯一来源，无硬编码魔法值。
 
     /// <summary>
     /// 批量锁定同一场次的座位；任一座位冲突时整个批次失败。
@@ -132,7 +134,7 @@ public sealed class SeatLockService(
         var expiredLocks = existingLocks
             .Where(item => item.ExpireTime <= now)
             .ToList();
-        var expireTime = now.Add(LockDuration);
+        var expireTime = now.Add(lockDuration);
         var locks = seatIds.Select(seatId => new SeatLock
         {
             SessionId = sessionId,
@@ -152,7 +154,7 @@ public sealed class SeatLockService(
         if (seatLockGuard is not null && guardEnabled)
         {
             var acquireResult = await seatLockGuard.TryAcquireAsync(
-                sessionId, locks, LockDuration, cancellationToken);
+                sessionId, locks, lockDuration, cancellationToken);
             if (acquireResult == SeatLockGuardAcquireResult.Conflict)
             {
                 return SeatZoneResult<SeatLockBatchResponse>.Fail(

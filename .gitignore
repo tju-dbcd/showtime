@@ -54,3 +54,6 @@ playwright-report/
 
 ## Serilog 日志目录（backend/logs）
 logs/
+
+## 本地磁盘文件存储（backend/showtime-files，LocalStorage:RootDirectory 默认值）
+showtime-files/

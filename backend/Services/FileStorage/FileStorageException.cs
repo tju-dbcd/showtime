@@ -13,5 +13,8 @@ public sealed class FileStorageException(string errorCode, string message)
     /// <summary>OSS 删除失败（服务端与 OSS 通信故障，控制器映射 500）。</summary>
     public const string ErrorDeleteFailed = "DELETE_FAILED";
 
+    /// <summary>未配置任何可用存储（OSS 与本地磁盘存储均关闭，控制器映射 503）。</summary>
+    public const string ErrorStorageNotConfigured = "FILE_STORAGE_NOT_CONFIGURED";
+
     public string ErrorCode { get; } = errorCode;
 }

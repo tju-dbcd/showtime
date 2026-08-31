@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.DTOs.Files;
 using ShowtimeBackend.DTOs.UserPermission;
@@ -13,7 +14,8 @@ namespace ShowtimeBackend.Tests;
 /// <summary>
 /// POST /api/files/upload 的 API 层测试（错误码/状态码/信封），
 /// 校验类用例走真实 OssFileStorageService（校验先于网络调用，不真连 OSS），
-/// 成功路径注入 FakeFileStorageService（内存实现），均不依赖真实 OSS。
+/// 成功路径注入 FakeFileStorageService（内存实现）或 LocalDiskFileStorageService（本地磁盘临时目录），
+/// 均不依赖真实 OSS。
 /// </summary>
 public sealed class FilesControllerTests
 {
@@ -32,9 +34,10 @@ public sealed class FilesControllerTests
     }
 
     [Fact]
-    public async Task Upload_OssDisabled_Returns503NotConfigured()
+    public async Task Upload_NoStorageConfigured_Returns503NotConfigured()
     {
-        using var factory = new AuthTestFactory(); // Oss:Enabled=false
+        // OSS 与本地磁盘存储均关闭（kill-switch 全关）→ 503 未配置
+        using var factory = new AuthTestFactory(); // Oss:Enabled=false, LocalStorage:Enabled=false
         using var client = await CreateAuthenticatedClientAsync(factory);
 
         using var content = BuildMultipart("poster.png", "image/png");
@@ -43,7 +46,9 @@ public sealed class FilesControllerTests
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.False(envelope.Success);
-        Assert.Equal("OSS_NOT_CONFIGURED", envelope.Code);
+        Assert.Equal(
+            FileStorageException.ErrorStorageNotConfigured,
+            envelope.Code);
     }
 
     [Fact]
@@ -175,6 +180,59 @@ public sealed class FilesControllerTests
 
         response.EnsureSuccessStatusCode();
         Assert.StartsWith("showtime/tmp/", envelope.Data!.ObjectKey);
+    }
+
+    [Fact]
+    public async Task Upload_LocalStorageEnabled_PersistsFileAndServesIt()
+    {
+        // 本地磁盘存储（开发/联调中间态）：无 OSS 时上传落盘，public URL 由静态托管可读回
+        using var factory = new AuthTestFactory(localStorageEnabled: true);
+        using var client = await CreateAuthenticatedClientAsync(factory);
+
+        using var content = BuildMultipart("poster.png", "image/png", folder: "show");
+        var response = await client.PostAsync(UploadPath, content);
+        var envelope = await AuthTestFactory.ReadResponseAsync<FileUploadResponse>(response);
+
+        response.EnsureSuccessStatusCode();
+        Assert.True(envelope.Success);
+        Assert.NotNull(envelope.Data);
+        Assert.StartsWith("showtime/show/", envelope.Data!.ObjectKey);
+        // PublicUrl = BaseUrl(/files) + objectKey
+        Assert.Equal($"/files/{envelope.Data.ObjectKey}", envelope.Data.Url);
+
+        // 文件确实落盘在共享目录（而非仅内存），且经静态文件中间件按公共读风格可访问
+        Assert.NotNull(factory.LocalStorageRoot);
+        var diskPath = Path.Combine(
+            factory.LocalStorageRoot,
+            envelope.Data.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(diskPath));
+
+        var fileResponse = await client.GetAsync(envelope.Data.Url);
+        Assert.Equal(HttpStatusCode.OK, fileResponse.StatusCode);
+        Assert.Equal("image/png", fileResponse.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task Upload_LocalStorageEnabled_DeleteRemovesObjectAndFile()
+    {
+        using var factory = new AuthTestFactory(localStorageEnabled: true);
+        using var client = await CreateAuthenticatedClientAsync(factory);
+
+        using var content = BuildMultipart("poster.png", "image/png", folder: "avatar");
+        var response = await client.PostAsync(UploadPath, content);
+        var envelope = await AuthTestFactory.ReadResponseAsync<FileUploadResponse>(response);
+        response.EnsureSuccessStatusCode();
+
+        var storage = factory.Services.GetRequiredService<IFileStorageService>();
+        await storage.DeleteObjectAsync(envelope.Data!.ObjectKey);
+
+        Assert.NotNull(factory.LocalStorageRoot);
+        var diskPath = Path.Combine(
+            factory.LocalStorageRoot,
+            envelope.Data.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+        Assert.False(File.Exists(diskPath));
+        var afterDelete = await client.GetAsync(envelope.Data.Url);
+        Assert.Equal(HttpStatusCode.NotFound, afterDelete.StatusCode);
     }
 
     [Fact]

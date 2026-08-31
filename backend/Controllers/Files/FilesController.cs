@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using ShowtimeBackend.Common;
+using ShowtimeBackend.Common.LocalStorage;
 using ShowtimeBackend.Common.Oss;
 using ShowtimeBackend.DTOs.Files;
 using ShowtimeBackend.Services.FileStorage;
@@ -9,7 +10,8 @@ using ShowtimeBackend.Services.FileStorage;
 namespace ShowtimeBackend.Controllers.Files;
 
 /// <summary>
-/// 统一文件上传接口：前端 multipart POST 到后端，后端用 AccessKey 代理上传 OSS 后返回公开 URL。
+/// 统一文件上传接口：前端 multipart POST 到后端，后端用 AccessKey 代理上传 OSS 后返回公开 URL；
+/// 未启用 OSS 时若本地磁盘存储（LocalStorage:Enabled）开启，则落盘并由静态文件中间件按 /files 托管。
 /// 角色/场景细分鉴权（管理员发布用 show、用户头像用 avatar）由各业务方在调用层控制。
 /// </summary>
 [ApiController]
@@ -17,7 +19,8 @@ namespace ShowtimeBackend.Controllers.Files;
 [Authorize]
 public sealed class FilesController(
     IFileStorageService fileStorage,
-    IOptions<OssOptions> options) : ControllerBase
+    IOptions<OssOptions> ossOptions,
+    IOptions<LocalStorageOptions> localStorageOptions) : ControllerBase
 {
     /// <summary>
     /// 中间件层请求体上限兜底（10MB &gt; 默认 5MB 文件上限 + multipart 开销）；
@@ -37,14 +40,16 @@ public sealed class FilesController(
         [FromForm] FileUploadRequest request,
         CancellationToken cancellationToken)
     {
-        if (!options.Value.Enabled)
+        if (!ossOptions.Value.Enabled && !localStorageOptions.Value.Enabled)
         {
-            // kill-switch：无 OSS 环境先开发其他功能，上传接口明确报"未配置"
+            // kill-switch：OSS 与本地磁盘存储均未启用时明确报"未配置"，
+            // 便于无存储环境下先开发其他功能（Development 默认本地磁盘开启，不受影响）。
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
                 ApiResponse<FileUploadResponse>.Fail(
-                    "OSS_NOT_CONFIGURED",
-                    "OSS upload is not configured (Oss:Enabled=false)."));
+                    FileStorageException.ErrorStorageNotConfigured,
+                    "File storage is not configured "
+                    + "(Oss:Enabled=false and LocalStorage:Enabled=false)."));
         }
 
         if (request.File is null || request.File.Length == 0)

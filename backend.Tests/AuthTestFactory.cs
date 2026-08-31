@@ -29,21 +29,34 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
     private readonly bool _ossEnabled;
     private readonly bool _replaceWithFakeStorage;
     private readonly IFileStorageService? _customFileStorage;
+    private readonly bool _localStorageEnabled;
+    private readonly string? _localStorageRoot;
 
     public AuthTestFactory(
         string? jwtKey = TestKey,
         bool ossEnabled = false,
         bool replaceWithFakeStorage = false,
-        IFileStorageService? customFileStorage = null)
+        IFileStorageService? customFileStorage = null,
+        bool localStorageEnabled = false)
     {
         _jwtKey = jwtKey;
         _ossEnabled = ossEnabled;
         _replaceWithFakeStorage = replaceWithFakeStorage;
         _customFileStorage = customFileStorage;
+        _localStorageEnabled = localStorageEnabled;
+        // 本地磁盘存储用例指向独立临时目录，测试结束整目录清理
+        _localStorageRoot = localStorageEnabled
+            ? Path.Combine(
+                Path.GetTempPath(),
+                "showtime-tests-files-" + Guid.NewGuid().ToString("N"))
+            : null;
         UtcNow = DateTimeOffset.UtcNow;
         _timeProvider = new FixedTimeProvider(UtcNow);
         _connection.Open();
     }
+
+    /// <summary>localStorageEnabled=true 时本地磁盘存储的根目录（测试临时目录），供用例断言落盘。</summary>
+    public string? LocalStorageRoot => _localStorageRoot;
 
     public DateTimeOffset UtcNow { get; }
 
@@ -130,6 +143,12 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
                 ["Oss:BaseUrl"] = "https://showtime-assets.oss-cn-hangzhou.aliyuncs.com",
                 // 测试用小体积上限，超限用例无需真的发 5MB
                 ["Oss:MaxFileSizeBytes"] = "2048",
+                // 测试默认不启用本地磁盘存储（与"未配置即 503"语义一致）；
+                // localStorageEnabled=true 的用例指向独立临时目录并公开托管 BaseUrl
+                ["LocalStorage:Enabled"] = _localStorageEnabled ? "true" : "false",
+                ["LocalStorage:RootDirectory"] =
+                    _localStorageEnabled ? _localStorageRoot! : Path.GetTempPath(),
+                ["LocalStorage:BaseUrl"] = "/files",
             });
         });
         builder.ConfigureServices(services =>
@@ -173,6 +192,21 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
         if (disposing)
         {
             _connection.Dispose();
+            if (_localStorageRoot is not null)
+            {
+                try
+                {
+                    Directory.Delete(_localStorageRoot, recursive: true);
+                }
+                catch (IOException)
+                {
+                    // 测试临时文件清理失败不影响用例结论
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // 同上：尽力清理
+                }
+            }
         }
     }
 
