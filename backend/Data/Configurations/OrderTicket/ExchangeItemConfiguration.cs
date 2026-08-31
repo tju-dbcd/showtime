@@ -34,8 +34,7 @@ public class ExchangeItemConfiguration : IEntityTypeConfiguration<ExchangeItem>
         builder.ConfigureAuditableEntity();
 
         builder.HasIndex(entity => entity.OrderItemId)
-            .IsUnique()
-            .HasDatabaseName("UK_EXCHANGE_ORDER_ITEM");
+            .HasDatabaseName("IDX_EXCHANGE_ITEM_ORDER");
 
         builder.HasIndex(entity => entity.ExchangeId)
             .HasDatabaseName("IDX_EXCHANGE_ITEM_EXCHANGE");
@@ -50,8 +49,8 @@ public class ExchangeItemConfiguration : IEntityTypeConfiguration<ExchangeItem>
             .HasConstraintName("FK_EXCHANGE_ITEM_REQUEST");
 
         builder.HasOne(entity => entity.OrderItem)
-            .WithOne(entity => entity.OriginalExchangeItem)
-            .HasForeignKey<ExchangeItem>(entity => entity.OrderItemId)
+            .WithMany(entity => entity.OriginalExchangeItems)
+            .HasForeignKey(entity => entity.OrderItemId)
             .OnDelete(DeleteBehavior.NoAction)
             .HasConstraintName("FK_EXCHANGE_ITEM_ORDER");
 

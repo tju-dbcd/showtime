@@ -1,0 +1,280 @@
+/* ========== 详情页容器 ========== */
+.detail-container {
+  width: 100%;
+  min-height: 100vh;
+  background: #f5f5f5;
+  padding-bottom: 80px; /* 给底部按钮留空间 */
+}
+
+/* ========== 顶部海报区 ========== */
+.detail-hero {
+  width: 100%;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  padding: 40px 48px;
+  box-sizing: border-box;
+}
+
+.detail-hero-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  gap: 48px;
+  align-items: flex-start;
+}
+
+/* 左侧：海报 + 名称 */
+.detail-left {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 300px;
+}
+
+.detail-poster {
+  width: 100%;
+  height: 400px;
+  object-fit: cover;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.detail-title {
+  color: white;
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+  line-height: 1.3;
+}
+
+/* 右侧：详细信息 */
+.detail-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.detail-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 32px;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 16px;
+}
+
+.meta-icon {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.detail-price {
+  color: #ff4d4f;
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.detail-description {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+
+.detail-description h3 {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0 0 8px 0;
+  letter-spacing: 2px;
+}
+
+.detail-description p {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 15px;
+  line-height: 1.8;
+  margin: 0;
+}
+
+/* ========== 下方内容区 ========== */
+.detail-body {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 32px 48px;
+  box-sizing: border-box;
+}
+
+.detail-section {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 28px 32px;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+.detail-section h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: #1a1a2e;
+}
+
+/* 轮播图 */
+.detail-gallery {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.detail-gallery .ant-carousel .slick-slide {
+  height: 320px;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.detail-gallery .ant-carousel .slick-slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 购票须知 */
+.detail-notice p {
+  font-size: 15px;
+  line-height: 1.8;
+  color: #333;
+  margin: 0 0 6px 0;
+  padding-left: 20px;
+  position: relative;
+}
+
+.detail-notice p::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: #ff4d4f;
+  font-weight: bold;
+}
+
+/* 场馆信息 */
+.detail-venue p {
+  font-size: 15px;
+  line-height: 1.8;
+  color: #333;
+  margin: 0;
+}
+
+/* ========== 底部固定按钮 ========== */
+.detail-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 72px;
+  background: #141414;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.buy-btn {
+  width: 80%;
+  max-width: 400px;
+  height: 48px;
+  font-size: 18px;
+  font-weight: 600;
+  border-radius: 30px;
+  background: #ff4d4f !important;
+  border-color: #ff4d4f !important;
+}
+
+.buy-btn:hover {
+  background: #ff7875 !important;
+  border-color: #ff7875 !important;
+}
+
+/* ========== 响应式适配 ========== */
+@media (max-width: 1024px) {
+  .detail-hero {
+    padding: 32px 24px;
+  }
+  .detail-hero-content {
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+  }
+  .detail-left {
+    width: 100%;
+    max-width: 400px;
+    flex-direction: row;
+    align-items: center;
+    gap: 20px;
+  }
+  .detail-poster {
+    height: 180px;
+    width: 140px;
+    flex-shrink: 0;
+  }
+  .detail-title {
+    font-size: 20px;
+  }
+  .detail-right {
+    width: 100%;
+  }
+  .detail-meta {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .detail-body {
+    padding: 24px 16px;
+  }
+  .detail-section {
+    padding: 20px 16px;
+  }
+  .detail-gallery .ant-carousel .slick-slide {
+    height: 200px;
+  }
+}
+
+@media (max-width: 768px) {
+  .detail-hero {
+    padding: 20px 12px;
+  }
+  .detail-left {
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .detail-poster {
+    height: 240px;
+    width: 100%;
+    max-width: 300px;
+  }
+  .detail-title {
+    font-size: 18px;
+    text-align: center;
+  }
+  .detail-description p {
+    font-size: 14px;
+  }
+  .detail-body {
+    padding: 16px 12px;
+  }
+  .detail-section {
+    padding: 16px 12px;
+  }
+  .detail-gallery .ant-carousel .slick-slide {
+    height: 160px;
+  }
+  .buy-btn {
+    width: 90%;
+    height: 44px;
+    font-size: 16px;
+  }
+}

@@ -34,7 +34,8 @@ build/
 
 ## dotenv
 .env
-*.env
+.env.*
+!.env.example
 
 ## Frontend (React + Vite)
 frontend/node_modules/
@@ -42,3 +43,17 @@ frontend/dist/
 frontend/dist-ssr/
 frontend/*.local
 
+
+## Test results
+[Ll]og/
+[Tt]est[Rr]esults/
+
+## Playwright E2E（注意：大小写敏感，[Tt]est[Rr]esults/ 匹配不到 test-results/）
+test-results/
+playwright-report/
+
+## Serilog 日志目录（backend/logs）
+logs/
+
+## 本地磁盘文件存储（backend/showtime-files，LocalStorage:RootDirectory 默认值）
+showtime-files/

@@ -27,7 +27,7 @@ public class OrderItem : AuditableEntity
 
     public RefundItem? RefundItem { get; set; }
 
-    public ExchangeItem? OriginalExchangeItem { get; set; }
+    public ICollection<ExchangeItem> OriginalExchangeItems { get; set; } = [];
 
     public ICollection<ExchangeItem> NewExchangeItems { get; set; } = [];
 }

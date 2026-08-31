@@ -59,6 +59,12 @@ public class SysUserConfiguration : IEntityTypeConfiguration<SysUser>
             .HasMaxLength(100)
             .IsUnicode(false);
 
+        builder.Property(entity => entity.AvatarUrl)
+            .HasColumnName("AVATAR_URL")
+            .HasColumnType("VARCHAR2(500 CHAR)")
+            .HasMaxLength(500)
+            .IsUnicode(false);
+
         builder.Property(entity => entity.OrgId)
             .HasColumnName("ORG_ID")
             .HasColumnType("NUMBER(19)");
@@ -73,7 +79,10 @@ public class SysUserConfiguration : IEntityTypeConfiguration<SysUser>
 
         builder.Property(entity => entity.Status)
             .HasColumnName("STATUS")
-            .HasColumnType("NUMBER(1)")
+            // NUMBER(3)：Oracle 提供器把 NUMBER(1) 保留为 bool 的默认存储类型，
+            // byte 属性声明 NUMBER(1) 会在快照构造时触发 Byte→Boolean 强转崩溃（ORA 环境实测）；
+            // 实际 DDL 列仍为 NUMBER(1)，值域 0-2 不受影响
+            .HasColumnType("NUMBER(3)")
             .HasDefaultValue((byte)1)
             .HasSentinel(byte.MaxValue)
             .IsRequired();
