@@ -2098,6 +2098,691 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/exchange-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    ShowId?: number | string;
+                    Status?: number | string;
+                    Page?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangePolicyResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SaveExchangePolicyRequest"];
+                    "text/json": components["schemas"]["SaveExchangePolicyRequest"];
+                    "application/*+json": components["schemas"]["SaveExchangePolicyRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/exchange-policies/{policyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    policyId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SaveExchangePolicyRequest"];
+                    "text/json": components["schemas"]["SaveExchangePolicyRequest"];
+                    "application/*+json": components["schemas"]["SaveExchangePolicyRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/exchange-policies/{policyId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    policyId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateExchangePolicyStatusRequest"];
+                    "text/json": components["schemas"]["UpdateExchangePolicyStatusRequest"];
+                    "application/*+json": components["schemas"]["UpdateExchangePolicyStatusRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePolicyResponse"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/admin/exchanges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    ApproveStatus?: components["schemas"]["ExchangeApproveStatus"];
+                    ExchangeStatus?: components["schemas"]["ExchangeStatus"];
+                    OriginalOrderId?: number | string;
+                    UserId?: number | string;
+                    ExchangeNo?: string;
+                    Page?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/exchanges/{exchangeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    exchangeId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/exchanges/{exchangeId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    exchangeId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RejectExchangeRequest"];
+                    "text/json": components["schemas"]["RejectExchangeRequest"];
+                    "application/*+json": components["schemas"]["RejectExchangeRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/exchanges/{exchangeId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    exchangeId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ApproveExchangeRequest"];
+                    "text/json": components["schemas"]["ApproveExchangeRequest"];
+                    "application/*+json": components["schemas"]["ApproveExchangeRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/orders": {
         parameters: {
             query?: never;
@@ -3227,6 +3912,406 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/orders/{orderId}/exchanges/quote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ExchangeQuoteRequest"];
+                    "text/json": components["schemas"]["ExchangeQuoteRequest"];
+                    "application/*+json": components["schemas"]["ExchangeQuoteRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeQuoteResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/orders/{orderId}/exchanges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    ApproveStatus?: components["schemas"]["ExchangeApproveStatus"];
+                    ExchangeStatus?: components["schemas"]["ExchangeStatus"];
+                    Page?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path: {
+                    orderId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfPagedExchangeResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateExchangeRequest"];
+                    "text/json": components["schemas"]["CreateExchangeRequest"];
+                    "application/*+json": components["schemas"]["CreateExchangeRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/exchanges/{exchangeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    exchangeId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangeResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/exchanges/{exchangeId}/pay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    exchangeId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ExchangePaymentRequest"];
+                    "text/json": components["schemas"]["ExchangePaymentRequest"];
+                    "application/*+json": components["schemas"]["ExchangePaymentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                        "application/json": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                        "text/json": components["schemas"]["ApiResponseOfExchangePaymentResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/orders": {
         parameters: {
             query?: never;
@@ -3988,6 +5073,9 @@ export interface components {
             phone: string;
             /** Format: int64 */
             sessionId: number | string;
+            orderType: components["schemas"]["OrderType"];
+            /** Format: int64 */
+            parentOrderId: null | number | string;
             /** Format: double */
             totalAmount: number | string;
             /** Format: double */
@@ -3995,10 +5083,36 @@ export interface components {
             /** Format: int32 */
             ticketCount: number | string;
             orderStatus: components["schemas"]["OrderStatus"];
+            canPay: boolean;
+            canCancel: boolean;
             /** Format: date-time */
             expireTime: string;
             /** Format: date-time */
             createTime: string;
+        };
+        ApiResponseOfExchangePaymentResponse: {
+            success: boolean;
+            data: null | components["schemas"]["ExchangePaymentResponse"];
+            code: null | string;
+            message: string;
+        };
+        ApiResponseOfExchangePolicyResponse: {
+            success: boolean;
+            data: null | components["schemas"]["ExchangePolicyResponse"];
+            code: null | string;
+            message: string;
+        };
+        ApiResponseOfExchangeQuoteResponse: {
+            success: boolean;
+            data: null | components["schemas"]["ExchangeQuoteResponse"];
+            code: null | string;
+            message: string;
+        };
+        ApiResponseOfExchangeResponse: {
+            success: boolean;
+            data: null | components["schemas"]["ExchangeResponse"];
+            code: null | string;
+            message: string;
         };
         ApiResponseOfFileUploadResponse: {
             success: boolean;
@@ -4063,6 +5177,18 @@ export interface components {
         ApiResponseOfPagedAdminOrderResponse: {
             success: boolean;
             data: null | components["schemas"]["PagedAdminOrderResponse"];
+            code: null | string;
+            message: string;
+        };
+        ApiResponseOfPagedExchangePolicyResponse: {
+            success: boolean;
+            data: null | components["schemas"]["PagedExchangePolicyResponse"];
+            code: null | string;
+            message: string;
+        };
+        ApiResponseOfPagedExchangeResponse: {
+            success: boolean;
+            data: null | components["schemas"]["PagedExchangeResponse"];
             code: null | string;
             message: string;
         };
@@ -4228,6 +5354,9 @@ export interface components {
             code: null | string;
             message: string;
         };
+        ApproveExchangeRequest: {
+            remark: null | string;
+        };
         ApproveRefundRequest: {
             remark: null | string;
         };
@@ -4257,6 +5386,12 @@ export interface components {
              * @default 0
              */
             priority: number | string;
+        };
+        CreateExchangeRequest: {
+            /** Format: int64 */
+            targetSessionId: number | string;
+            targetItems: components["schemas"]["ExchangeTargetItemRequest"][];
+            reason: null | string;
         };
         CreateOrderItemRequest: {
             /** Format: int64 */
@@ -4318,7 +5453,7 @@ export interface components {
             seatMapId: number | string;
         };
         /** @enum {string} */
-        ETicketStatus: "UNUSED" | "REFUNDING" | "USED" | "REFUNDED" | "EXCHANGED";
+        ETicketStatus: "UNUSED" | "REFUNDING" | "USED" | "REFUNDED" | "EXCHANGING" | "EXCHANGED";
         ETicketSummaryResponse: {
             /** Format: int64 */
             eTicketId: number | string;
@@ -4326,6 +5461,175 @@ export interface components {
             /** Format: int64 */
             orderItemId: number | string;
             ticketStatus: components["schemas"]["ETicketStatus"];
+        };
+        /** @enum {string} */
+        ExchangeApproveStatus: "PENDING" | "APPROVED" | "REJECTED";
+        ExchangeItemResponse: {
+            /** Format: int64 */
+            exchangeItemId: number | string;
+            /** Format: int64 */
+            originalOrderItemId: number | string;
+            /** Format: int64 */
+            newOrderItemId: number | string;
+            /** Format: int64 */
+            targetSeatId: number | string;
+            /** Format: int64 */
+            targetPriceStrategyId: number | string;
+            /** Format: int64 */
+            realNameId: null | number | string;
+            /** Format: double */
+            originalUnitPrice: number | string;
+            /** Format: double */
+            newUnitPrice: number | string;
+            originalItemStatus: components["schemas"]["OrderItemStatus"];
+            originalTicketStatus: components["schemas"]["ETicketStatus"];
+            newItemStatus: components["schemas"]["OrderItemStatus"];
+            newTicketStatus: null | components["schemas"]["ETicketStatus"];
+        };
+        ExchangePaymentRequest: {
+            payChannel: components["schemas"]["PaymentChannel"];
+            result: components["schemas"]["PaymentResult"];
+        };
+        ExchangePaymentResponse: {
+            payment: components["schemas"]["PaymentResponse"];
+            exchange: components["schemas"]["ExchangeResponse"];
+        };
+        ExchangePolicyResponse: {
+            /** Format: int64 */
+            policyId: number | string;
+            /** Format: int64 */
+            showId: null | number | string;
+            policyName: string;
+            /** Format: int32 */
+            exchangeDeadlineHour: number | string;
+            /** Format: double */
+            exchangeFee: number | string;
+            /** Format: uint8 */
+            allowCrossSession: number | string;
+            /** Format: int32 */
+            priority: number | string;
+            /** Format: uint8 */
+            status: number | string;
+            remark: null | string;
+            /** Format: date-time */
+            createTime: string;
+            /** Format: date-time */
+            updateTime: string;
+        };
+        ExchangeQuoteItemResponse: {
+            /** Format: int64 */
+            originalOrderItemId: number | string;
+            /** Format: int64 */
+            targetSeatId: number | string;
+            /** Format: int64 */
+            targetPriceStrategyId: number | string;
+            /** Format: int64 */
+            realNameId: null | number | string;
+            /** Format: double */
+            originalUnitPrice: number | string;
+            /** Format: double */
+            newUnitPrice: number | string;
+        };
+        ExchangeQuoteRequest: {
+            /** Format: int64 */
+            targetSessionId: number | string;
+            targetItems: components["schemas"]["ExchangeTargetItemRequest"][];
+        };
+        ExchangeQuoteResponse: {
+            /** Format: date-time */
+            quotedAt: string;
+            /** Format: int64 */
+            orderId: number | string;
+            /** Format: int64 */
+            origSessionId: number | string;
+            /** Format: int64 */
+            targetSessionId: number | string;
+            /** Format: double */
+            origDeduction: number | string;
+            /** Format: double */
+            targetAmount: number | string;
+            /** Format: double */
+            priceDiff: number | string;
+            /** Format: double */
+            exchangeFee: number | string;
+            /** Format: double */
+            amountDue: number | string;
+            /** Format: int64 */
+            appliedPolicyId: number | string;
+            policyName: string;
+            items: components["schemas"]["ExchangeQuoteItemResponse"][];
+        };
+        ExchangeResponse: {
+            /** Format: int64 */
+            exchangeId: number | string;
+            exchangeNo: string;
+            /** Format: int64 */
+            originalOrderId: number | string;
+            /** Format: int64 */
+            childOrderId: number | string;
+            /** Format: int64 */
+            userId: number | string;
+            /** Format: int64 */
+            origSessionId: number | string;
+            /** Format: int64 */
+            targetSessionId: number | string;
+            reason: null | string;
+            /** Format: double */
+            origDeduction: number | string;
+            /** Format: double */
+            targetAmount: number | string;
+            /** Format: double */
+            priceDiff: number | string;
+            /** Format: double */
+            exchangeFee: number | string;
+            /** Format: double */
+            amountDue: number | string;
+            /** Format: int64 */
+            appliedPolicyId: null | number | string;
+            policyName: null | string;
+            approveStatus: components["schemas"]["ExchangeApproveStatus"];
+            exchangeStatus: components["schemas"]["ExchangeStatus"];
+            reviewBy: null | string;
+            /** Format: date-time */
+            reviewTime: null | string;
+            reviewRemark: null | string;
+            /** Format: date-time */
+            completeTime: null | string;
+            /** Format: date-time */
+            expireTime: string;
+            /** Format: date-time */
+            createTime: string;
+            items: components["schemas"]["ExchangeItemResponse"][];
+        };
+        /** @enum {string} */
+        ExchangeStatus: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+        ExchangeSummaryResponse: {
+            /** Format: int64 */
+            exchangeId: number | string;
+            exchangeNo: string;
+            /** Format: int64 */
+            originalOrderId: number | string;
+            /** Format: int64 */
+            childOrderId: number | string;
+            /** Format: double */
+            amountDue: number | string;
+            approveStatus: components["schemas"]["ExchangeApproveStatus"];
+            exchangeStatus: components["schemas"]["ExchangeStatus"];
+            /** Format: date-time */
+            expireTime: string;
+            /** Format: date-time */
+            createTime: string;
+            /** Format: date-time */
+            completeTime: null | string;
+        };
+        ExchangeTargetItemRequest: {
+            /** Format: int64 */
+            originalOrderItemId: number | string;
+            /** Format: int64 */
+            seatId: number | string;
+            /** Format: int64 */
+            priceStrategyId: number | string;
+            lockToken: string;
         };
         FileUploadResponse: {
             url: string;
@@ -4371,6 +5675,9 @@ export interface components {
             orderNo: string;
             /** Format: int64 */
             sessionId: number | string;
+            orderType: components["schemas"]["OrderType"];
+            /** Format: int64 */
+            parentOrderId: null | number | string;
             /** Format: double */
             totalAmount: number | string;
             /** Format: double */
@@ -4388,6 +5695,8 @@ export interface components {
             cancelTime: null | string;
             source: string;
             remark: null | string;
+            canPay: boolean;
+            canCancel: boolean;
             items: components["schemas"]["OrderItemResponse"][];
             payments: components["schemas"]["PaymentResponse"][];
             tickets: components["schemas"]["ETicketSummaryResponse"][];
@@ -4402,6 +5711,9 @@ export interface components {
             orderNo: string;
             /** Format: int64 */
             sessionId: number | string;
+            orderType: components["schemas"]["OrderType"];
+            /** Format: int64 */
+            parentOrderId: null | number | string;
             /** Format: double */
             totalAmount: number | string;
             /** Format: double */
@@ -4409,13 +5721,35 @@ export interface components {
             /** Format: int32 */
             ticketCount: number | string;
             orderStatus: components["schemas"]["OrderStatus"];
+            canPay: boolean;
+            canCancel: boolean;
             /** Format: date-time */
             expireTime: string;
             /** Format: date-time */
             createTime: string;
         };
+        /** @enum {string} */
+        OrderType: "NORMAL" | "SPLIT" | "MERGE" | "EXCHANGE";
         PagedAdminOrderResponse: {
             items: components["schemas"]["AdminOrderSummaryResponse"][];
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+        };
+        PagedExchangePolicyResponse: {
+            items: components["schemas"]["ExchangePolicyResponse"][];
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+        };
+        PagedExchangeResponse: {
+            items: components["schemas"]["ExchangeSummaryResponse"][];
             /** Format: int32 */
             page: number | string;
             /** Format: int32 */
@@ -4666,8 +6000,25 @@ export interface components {
         RegisterResponse: {
             user: components["schemas"]["UserResponse"];
         };
+        RejectExchangeRequest: {
+            remark: string;
+        };
         RejectRefundRequest: {
             remark: string;
+        };
+        SaveExchangePolicyRequest: {
+            /** Format: int64 */
+            showId: null | number | string;
+            policyName: string;
+            /** Format: int32 */
+            exchangeDeadlineHour: number | string;
+            /** Format: double */
+            exchangeFee: number | string;
+            /** Format: uint8 */
+            allowCrossSession: number | string;
+            /** Format: int32 */
+            priority: number | string;
+            remark: null | string;
         };
         SaveRefundPolicyRequest: {
             /** Format: int64 */
@@ -5018,6 +6369,10 @@ export interface components {
         };
         UpdateAvatarRequest: {
             avatarUrl?: null | string;
+        };
+        UpdateExchangePolicyStatusRequest: {
+            /** Format: uint8 */
+            status: number | string;
         };
         UpdateRefundPolicyStatusRequest: {
             /** Format: uint8 */

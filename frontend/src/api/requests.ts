@@ -1,48 +1,22 @@
-import apiClient from './client';
-import type {
-  ApiResponse,
-  LoginRequest,
-  LoginResponse,
-  RegisterRequest,
-  RegisterResponse,
-  ShowSessionDto,
-  PricingStrategyDto,
-  SessionSeatMapDto,
-  CreateOrderRequest,
-  OrderResponse,
-  PagedOrderResponse,
-  PaymentResponse,
-  PaymentProcessResponse,
-  MockPaymentRequest,
-  TicketResponse,
-  PagedResponse,
-  ShowDto,
-  SeatLockBatchResponse,
-  SeatLockReleaseResponse
-} from '@/types/api';
+import { client } from './request';
 
 // ========== Auth API ==========
 export const authAPI = {
-  login: (data: LoginRequest) =>
-    apiClient.post<ApiResponse<LoginResponse>>('/api/auth/login', data),
+  login: (data: { account: string; password: string }) =>
+    client.POST('/api/auth/login', { body: data }),
 
-  register: (data: RegisterRequest) =>
-    apiClient.post<ApiResponse<RegisterResponse>>('/api/auth/register', data),
+  register: (data: {
+    userName: string;
+    password: string;
+    phone: string;
+    nickname?: string | null;
+    email?: string | null;
+  }) =>
+    client.POST('/api/auth/register', { body: data }),
 };
 
-// ========== ShowSession API ==========
-export const showSessionAPI = {
-  // 获取演出的所有场次
-  getShowSessions: (showId: number) =>
-    apiClient.get<ApiResponse<ShowSessionDto[]>>(`/api/client/shows/${showId}/sessions`),
-
-  // 获取场次的定价策略
-  getPricingStrategies: (sessionId: number) =>
-    apiClient.get<ApiResponse<PricingStrategyDto[]>>(`/api/client/sessions/${sessionId}/pricing-strategies`),
-};
-
+// ========== Show API ==========
 export const showAPI = {
-  // 获取演出列表（分页/搜索/筛选）
   getShows: (params?: {
     PageIndex?: number;
     PageSize?: number;
@@ -50,68 +24,89 @@ export const showAPI = {
     CategoryId?: number;
     Status?: string;
   }) =>
-    apiClient.get<ApiResponse<PagedResponse<ShowDto>>>('/api/client/shows', { params }),
+    client.GET('/api/client/shows', { params: params as any }),
 
-  // 获取演出详情
   getShowDetail: (showId: number) =>
-    apiClient.get<ApiResponse<ShowDto>>(`/api/client/shows/${showId}`),
+    client.GET('/api/client/shows/{showId}', { params: { path: { showId } } }),
+};
+
+// ========== ShowSession API ==========
+export const showSessionAPI = {
+  getShowSessions: (showId: number) =>
+    client.GET('/api/client/shows/{showId}/sessions', { params: { path: { showId } } }),
+
+  getPricingStrategies: (sessionId: number) =>
+    client.GET('/api/client/sessions/{sessionId}/pricing-strategies', { params: { path: { sessionId } } }),
 };
 
 // ========== Session API ==========
 export const sessionAPI = {
-  // 获取场次的座位图
   getSessionSeatMap: (sessionId: number) =>
-    apiClient.get<ApiResponse<SessionSeatMapDto>>(`/api/sessions/${sessionId}/seat-map`),
+    client.GET('/api/sessions/{sessionId}/seat-map', { params: { path: { sessionId } } }),
 };
 
 // ========== Order API ==========
 export const orderAPI = {
-  // 获取订单列表（分页）
   getOrders: (params?: { Status?: string; Page?: number; PageSize?: number }) =>
-    apiClient.get<ApiResponse<PagedOrderResponse>>('/api/orders', { params }),
+    client.GET('/api/orders', { params: params as any }),
 
-  // 获取订单详情
   getOrder: (orderId: number) =>
-    apiClient.get<ApiResponse<OrderResponse>>(`/api/orders/${orderId}`),
+    client.GET('/api/orders/{orderId}', { params: { path: { orderId } } }),
 
-  // 创建订单
-  createOrder: (data: CreateOrderRequest) =>
-    apiClient.post<ApiResponse<OrderResponse>>('/api/orders', data),
+  createOrder: (data: {
+    sessionId: number;
+    items: Array<{
+      seatId: number;
+      priceStrategyId: number;
+      realNameId: number | null;
+      lockToken: string;
+    }>;
+    remark: string | null;
+  }) =>
+    client.POST('/api/orders', { body: data as any }),
 
-  // 取消订单
   cancelOrder: (orderId: number) =>
-    apiClient.patch<ApiResponse<OrderResponse>>(`/api/orders/${orderId}/cancel`),
+    client.PATCH('/api/orders/{orderId}/cancel', { params: { path: { orderId } } }),
 };
 
 // ========== Ticket API ==========
 export const ticketAPI = {
-  // 获取当前用户订单的电子票凭证
   getTickets: (orderId: number) =>
-    apiClient.get<ApiResponse<TicketResponse[]>>(`/api/orders/${orderId}/tickets`),
+    client.GET('/api/orders/{orderId}/tickets', { params: { path: { orderId } } }),
 };
 
 // ========== Payment API ==========
 export const paymentAPI = {
-  // 获取订单的支付记录
   getPayments: (orderId: number) =>
-    apiClient.get<ApiResponse<PaymentResponse[]>>(`/api/orders/${orderId}/payments`),
+    client.GET('/api/orders/{orderId}/payments', { params: { path: { orderId } } }),
 
-  // 模拟支付
-  mockPayment: (orderId: number, data: MockPaymentRequest) =>
-    apiClient.post<ApiResponse<PaymentProcessResponse>>(`/api/orders/${orderId}/payments/mock`, data),
+  // payChannel: 'ALIPAY' | 'WECHAT' | 'UNIONPAY' | 'BALANCE'
+  // result: 'SUCCESS' | 'FAIL'
+  mockPayment: (orderId: number, data: { payChannel: string; result: string }) =>
+    client.POST('/api/orders/{orderId}/payments/mock', {
+      params: { path: { orderId } },
+      body: data as any,
+    }),
 };
 
 // ========== 座位锁 API ==========
 export const seatLockAPI = {
-  // 锁定座位
   lockSeats: (sessionId: number, seatIds: number[]) =>
-    apiClient.post<ApiResponse<SeatLockBatchResponse>>(`/api/sessions/${sessionId}/seat-locks`, {
-      seatIds,
+    client.POST('/api/sessions/{sessionId}/seat-locks', {
+      params: { path: { sessionId } },
+      body: { seatIds },
     }),
 
-  // 释放座位
   releaseSeats: (sessionId: number, lockTokens: string[]) =>
-    apiClient.post<ApiResponse<SeatLockReleaseResponse>>(`/api/sessions/${sessionId}/seat-locks/release`, {
-      lockTokens,
+    client.POST('/api/sessions/{sessionId}/seat-locks/release', {
+      params: { path: { sessionId } },
+      body: { lockTokens },
     }),
+};
+
+// ========== 用户 API ==========
+export const userAPI = {
+  // 更新头像
+  updateAvatar: (data: { avatarUrl: string }) =>
+    client.PUT('/api/users/me/avatar', { body: data as any }),
 };

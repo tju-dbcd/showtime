@@ -41,41 +41,58 @@ const SeatSelection = () => {
 
   // 获取场次列表
   const fetchSessions = async () => {
-    try {
-      const response: any = await showSessionAPI.getShowSessions(Number(eventId));
-      const result = response.data ? response.data : response;
-      if (result.success && result.data) {
-        setSessions(result.data);
-        // 默认选中第一个场次
-        if (result.data.length > 0) {
-          setSelectedSessionId(result.data[0].sessionId);
-        } else {
-          message.warning('该演出暂无场次');
-        }
-      } else {
-        message.error(result.message || '获取场次失败');
-      }
-    } catch (error: any) {
-      console.error('获取场次失败:', error);
-      message.error(error.response?.data?.message || '获取场次失败');
+  try {
+    const { data, error } = await showSessionAPI.getShowSessions(Number(eventId));
+    if (error) {
+      message.error('获取场次失败');
+      return;
     }
-  };
+    if (data?.success && data?.data) {
+      // 转换 sessionId 为 number
+      const sessions = data.data.map((s: any) => ({
+        ...s,
+        sessionId: Number(s.sessionId),
+      }));
+      setSessions(sessions);
+      if (sessions.length > 0) {
+        setSelectedSessionId(sessions[0].sessionId);
+      } else {
+        message.warning('该演出暂无场次');
+      }
+    } else {
+      message.error(data?.message || '获取场次失败');
+    }
+  } catch (error: any) {
+    console.error('获取场次失败:', error);
+    message.error(error.message || '获取场次失败');
+  }
+};
 
   // 获取座位图
   const fetchSeatMap = async (sessionId: number) => {
     setLoading(true);
     try {
-      const response: any = await sessionAPI.getSessionSeatMap(sessionId);
-      const result = response.data ? response.data : response;
-      if (result.success && result.data) {
-        setSeatMap(result.data);
-        // 展平所有座位
+      const { data, error } = await sessionAPI.getSessionSeatMap(sessionId);
+      if (error) {
+        message.error('获取座位图失败');
+        setLoading(false);
+        return;
+      }
+      if (data?.success && data?.data) {
+        // 转换顶层 ID 字段为 number
+        const seatMapData = {
+          ...data.data,
+          sessionId: Number(data.data.sessionId),
+          showId: Number(data.data.showId),
+          seatMapId: Number(data.data.seatMapId),
+        };
+        setSeatMap(seatMapData as any);  // 临时绕过嵌套类型检查
+
         const allSeats: SessionSeatMapSeatDto[] = [];
-        result.data.seatMap?.sections?.forEach((section: any) => {
+        data.data.seatMap?.sections?.forEach((section: any) => {
           section.seats?.forEach((seat: SessionSeatMapSeatDto) => {
             allSeats.push({
               ...seat,
-              // 补充 section 信息
               sectionName: section.sectionName,
               sectionColor: section.sectionColor,
             });
@@ -84,11 +101,11 @@ const SeatSelection = () => {
         setSeats(allSeats);
         setSelectedSeats([]);
       } else {
-        message.error(result.message || '获取座位图失败');
+        message.error(data?.message || '获取座位图失败');
       }
     } catch (error: any) {
       console.error('获取座位图失败:', error);
-      message.error(error.response?.data?.message || '获取座位图失败');
+      message.error(error.message || '获取座位图失败');
     } finally {
       setLoading(false);
     }
@@ -97,10 +114,15 @@ const SeatSelection = () => {
   // 获取定价策略
   const fetchPricingStrategies = async (sessionId: number) => {
     try {
-      const response: any = await showSessionAPI.getPricingStrategies(sessionId);
-      const result = response.data ? response.data : response;
-      if (result.success && result.data) {
-        setPricingStrategies(result.data);
+      const { data, error } = await showSessionAPI.getPricingStrategies(sessionId);
+      if (!error && data?.success && data?.data) {
+        // 转换 ID 字段为 number
+        const strategies = data.data.map((s: any) => ({
+          ...s,
+          priceStrategyId: Number(s.priceStrategyId),
+          seatSectionId: Number(s.seatSectionId),
+        }));
+        setPricingStrategies(strategies);
       }
     } catch (error) {
       console.error('获取定价策略失败:', error);
@@ -171,7 +193,9 @@ const SeatSelection = () => {
 
   // 确认选座并创建订单
   const handleConfirm = async () => {
-    if (selectedSeats.length === 0) {
+    // 去重并确保数字类型
+    const uniqueSeatIds = Array.from(new Set(selectedSeats.map(id => Number(id))));
+    if (uniqueSeatIds.length === 0) {
       message.warning('请至少选择一个座位');
       return;
     }
@@ -183,54 +207,94 @@ const SeatSelection = () => {
 
     setSubmitting(true);
     try {
-      // 1. 先锁座
-      const lockResponse: any = await seatLockAPI.lockSeats(selectedSessionId, selectedSeats);
-      const lockResult = lockResponse.data ? lockResponse.data : lockResponse;
+      // 1. 锁座
+      const { data: lockData, error: lockError } = await seatLockAPI.lockSeats(
+        selectedSessionId,
+        uniqueSeatIds
+      );
 
-      if (!lockResult.success || !lockResult.data) {
-        message.error(lockResult.message || '锁定座位失败，请重试');
+      if (lockError) {
+        message.error('锁定座位失败，请重试');
+        setSubmitting(false);
+        return;
+      }
+
+      if (!lockData?.success || !lockData?.data) {
+        message.error(lockData?.message || '锁定座位失败，请重试');
+        setSubmitting(false);
         return;
       }
 
       // 获取锁座令牌映射
       const lockMap: Record<number, string> = {};
-      lockResult.data.locks.forEach((item: any) => {
-        lockMap[item.seatId] = item.lockToken;
+      lockData.data.locks.forEach((item: any) => {
+        lockMap[Number(item.seatId)] = item.lockToken;
       });
 
       // 2. 构建订单请求（带上 lockToken）
-      const orderItems = selectedSeats.map((seatId) => {
+      const orderItems = uniqueSeatIds.map((seatId) => {
         const seat = seats.find((s) => s.seatId === seatId);
         const strategy = pricingStrategies.find(
           (s) => s.seatSectionId === seat?.seatSectionId
         );
+        const priceStrategyId = strategy?.priceStrategyId || 0;
+        if (priceStrategyId === 0) {
+          console.warn(`座位 ${seatId} 未找到定价策略，seatSectionId: ${seat?.seatSectionId}`);
+        }
         return {
           seatId: seatId,
-          priceStrategyId: strategy?.priceStrategyId || 0,
+          priceStrategyId: priceStrategyId,
           realNameId: null,
           lockToken: lockMap[seatId] || '',
         };
       });
 
-      const orderResponse: any = await orderAPI.createOrder({
+      // 检查是否有无效的定价策略
+      const invalidSeats = orderItems.filter(item => item.priceStrategyId === 0);
+      if (invalidSeats.length > 0) {
+        message.error('部分座位缺少定价策略，请重新选择');
+        const tokens = lockData.data.locks.map((item: any) => item.lockToken);
+        await seatLockAPI.releaseSeats(selectedSessionId, tokens);
+        setSubmitting(false);
+        return;
+      }
+
+      // 检查是否有空 lockToken
+      const hasEmptyLock = orderItems.some(item => !item.lockToken);
+      if (hasEmptyLock) {
+        message.error('部分座位未锁定，请重新选择');
+        const tokens = lockData.data.locks.map((item: any) => item.lockToken);
+        await seatLockAPI.releaseSeats(selectedSessionId, tokens);
+        setSubmitting(false);
+        return;
+      }
+
+      // 3. 创建订单
+      const { data: orderData, error: orderError } = await orderAPI.createOrder({
         sessionId: selectedSessionId,
         items: orderItems,
         remark: null,
       });
 
-      const orderResult = orderResponse.data ? orderResponse.data : orderResponse;
-      if (orderResult.success && orderResult.data) {
+      if (orderError) {
+        const tokens = lockData.data.locks.map((item: any) => item.lockToken);
+        await seatLockAPI.releaseSeats(selectedSessionId, tokens);
+        message.error('创建订单失败');
+        setSubmitting(false);
+        return;
+      }
+
+      if (orderData?.success && orderData?.data) {
         message.success('订单创建成功！');
         navigate('/order');
       } else {
-        // 创建订单失败，释放锁
-        const tokens = lockResult.data.locks.map((item: any) => item.lockToken);
+        const tokens = lockData.data.locks.map((item: any) => item.lockToken);
         await seatLockAPI.releaseSeats(selectedSessionId, tokens);
-        message.error(orderResult.message || '创建订单失败');
+        message.error(orderData?.message || '创建订单失败');
       }
     } catch (error: any) {
       console.error('操作失败:', error);
-      message.error(error.response?.data?.message || '操作失败，请重试');
+      message.error(error.message || '操作失败，请重试');
     } finally {
       setSubmitting(false);
     }

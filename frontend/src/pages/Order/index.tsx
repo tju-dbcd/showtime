@@ -46,22 +46,35 @@ const Order = () => {
   const fetchOrders = async (currentPage: number = page, currentPageSize: number = pageSize) => {
     setLoading(true);
     try {
-      const response: any = await orderAPI.getOrders({
+      const { data, error } = await orderAPI.getOrders({
         Page: currentPage,
         PageSize: currentPageSize,
       });
 
-      const result = response.data ? response.data : response;
+      if (error) {
+        message.error('获取订单列表失败');
+        setLoading(false);
+        return;
+      }
 
-      if (result.success && result.data) {
-        setOrders(result.data.items || []);
-        setTotalCount(result.data.totalCount || 0);
+      if (data?.success && data?.data) {
+        const items = data.data.items.map((item: any) => ({
+          ...item,
+          orderId: Number(item.orderId),
+          sessionId: Number(item.sessionId),
+          totalAmount: Number(item.totalAmount),
+          discountAmount: Number(item.discountAmount),
+          ticketCount: Number(item.ticketCount),
+          parentOrderId: item.parentOrderId ? Number(item.parentOrderId) : null,
+        }));
+        setOrders(items);
+        setTotalCount(Number(data.data.totalCount) || 0);
       } else {
-        message.error(result.message || '获取订单列表失败');
+        message.error(data?.message || '获取订单列表失败');
       }
     } catch (error: any) {
       console.error('获取订单失败:', error);
-      message.error(error.response?.data?.message || '获取订单列表失败');
+      message.error(error.message || '获取订单列表失败');
     } finally {
       setLoading(false);
     }
@@ -107,21 +120,27 @@ const Order = () => {
     if (!selectedOrderId) return;
     setPaying(true);
     try {
-      const response: any = await paymentAPI.mockPayment(selectedOrderId, {
+      const { data, error } = await paymentAPI.mockPayment(selectedOrderId, {
         payChannel: channel,
         result: 'Success',
       });
-      const result = response.data ? response.data : response;
-      if (result.success && result.data) {
+
+      if (error) {
+        message.error('支付失败');
+        setPaying(false);
+        return;
+      }
+
+      if (data?.success && data?.data) {
         message.success('支付成功！');
         setIsModalOpen(false);
         fetchOrders();
       } else {
-        message.error(result.message || '支付失败');
+        message.error(data?.message || '支付失败');
       }
     } catch (error: any) {
       console.error('支付失败:', error);
-      message.error(error.response?.data?.message || '支付失败，请重试');
+      message.error(error.message || '支付失败，请重试');
     } finally {
       setPaying(false);
     }
@@ -134,17 +153,20 @@ const Order = () => {
       content: '确定要取消该订单吗？取消后无法恢复。',
       onOk: async () => {
         try {
-          const response: any = await orderAPI.cancelOrder(orderId);
-          const result = response.data ? response.data : response;
-          if (result.success) {
+          const { data, error } = await orderAPI.cancelOrder(orderId);
+          if (error) {
+            message.error('取消订单失败');
+            return;
+          }
+          if (data?.success) {
             message.success('订单已取消');
             fetchOrders();
           } else {
-            message.error(result.message || '取消订单失败');
+            message.error(data?.message || '取消订单失败');
           }
         } catch (error: any) {
           console.error('取消订单失败:', error);
-          message.error(error.response?.data?.message || '取消订单失败');
+          message.error(error.message || '取消订单失败');
         }
       },
     });
