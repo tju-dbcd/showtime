@@ -463,12 +463,25 @@ public sealed class RefundApplicationService : IRefundApplicationService
                 "An order item already belongs to a refund request.");
         }
 
-        var hasExchangeRelation = await dbContext.Set<ExchangeItem>()
+        var relatedExchangeIds = await dbContext.Set<ExchangeItem>()
             .AsNoTracking()
-            .AnyAsync(item =>
+            .Where(item =>
                 selectedItemIds.Contains(item.OrderItemId) ||
-                selectedItemIds.Contains(item.NewOrderItemId),
-                cancellationToken);
+                selectedItemIds.Contains(item.NewOrderItemId))
+            .Select(item => item.ExchangeId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var failedExchangeIds = relatedExchangeIds.Count == 0
+            ? []
+            : await dbContext.Set<ExchangeRequest>()
+                .AsNoTracking()
+                .Where(item => relatedExchangeIds.Contains(item.ExchangeId) &&
+                               item.ExchangeStatus == "FAILED")
+                .Select(item => item.ExchangeId)
+                .ToListAsync(cancellationToken);
+        var hasExchangeRelation = relatedExchangeIds
+            .Except(failedExchangeIds)
+            .Any();
         if (hasExchangeRelation)
         {
             return Conflict<RefundQuoteResponse>(

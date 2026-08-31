@@ -23,6 +23,7 @@ using ShowtimeBackend.Services.SeatZone;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
+using Oracle.EntityFrameworkCore.Infrastructure;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
 using Serilog;
@@ -45,7 +46,9 @@ builder.Host.UseSerilog((context, services, configuration) =>
 Action<DbContextOptionsBuilder> configureDatabase = options => options.UseOracle(
     builder.Configuration.GetConnectionString("Oracle")
     ?? throw new InvalidOperationException(
-        "Connection string 'Oracle' is not set."));
+        "Connection string 'Oracle' is not set."),
+    oracle => oracle.UseOracleSQLCompatibility(
+        OracleSQLCompatibility.DatabaseVersion21));
 builder.Services.AddDbContextFactory<AppDbContext>(configureDatabase);
 builder.Services.AddScoped<AppDbContext>(provider =>
     provider.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
@@ -156,6 +159,14 @@ builder.Services
     .ValidateOnStart();
 
 builder.Services
+    .AddOptions<ExchangeOptions>()
+    .Bind(
+        builder.Configuration.GetSection(ExchangeOptions.SectionName),
+        binder => binder.ErrorOnUnknownConfiguration = true)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -231,6 +242,14 @@ builder.Services.AddScoped<ITicketRedemptionService, TicketRedemptionService>();
 builder.Services.AddScoped<IAdminTicketIssuanceService, AdminTicketIssuanceService>();
 builder.Services.AddScoped<IRefundPolicyAdminService, RefundPolicyAdminService>();
 builder.Services.AddSingleton<RefundPolicyEngine>();
+builder.Services.AddScoped<IExchangePolicyAdminService, ExchangePolicyAdminService>();
+builder.Services.AddSingleton<ExchangePolicyEngine>();
+builder.Services.AddScoped<IExchangeApplicationService, ExchangeApplicationService>();
+builder.Services.AddScoped<IExchangeLockCoordinator, OracleExchangeLockCoordinator>();
+builder.Services.AddScoped<IExchangeReviewService, ExchangeReviewService>();
+builder.Services.AddScoped<IExchangePaymentService, ExchangePaymentService>();
+builder.Services.AddScoped<IExchangeExpirationService, ExchangeExpirationService>();
+builder.Services.AddHostedService<ExchangeExpirationWorker>();
 builder.Services.AddScoped<IRefundLockCoordinator, OracleRefundLockCoordinator>();
 builder.Services.AddScoped<IRefundApplicationService, RefundApplicationService>();
 builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();

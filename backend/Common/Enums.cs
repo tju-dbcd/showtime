@@ -107,6 +107,7 @@ public enum ETicketStatus
     REFUNDING,
     USED,
     REFUNDED,
+    EXCHANGING,
     EXCHANGED,
 }
 
@@ -127,6 +128,23 @@ public enum RefundApproveStatus
 
 /// <summary>退款处理状态（REFUND_REQUEST.REFUND_STATUS）</summary>
 public enum RefundStatus
+{
+    PENDING,
+    PROCESSING,
+    COMPLETED,
+    FAILED,
+}
+
+/// <summary>改签审核状态（EXCHANGE_REQUEST.APPROVE_STATUS）</summary>
+public enum ExchangeApproveStatus
+{
+    PENDING,
+    APPROVED,
+    REJECTED,
+}
+
+/// <summary>改签执行状态（EXCHANGE_REQUEST.EXCHANGE_STATUS）</summary>
+public enum ExchangeStatus
 {
     PENDING,
     PROCESSING,

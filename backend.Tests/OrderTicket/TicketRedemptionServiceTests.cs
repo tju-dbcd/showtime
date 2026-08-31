@@ -128,6 +128,7 @@ public sealed class TicketRedemptionServiceTests
     [InlineData("USED", "TICKET_ALREADY_USED")]
     [InlineData("REFUNDING", "TICKET_REFUNDING")]
     [InlineData("REFUNDED", "TICKET_REFUNDED")]
+    [InlineData("EXCHANGING", "TICKET_EXCHANGING")]
     [InlineData("EXCHANGED", "TICKET_EXCHANGED")]
     public async Task RedeemAsync_WhenTicketStateIsIneligible_ReturnsSpecificConflict(
         string status,
@@ -140,6 +141,10 @@ public sealed class TicketRedemptionServiceTests
 
         Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
         Assert.Equal(expectedCode, result.ErrorCode);
+        var persisted = await fixture.Db.Set<ETicket>().AsNoTracking().SingleAsync();
+        Assert.Null(persisted.CheckTime);
+        Assert.Null(persisted.CheckDevice);
+        Assert.Null(persisted.CheckBy);
     }
 
     [Fact]
