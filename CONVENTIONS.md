@@ -109,7 +109,8 @@
      ```
    - 常见坑：
      - 不配连接串后端也能启动，但第一个查库请求会报 `Connection string 'Oracle' is not set.`，不是代码 bug，是没配 user-secrets
-     - 前端 vite proxy 目前指向生产后端（`frontend/vite.config.ts` 中硬编码的 target），开箱即用会直连生产环境、操作生产数据，慎用；想连本地后端需把 target 临时改为 `http://localhost:5146`（本地改、别提交），后续落地 `VITE_DEV_PROXY_TARGET` 后可免改
+     - 前端 vite proxy 默认指向生产后端（`frontend/vite.config.ts` 中 `devProxyTarget`，可用环境变量 `VITE_DEV_PROXY_TARGET` 覆盖，如 `VITE_DEV_PROXY_TARGET=http://localhost:5146` 连本地后端，勿提交该值），开箱即用会直连生产环境、操作生产数据，慎用；
+     - E2E（`frontend/tests/`）通过 `page.route` 全量 mock `/api/**`，不连接任何真实后端，CI 与本地运行均不产生生产数据
      - 不要用 `VITE_API_BASE_URL=http://localhost:5146` 直连本地后端：后端未配置 CORS，浏览器会拦截跨域请求
      - `dotnet user-secrets` 与 `frontend/.env.development` 都是本地文件，提交前 `git status` 确认没把它们带进 commit
      - `docker compose up -d redis` 报 `bind ... 6379: address already in use`：说明本机已有 Redis 在运行（端口被占），直接用现有的即可，不用重复起容器

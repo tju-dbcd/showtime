@@ -48,5 +48,9 @@ frontend/*.local
 [Ll]og/
 [Tt]est[Rr]esults/
 
+## Playwright E2E（注意：大小写敏感，[Tt]est[Rr]esults/ 匹配不到 test-results/）
+test-results/
+playwright-report/
+
 ## Serilog 日志目录（backend/logs）
 logs/

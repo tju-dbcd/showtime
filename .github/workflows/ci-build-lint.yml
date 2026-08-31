@@ -246,15 +246,17 @@ jobs:
           fi
 
   # ============================================================
-  # Playwright E2E Tests - 默认跳过，避免污染生产数据
-  # 如需启用，将 if 改为: github.event_name == 'pull_request'
+  # Playwright E2E Tests
+  # ⚠️ 安全说明：用例通过 page.route 全量 mock 路径以 /api/ 开头的接口，
+  #    不连接本地/生产后端，不产生任何生产数据；前端 dev server 由
+  #    playwright.config.ts 的 webServer 自动拉起（端口 5173）。
   # ============================================================
   e2e-test:
-    name: Playwright E2E Tests
+    name: Playwright E2E Tests (Mocked API)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [build, frontend]
-    if: false
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: Checkout repository
@@ -271,80 +273,16 @@ jobs:
         run: npm ci
         working-directory: frontend
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
-
-      - name: Restore backend dependencies
-        run: dotnet restore
-
-      - name: Build backend
-        run: dotnet build --no-restore --configuration Release
-
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
         working-directory: frontend
 
-      - name: Start services and run E2E tests
-        env:
-          ASPNETCORE_ENVIRONMENT: Development
-          ASPNETCORE_URLS: http://127.0.0.1:5000
-          TicketSecurity__SigningKeyBase64: ${{ env.TicketSecurity__SigningKeyBase64 }}
-        run: |
-          echo "=== Starting services ==="
+      - name: Run E2E tests (mocked API)
+        working-directory: frontend
+        # 不覆盖 reporter：CI 环境自动使用 config 中 html+github 报告，产出 playwright-report/ artifact
+        run: npx playwright test
 
-          dotnet --version
-
-          echo "Starting backend..."
-          cd backend
-          dotnet ./bin/Release/net10.0/ShowtimeBackend.dll &
-          BACKEND_PID=$!
-
-          echo "Waiting for backend..."
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:5000 > /dev/null 2>&1; then
-              echo "✅ Backend ready (port 5000)"
-              break
-            fi
-            echo "⏳ Backend not ready... $i/30"
-            sleep 2
-          done
-
-          echo "Starting frontend..."
-          cd ../frontend
-          npm run dev -- --port 5173 --host 127.0.0.1 &
-          FRONTEND_PID=$!
-
-          echo "Waiting for frontend..."
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:5173 > /dev/null 2>&1; then
-              echo "✅ Frontend ready (port 5173)"
-              break
-            fi
-            echo "⏳ Frontend not ready... $i/30"
-            sleep 2
-          done
-
-          echo "=== Service check ==="
-          curl -v http://127.0.0.1:5000 || echo "❌ Backend check failed"
-          curl -v http://127.0.0.1:5173 || echo "❌ Frontend check failed"
-          echo "=== Running tests ==="
-
-          npx playwright test tests/showtime.spec.ts --reporter=line
-
-          kill $FRONTEND_PID 2>/dev/null || true
-          kill $BACKEND_PID 2>/dev/null || true
-
-      - name: Upload Playwright test results
+      - name: Upload Playwright test report
         uses: actions/upload-artifact@v4
         if: always()
         with:
