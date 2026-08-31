@@ -160,6 +160,10 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
                 options.UseSqlite(_connection));
             services.AddScoped<AppDbContext>(provider =>
                 provider.GetRequiredService<SqliteAuthDbContext>());
+            // 审计 sink 使用独立 DbContext 实例写入 OPERATION_LOG：
+            // 表结构由 SqliteAuthDbContext.EnsureCreated 建立，factory 仅负责出实例做 INSERT。
+            services.AddDbContextFactory<AppDbContext>(options =>
+                options.UseSqlite(_connection));
         });
     }
 

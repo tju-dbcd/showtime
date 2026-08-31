@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
+using ShowtimeBackend.Entities.UserPermission;
 
 namespace ShowtimeBackend.Data;
 
@@ -26,6 +27,7 @@ public class AppDbContext : DbContext
     public DbSet<PriceStrategy> PriceStrategy => Set<PriceStrategy>();
     public DbSet<Show> Shows => Set<Show>();
     public DbSet<DynamicPricingRule> DynamicPricingRules => Set<DynamicPricingRule>();
+    public DbSet<OperationLog> OperationLogs => Set<OperationLog>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("APP_OWNER");
