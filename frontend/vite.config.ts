@@ -20,6 +20,13 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      // 本地磁盘文件存储（LocalStorage:Enabled=true）的静态托管前缀，
+      // 开发期经 vite 代理回后端，与 /api 同源策略一致
+      '/files': {
+        target: devProxyTarget,
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
 });

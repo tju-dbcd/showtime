@@ -22,7 +22,7 @@ public sealed class SeatLockServiceRedisGuardTests
         await using var db = CreateDbContext();
         await SeedSellableSessionAsync(db);
         var guard = FakeSeatLockGuard.WithResult(SeatLockGuardAcquireResult.Conflict);
-        var service = new SeatLockService(db, new FixedTimeProvider(Now), guard);
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10), guard);
 
         var result = await service.LockAsync(
             7,
@@ -44,7 +44,7 @@ public sealed class SeatLockServiceRedisGuardTests
         await using var db = CreateDbContext();
         await SeedSellableSessionAsync(db);
         var guard = FakeSeatLockGuard.WithResult(SeatLockGuardAcquireResult.Unavailable);
-        var service = new SeatLockService(db, new FixedTimeProvider(Now), guard);
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10), guard);
 
         var result = await service.LockAsync(
             7,
@@ -66,7 +66,7 @@ public sealed class SeatLockServiceRedisGuardTests
         await using var db = CreateDbContext();
         await SeedSellableSessionAsync(db);
         var guard = FakeSeatLockGuard.WithResult(SeatLockGuardAcquireResult.Acquired);
-        var service = new SeatLockService(db, new FixedTimeProvider(Now), guard);
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10), guard);
 
         var result = await service.LockAsync(
             7,
@@ -88,7 +88,7 @@ public sealed class SeatLockServiceRedisGuardTests
         await using var db = CreateDbContext();
         await SeedSellableSessionAsync(db);
         var guard = FakeSeatLockGuard.WithResult(SeatLockGuardAcquireResult.Conflict);
-        var service = new SeatLockService(db, new FixedTimeProvider(Now), guard, guardEnabled: false);
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10), guard, guardEnabled: false);
 
         var result = await service.LockAsync(
             7,
@@ -110,7 +110,7 @@ public sealed class SeatLockServiceRedisGuardTests
             CreateActiveLock(71, 51, "token-51"));
         await db.SaveChangesAsync();
         var guard = FakeSeatLockGuard.WithResult(SeatLockGuardAcquireResult.Acquired);
-        var service = new SeatLockService(db, new FixedTimeProvider(Now), guard);
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10), guard);
 
         var result = await service.ReleaseAsync(
             7,
@@ -132,7 +132,7 @@ public sealed class SeatLockServiceRedisGuardTests
         db.Add(CreateActiveLock(70, 50, "token-50"));
         await db.SaveChangesAsync();
         var guard = FakeSeatLockGuard.WithResult(SeatLockGuardAcquireResult.Acquired);
-        var service = new SeatLockService(db, new FixedTimeProvider(Now), guard);
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10), guard);
 
         var result = await service.ReleaseAsync(
             7,

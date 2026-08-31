@@ -1,9 +1,10 @@
+using System.Collections.Generic;
 using ShowtimeBackend.Common.Oss;
 
 namespace ShowtimeBackend.Services.FileStorage;
 
 /// <summary>
-/// 上传文件的服务端校验（纯函数，单测不依赖真实 OSS）。
+/// 上传文件的服务端校验（纯函数，单测不依赖真实 OSS/磁盘）。
 /// 安全要点：目录白名单、大小上限、扩展名白名单、Content-Type 二次校验；
 /// 原文件名仅用于推断扩展名，落盘对象键一律服务端生成 GUID（杜绝路径穿越/重名覆盖）。
 /// </summary>
@@ -17,12 +18,28 @@ internal static class FileUploadValidator
     /// <summary>允许的 Content-Type 主类型（与默认图片扩展名白名单对应，防脚本类伪装）。</summary>
     private const string AllowedContentTypePrefix = "image/";
 
+    /// <summary>OssOptions 便捷重载：解包大小上限与扩展名白名单后委托主实现（供校验单测使用）。</summary>
     public static void EnsureValid(
         string folder,
         string fileName,
         string? contentType,
         long contentLength,
         OssOptions options)
+        => EnsureValid(
+            folder,
+            fileName,
+            contentType,
+            contentLength,
+            options.MaxFileSizeBytes,
+            options.AllowedExtensions);
+
+    public static void EnsureValid(
+        string folder,
+        string fileName,
+        string? contentType,
+        long contentLength,
+        long maxFileSizeBytes,
+        IReadOnlyList<string> allowedExtensions)
     {
         if (!FileStorageFolders.Allowed.Contains(folder))
         {
@@ -32,23 +49,23 @@ internal static class FileUploadValidator
                 + string.Join(", ", FileStorageFolders.Allowed) + ".");
         }
 
-        if (contentLength > options.MaxFileSizeBytes)
+        if (contentLength > maxFileSizeBytes)
         {
             throw new FileStorageException(
                 ErrorFileTooLarge,
                 $"File size ({contentLength} bytes) exceeds the limit of "
-                + $"{options.MaxFileSizeBytes} bytes.");
+                + $"{maxFileSizeBytes} bytes.");
         }
 
         var extension = Path.GetExtension(fileName);
         if (string.IsNullOrWhiteSpace(extension)
-            || !options.AllowedExtensions.Contains(
+            || !allowedExtensions.Contains(
                 extension.ToLowerInvariant()))
         {
             throw new FileStorageException(
                 ErrorUnsupportedFileType,
                 $"File extension '{extension}' is not allowed. Allowed extensions: "
-                + string.Join(", ", options.AllowedExtensions) + ".");
+                + string.Join(", ", allowedExtensions) + ".");
         }
 
         // Content-Type 二次校验：显式声明的类型必须为 image/*。

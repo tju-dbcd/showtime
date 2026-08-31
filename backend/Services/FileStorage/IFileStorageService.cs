@@ -2,8 +2,9 @@ namespace ShowtimeBackend.Services.FileStorage;
 
 /// <summary>
 /// 文件存储服务抽象（上行/下行）。
-/// 默认实现为 OssFileStorageService（阿里云 OSS）；
-/// 单测与未启用 OSS（Oss:Enabled=false）的环境使用 FakeFileStorageService（内存实现）。
+/// 实现三态选择（Program.cs 注册）：Oss:Enabled → OssFileStorageService（阿里云 OSS）；
+/// 否则 LocalStorage:Enabled → LocalDiskFileStorageService（本地磁盘，开发/联调中间态）；
+/// 两者皆关 → FakeFileStorageService（内存测试 double，控制器层会先返回 503 未配置错误）。
 /// </summary>
 public interface IFileStorageService
 {

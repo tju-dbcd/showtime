@@ -286,15 +286,15 @@ server {
 | 建表后查询不到表 | Schema 不一致 | 确认当前 Schema 为 `APP_OWNER`，必要时 `ALTER SESSION SET CURRENT_SCHEMA = APP_OWNER` |
 | 上传图片返回 `403 AccessDenied` | Bucket 未设为公共读 | 控制台把该 Bucket 读写权限改为**公共读（Public Read）** |
 | 上传返回 `NoSuchBucket` | Bucket 不存在，或与 Endpoint 地域不一致 | 核对 Bucket 名称与 Region（Endpoint 必须与 Bucket 同 Region） |
-| 上传接口返回 `503 OSS_NOT_CONFIGURED` | `Oss:Enabled=false`（kill-switch） | 联调/上线时置 true 并配置 Endpoint/Bucket/BaseUrl/AccessKey |
+| 上传接口返回 `503 FILE_STORAGE_NOT_CONFIGURED` | `Oss:Enabled=false` 且 `LocalStorage:Enabled=false`（均未启用） | 联调/上线时置 `Oss:Enabled=true` 并配置 Endpoint/Bucket/BaseUrl/AccessKey；本地开发无需 OSS，Development 默认走本地磁盘存储 `LocalStorage:Enabled=true` |
 | 头像保存报 `ORA-00904: AVATAR_URL` | 头像迁移脚本未执行 | 由 DEPLOY_USER 执行 `db/migrations/20260827__sys_user_avatar_url.sql` |
 
 ---
 
 ## 7. 阿里云 OSS 配置（图片资源存储）
 
-> 图片资源（演出海报、营销图、用户头像）统一存储于阿里云 OSS，**后端代理上传**（AccessKey 只存在后端）。
-> OSS 为**可选依赖**：未启用时 `Oss:Enabled=false`，上传接口返回 `503 OSS_NOT_CONFIGURED`，不影响其他功能。
+> 图片资源（演出海报、营销图、用户头像）统一存储。生产用阿里云 OSS：**后端代理上传**（AccessKey 只存在后端）。
+> OSS 为**可选依赖**：未启用时若 `LocalStorage:Enabled=true`（本地磁盘存储，Development 默认开启，多实例共享挂载卷即互通），上传落本地磁盘并经静态托管 `/files` 读回；`Oss:Enabled=false` 且 `LocalStorage:Enabled=false` 时上传接口返回 `503 FILE_STORAGE_NOT_CONFIGURED`，不影响其他功能。
 
 ### 7.1 资源准备（一次性，阿里云控制台）
 

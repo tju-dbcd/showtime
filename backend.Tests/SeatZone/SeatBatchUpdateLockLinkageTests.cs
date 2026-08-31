@@ -22,7 +22,7 @@ public sealed class SeatBatchUpdateLockLinkageTests
         await using var db = CreateDbContext();
         await SeedSellableSessionAsync(db);
         var batchService = new SeatAdminService(db);
-        var lockService = new SeatLockService(db, new FixedTimeProvider(Now));
+        var lockService = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var batch = await batchService.UpdateSeatsAsync(
             40,
@@ -48,7 +48,7 @@ public sealed class SeatBatchUpdateLockLinkageTests
         await using var db = CreateDbContext();
         await SeedSellableSessionAsync(db);
         var batchService = new SeatAdminService(db);
-        var lockService = new SeatLockService(db, new FixedTimeProvider(Now));
+        var lockService = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var batch = await batchService.UpdateSeatsAsync(
             40,

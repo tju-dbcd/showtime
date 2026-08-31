@@ -17,7 +17,7 @@ public sealed class SeatLockServiceTests
     {
         await using var db = CreateDbContext();
         await SeedSellableSessionAsync(db);
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.LockAsync(
             7,
@@ -43,7 +43,7 @@ public sealed class SeatLockServiceTests
     {
         await using var db = CreateDbContext();
         await SeedSellableSessionAsync(db);
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.LockAsync(
             7,
@@ -61,7 +61,7 @@ public sealed class SeatLockServiceTests
     public async Task LockAsync_RejectsMoreThanNineHundredNinetyNineSeats()
     {
         await using var db = CreateDbContext();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
         var seatIds = Enumerable.Range(1, 1_000)
             .Select(value => (long)value)
             .ToArray();
@@ -81,7 +81,7 @@ public sealed class SeatLockServiceTests
     public async Task LockAsync_RejectsMissingSession()
     {
         await using var db = CreateDbContext();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.LockAsync(
             7,
@@ -102,7 +102,7 @@ public sealed class SeatLockServiceTests
         await SeedSellableSessionAsync(db);
         (await db.ShowSessions.FindAsync(10L))!.SaleStartTime = Now.UtcDateTime.AddHours(1);
         await db.SaveChangesAsync();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.LockAsync(
             7,
@@ -140,7 +140,7 @@ public sealed class SeatLockServiceTests
                 SeatStatus = "ENABLED"
             });
         await db.SaveChangesAsync();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.LockAsync(
             7,
@@ -161,7 +161,7 @@ public sealed class SeatLockServiceTests
         await SeedSellableSessionAsync(db);
         (await db.SeatSections.FindAsync(40L))!.IsSellable = false;
         await db.SaveChangesAsync();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.LockAsync(
             7,
@@ -182,7 +182,7 @@ public sealed class SeatLockServiceTests
         await SeedSellableSessionAsync(db);
         db.Add(CreateActiveLock(70, 51, 8, "existing-lock"));
         await db.SaveChangesAsync();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.LockAsync(
             7,
@@ -214,7 +214,7 @@ public sealed class SeatLockServiceTests
             ReserveTime = Now.UtcDateTime.AddMinutes(-1)
         });
         await db.SaveChangesAsync();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.LockAsync(
             7,
@@ -245,7 +245,7 @@ public sealed class SeatLockServiceTests
             ExpireTime = Now.UtcDateTime.AddMinutes(-10)
         });
         await db.SaveChangesAsync();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.LockAsync(
             7,
@@ -271,7 +271,7 @@ public sealed class SeatLockServiceTests
             CreateActiveLock(70, 50, 7, "token-50"),
             CreateActiveLock(71, 51, 7, "token-51"));
         await db.SaveChangesAsync();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.ReleaseAsync(
             7,
@@ -296,7 +296,7 @@ public sealed class SeatLockServiceTests
         await using var db = CreateDbContext();
         db.Add(CreateActiveLock(70, 50, 7, "token-50"));
         await db.SaveChangesAsync();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.ReleaseAsync(
             7,
@@ -314,7 +314,7 @@ public sealed class SeatLockServiceTests
     public async Task ReleaseAsync_RejectsMoreThanNineHundredNinetyNineTokens()
     {
         await using var db = CreateDbContext();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
         var tokens = Enumerable.Range(1, 1_000)
             .Select(value => $"token-{value}")
             .ToArray();
@@ -336,7 +336,7 @@ public sealed class SeatLockServiceTests
         await using var db = CreateDbContext();
         db.Add(CreateActiveLock(70, 50, 8, "bob-token"));
         await db.SaveChangesAsync();
-        var service = new SeatLockService(db, new FixedTimeProvider(Now));
+        var service = new SeatLockService(db, new FixedTimeProvider(Now), TimeSpan.FromMinutes(10));
 
         var result = await service.ReleaseAsync(
             7,

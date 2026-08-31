@@ -39,7 +39,8 @@ public sealed class OssFileStorageService(
             fileName,
             contentType,
             content.Length,
-            _options);
+            _options.MaxFileSizeBytes,
+            _options.AllowedExtensions);
 
         var objectKey = OssObjectKeyGenerator.Generate(
             folder,
