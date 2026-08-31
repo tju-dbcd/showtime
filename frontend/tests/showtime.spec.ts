@@ -261,12 +261,11 @@ test.describe.serial('Showtime 完整业务E2E测试集', () => {
   });
 
   // ============================================================
-  // 1️⃣1️⃣ 异常场景：未登录访问用户中心 - 跳过
-  // 跟踪：#51 前端登录守卫未实现（https://github.com/tju-dbcd/showtime/issues/51）
-  // 实现后再取消 skip 启用负向校验
+  // 1️⃣1️⃣ 异常场景：未登录访问用户中心，跳转到登录页
+  // 依赖 UserCenter 组件级守卫：无 accessToken 时 useEffect 中 navigate('/login')
   // ============================================================
-  test.skip('异常：未登录访问用户中心，跳转到登录页', async ({ page }) => {
-    await page.context().clearCookies();
+  test('异常：未登录访问用户中心，跳转到登录页', async ({ page }) => {
+    // 每条用例是全新 context，localStorage 天然为空（登录态存 localStorage 而非 cookie）
     await page.goto(`${BASE_URL}/usercenter`);
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
@@ -286,11 +285,10 @@ test.describe.serial('Showtime 完整业务E2E测试集', () => {
   });
 
   // ============================================================
-  // 1️⃣2️⃣ 异常场景：错误密码登录 - 跳过
-  // 跟踪：#52 后端密码验证未启用（https://github.com/tju-dbcd/showtime/issues/52）
-  // 实现后再取消 skip 启用负向校验
+  // 1️⃣2️⃣ 异常场景：错误密码登录失败
+  // 后端 AuthService 用 IPasswordHasher 哈希校验，错误密码返回 401，前端停留在 /login
   // ============================================================
-  test.skip('异常：错误密码登录失败', async ({ page }) => {
+  test('异常：错误密码登录失败', async ({ page }) => {
     const testUser = generateTestUser();
 
     await registerUser(page, testUser);
