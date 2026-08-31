@@ -144,7 +144,7 @@ public sealed class ExchangeReviewService(
         if (exchange.ApproveStatus != "PENDING" || exchange.ExchangeStatus != "PENDING")
         {
             await RollbackAndClearAsync(transaction, cancellationToken);
-                return Conflict<ExchangeResponse>("EXCHANGE_ALREADY_REVIEWED", "The exchange request has already been reviewed.");
+            return Conflict<ExchangeResponse>("EXCHANGE_ALREADY_REVIEWED", "The exchange request has already been reviewed.");
         }
         if (!await lockCoordinator.LockOrderAsync(exchange.OrderId, cancellationToken))
         {
@@ -446,21 +446,21 @@ public sealed class ExchangeReviewService(
     internal static Payment CreatePayment(
         Order child, long userId, string actor, DateTime now,
         string channel, string status, decimal amount) => new()
-    {
-        PaymentNo = CreateBusinessNumber("EXP", now),
-        OrderId = child.OrderId,
-        UserId = userId,
-        PayAmount = amount,
-        PayChannel = channel,
-        PayStatus = status,
-        TradeNo = status == "SUCCESS" ? CreateBusinessNumber("MOCK", now) : null,
-        CallbackData = $"{{\"exchangeResult\":\"{status}\"}}",
-        CallbackTime = now,
-        PayTime = status == "SUCCESS" ? now : null,
-        RefundAmount = 0m,
-        CreateBy = actor,
-        UpdateBy = actor,
-    };
+        {
+            PaymentNo = CreateBusinessNumber("EXP", now),
+            OrderId = child.OrderId,
+            UserId = userId,
+            PayAmount = amount,
+            PayChannel = channel,
+            PayStatus = status,
+            TradeNo = status == "SUCCESS" ? CreateBusinessNumber("MOCK", now) : null,
+            CallbackData = $"{{\"exchangeResult\":\"{status}\"}}",
+            CallbackTime = now,
+            PayTime = status == "SUCCESS" ? now : null,
+            RefundAmount = 0m,
+            CreateBy = actor,
+            UpdateBy = actor,
+        };
 
     private static string CreateBusinessNumber(string prefix, DateTime now) =>
         $"{prefix}{now:yyyyMMddHHmmssfff}{Guid.NewGuid():N}"[..28].ToUpperInvariant();
