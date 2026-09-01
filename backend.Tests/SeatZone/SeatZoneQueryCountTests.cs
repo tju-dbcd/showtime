@@ -42,8 +42,8 @@ public sealed class SeatZoneQueryCountTests
 
         Assert.True(small.Result.IsSuccess);
         Assert.True(large.Result.IsSuccess);
-        Assert.Single(small.Result.Value!.Locks);
-        Assert.Equal(100, large.Result.Value!.Locks.Count);
+        AssertLockSemantics(small, SeatIds(1));
+        AssertLockSemantics(large, SeatIds(100));
         Assert.Equal(small.ReadCommandCount, large.ReadCommandCount);
         Assert.Equal(4, small.ReadCommandCount);
     }
@@ -72,8 +72,8 @@ public sealed class SeatZoneQueryCountTests
 
         Assert.True(small.Result.IsSuccess);
         Assert.True(large.Result.IsSuccess);
-        Assert.Equal(1, small.Result.Data!.UpdatedCount);
-        Assert.Equal(100, large.Result.Data!.UpdatedCount);
+        AssertUpdateSemantics(small, SeatIds(1));
+        AssertUpdateSemantics(large, SeatIds(100));
         Assert.Equal(small.ReadCommandCount, large.ReadCommandCount);
         Assert.Equal(2, small.ReadCommandCount);
     }
@@ -90,7 +90,7 @@ public sealed class SeatZoneQueryCountTests
         return (result, database.Counter.ReadCommandCount);
     }
 
-    private static async Task<(SeatZoneResult<SeatLockBatchResponse> Result, int ReadCommandCount)> LockSeatsAsync(int seatCount)
+    private static async Task<(SeatZoneResult<SeatLockBatchResponse> Result, int ReadCommandCount, IReadOnlyList<SeatLock> ActiveLocks)> LockSeatsAsync(int seatCount)
     {
         await using var database = await QueryCountDatabase.CreateAsync();
         await database.SeedSellableSessionAsync(seatCount);
@@ -104,7 +104,13 @@ public sealed class SeatZoneQueryCountTests
                 guardEnabled: false)
             .LockAsync(7, "query-count-test", 10, new SeatLockBatchRequest(SeatIds(seatCount)), CancellationToken.None);
 
-        return (result, database.Counter.ReadCommandCount);
+        var readCommandCount = database.Counter.ReadCommandCount;
+        var activeLocks = await database.Db.SeatLocks.AsNoTracking()
+            .Where(item => item.SessionId == 10 && item.LockStatus == "ACTIVE")
+            .OrderBy(item => item.SeatId)
+            .ToListAsync();
+
+        return (result, readCommandCount, activeLocks);
     }
 
     private static async Task<(ServiceResult<PagedResponse<SeatResponse>> Result, int ReadCommandCount)> ListSeatsAsync(int seatCount)
@@ -121,7 +127,7 @@ public sealed class SeatZoneQueryCountTests
         return (result, database.Counter.ReadCommandCount);
     }
 
-    private static async Task<(ServiceResult<SeatBatchUpdateResponse> Result, int ReadCommandCount)> UpdateSeatsAsync(int seatCount)
+    private static async Task<(ServiceResult<SeatBatchUpdateResponse> Result, int ReadCommandCount, IReadOnlyList<Seat> UpdatedSeats)> UpdateSeatsAsync(int seatCount)
     {
         await using var database = await QueryCountDatabase.CreateAsync();
         await database.SeedSeatSectionAsync(seatCount);
@@ -132,7 +138,13 @@ public sealed class SeatZoneQueryCountTests
             new SeatBatchUpdateRequest(SeatIds(seatCount), null, "DISABLED", null, null),
             CancellationToken.None);
 
-        return (result, database.Counter.ReadCommandCount);
+        var readCommandCount = database.Counter.ReadCommandCount;
+        var updatedSeats = await database.Db.Seats.AsNoTracking()
+            .Where(item => item.SeatSectionId == 40 && SeatIds(seatCount).Contains(item.SeatId))
+            .OrderBy(item => item.SeatId)
+            .ToListAsync();
+
+        return (result, readCommandCount, updatedSeats);
     }
 
     private static IReadOnlyList<long> SeatIds(int count) =>
@@ -144,6 +156,36 @@ public sealed class SeatZoneQueryCountTests
     private static string GetAvailability(ServiceResult<SessionSeatMapDto> result, long seatId) =>
         result.Data!.SeatMap.Sections.SelectMany(section => section.Seats)
             .Single(seat => seat.SeatId == seatId).AvailabilityStatus;
+
+    private static void AssertLockSemantics(
+        (SeatZoneResult<SeatLockBatchResponse> Result, int ReadCommandCount, IReadOnlyList<SeatLock> ActiveLocks) execution,
+        IReadOnlyList<long> requestedSeatIds)
+    {
+        var response = execution.Result.Value!;
+        var expectedExpireTime = Now.UtcDateTime.AddMinutes(10);
+
+        Assert.Equal(10, response.SessionId);
+        Assert.Equal(expectedExpireTime, response.ExpireTime);
+        Assert.Equal(requestedSeatIds.Order(), response.Locks.Select(item => item.SeatId).Order());
+        Assert.All(response.Locks, item => Assert.Equal(expectedExpireTime, item.ExpireTime));
+        Assert.Equal(requestedSeatIds.Count, execution.ActiveLocks.Count);
+        Assert.Equal(requestedSeatIds.Order(), execution.ActiveLocks.Select(item => item.SeatId));
+        Assert.All(execution.ActiveLocks, item => Assert.Equal("ACTIVE", item.LockStatus));
+    }
+
+    private static void AssertUpdateSemantics(
+        (ServiceResult<SeatBatchUpdateResponse> Result, int ReadCommandCount, IReadOnlyList<Seat> UpdatedSeats) execution,
+        IReadOnlyList<long> requestedSeatIds)
+    {
+        var response = execution.Result.Data!;
+
+        Assert.Equal(requestedSeatIds.Count, response.UpdatedCount);
+        Assert.Equal(requestedSeatIds.Order(), response.Seats.Select(item => item.SeatId).Order());
+        Assert.All(response.Seats, item => Assert.Equal("DISABLED", item.SeatStatus));
+        Assert.Equal(requestedSeatIds.Count, execution.UpdatedSeats.Count);
+        Assert.Equal(requestedSeatIds.Order(), execution.UpdatedSeats.Select(item => item.SeatId));
+        Assert.All(execution.UpdatedSeats, item => Assert.Equal("DISABLED", item.SeatStatus));
+    }
 
     private sealed class QueryCountDatabase : IAsyncDisposable
     {
