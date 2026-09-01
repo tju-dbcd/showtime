@@ -11,6 +11,8 @@ public sealed class SeatAdminService
 {
     private const decimal MaxNumber10Scale2 = 99_999_999.99m;
     private const int MaxBatchUpdatedSeats = 999;
+    // 管理端座位图一次可读取 1000 个座位；批量修改仍受独立的 999 条上限约束。
+    private const int MaxSeatListPageSize = 1000;
     private static readonly HashSet<string> SeatTypes = ["NORMAL", "COUPLE", "ACCESSIBLE", "COMPANION"];
     private static readonly HashSet<string> SeatStatuses = ["ENABLED", "DISABLED", "MAINTENANCE"];
     private const string SeatHistoryConflictDetail = "Seat locks or reservations exist. Set seatStatus to DISABLED or isSellable to false instead.";
@@ -201,8 +203,11 @@ public sealed class SeatAdminService
 
     private static string? ValidatePaging(int page, int pageSize)
     {
-        if (page < 1 || pageSize < 1 || pageSize > 100) return "page must be positive and pageSize must be between 1 and 100.";
-        return ((long)page - 1) * pageSize > int.MaxValue ? "page and pageSize produce an offset that is too large." : null;
+        if (page < 1 || pageSize < 1 || pageSize > MaxSeatListPageSize)
+            return $"page must be positive and pageSize must be between 1 and {MaxSeatListPageSize}.";
+        return ((long)page - 1) * pageSize > int.MaxValue
+            ? "page and pageSize produce an offset that is too large."
+            : null;
     }
 
     private static string? ValidateBatchUpdateRequest(SeatBatchUpdateRequest? request)

@@ -9,6 +9,76 @@ namespace ShowtimeBackend.Tests.SeatZone;
 public sealed class SeatAdminServiceTests
 {
     [Fact]
+    public async Task ListSeatsAsync_PageSize1000_PaginatesWithinSection()
+    {
+        await using var db = CreateDbContext();
+        await SeedSeatSectionAsync(db, 40);
+        await SeedSeatSectionAsync(db, 41);
+
+        // 倒序插入 1001 座，验证列表按排、列排序，且不会漏掉第二页的最后一座。
+        db.Seats.AddRange(Enumerable.Range(1, 1001).Reverse().Select(index => new Seat
+        {
+            SeatId = index,
+            SeatSectionId = 40,
+            RowCode = $"R{(index - 1) / 50 + 1}",
+            SeatNo = $"{(index - 1) % 50 + 1}",
+            RowIndex = (index - 1) / 50,
+            ColIndex = (index - 1) % 50,
+            SeatType = "NORMAL",
+            SeatStatus = "ENABLED",
+            IsSellable = true
+        }));
+        await db.SaveChangesAsync();
+        // 其他票区的座位不应计入总数或混入分页结果。
+        await SeedSeatAsync(db, 9001, 41, "A", "1", 0, 0);
+        var service = new SeatAdminService(db);
+
+        var first = await service.ListSeatsAsync(
+            40, new SeatListQuery(null, null, null, null, 1, 1000),
+            CancellationToken.None);
+        var second = await service.ListSeatsAsync(
+            40, new SeatListQuery(null, null, null, null, 2, 1000),
+            CancellationToken.None);
+
+        Assert.True(first.IsSuccess);
+        Assert.True(second.IsSuccess);
+        Assert.Equal(1, first.Data!.Page);
+        Assert.Equal(1000, first.Data.PageSize);
+        Assert.Equal(1001, first.Data.TotalCount);
+        Assert.Equal(1000, first.Data.Items.Count);
+        Assert.Equal(
+            Enumerable.Range(1, 1000).Select(index => (long)index),
+            first.Data.Items.Select(seat => seat.SeatId));
+        Assert.All(first.Data.Items, seat => Assert.Equal(40L, seat.SeatSectionId));
+        Assert.Equal(2, second.Data!.Page);
+        Assert.Equal(1001, second.Data.TotalCount);
+        Assert.Equal(1001L, Assert.Single(second.Data.Items).SeatId);
+    }
+
+    [Theory]
+    [InlineData(1, 1001)]
+    [InlineData(1, 0)]
+    [InlineData(1, -1)]
+    [InlineData(0, 1000)]
+    [InlineData(-1, 1000)]
+    [InlineData(int.MaxValue, 1000)]
+    public async Task ListSeatsAsync_InvalidPaging_ReturnsExistingError(
+        int page, int pageSize)
+    {
+        await using var db = CreateDbContext();
+        await SeedSeatSectionAsync(db, 40);
+        var service = new SeatAdminService(db);
+
+        var result = await service.ListSeatsAsync(
+            40, new SeatListQuery(null, null, null, null, page, pageSize),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("Invalid paging", result.Title);
+    }
+
+    [Fact]
     public async Task UpdateSeatsAsync_UpdatesOnlyRequestedFields()
     {
         await using var db = CreateDbContext();
