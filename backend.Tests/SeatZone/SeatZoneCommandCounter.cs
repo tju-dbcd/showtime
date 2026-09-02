@@ -8,6 +8,7 @@ internal sealed class SeatZoneCommandCounter : DbCommandInterceptor
 {
     private readonly object _sync = new();
     private readonly List<string> _readCommands = [];
+    private readonly List<string> _updateCommands = [];
 
     public int ReadCommandCount
     {
@@ -31,11 +32,34 @@ internal sealed class SeatZoneCommandCounter : DbCommandInterceptor
         }
     }
 
+    public int UpdateCommandCount
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _updateCommands.Count;
+            }
+        }
+    }
+
+    public IReadOnlyList<string> UpdateCommands
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _updateCommands.ToArray();
+            }
+        }
+    }
+
     public void Reset()
     {
         lock (_sync)
         {
             _readCommands.Clear();
+            _updateCommands.Clear();
         }
     }
 
@@ -58,6 +82,25 @@ internal sealed class SeatZoneCommandCounter : DbCommandInterceptor
         return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
     }
 
+    public override InterceptionResult<int> NonQueryExecuting(
+        DbCommand command,
+        CommandEventData eventData,
+        InterceptionResult<int> result)
+    {
+        RecordUpdateCommand(command.CommandText);
+        return base.NonQueryExecuting(command, eventData, result);
+    }
+
+    public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+        DbCommand command,
+        CommandEventData eventData,
+        InterceptionResult<int> result,
+        CancellationToken cancellationToken = default)
+    {
+        RecordUpdateCommand(command.CommandText);
+        return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+    }
+
     private void RecordReadCommand(string commandText)
     {
         var normalized = NormalizeSql(commandText);
@@ -70,6 +113,20 @@ internal sealed class SeatZoneCommandCounter : DbCommandInterceptor
         lock (_sync)
         {
             _readCommands.Add(normalized);
+        }
+    }
+
+    private void RecordUpdateCommand(string commandText)
+    {
+        var normalized = NormalizeSql(commandText);
+        if (!normalized.StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            _updateCommands.Add(normalized);
         }
     }
 

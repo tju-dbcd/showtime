@@ -76,6 +76,8 @@ public sealed class SeatZoneQueryCountTests
         AssertUpdateSemantics(large, SeatIds(100));
         Assert.Equal(small.ReadCommandCount, large.ReadCommandCount);
         Assert.Equal(2, small.ReadCommandCount);
+        Assert.Equal(1, small.UpdateCommandCount);
+        Assert.Equal(small.UpdateCommandCount, large.UpdateCommandCount);
     }
 
     [Fact]
@@ -115,6 +117,7 @@ public sealed class SeatZoneQueryCountTests
         Assert.True(result.IsSuccess);
         Assert.Equal(101, result.Data!.UpdatedCount);
         Assert.True(database.Db.SaveChangesCallCount >= 2);
+        Assert.Equal(2, database.Counter.UpdateCommandCount);
     }
 
     [Fact]
@@ -211,7 +214,7 @@ public sealed class SeatZoneQueryCountTests
         return (result, database.Counter.ReadCommandCount);
     }
 
-    private static async Task<(ServiceResult<SeatBatchUpdateResponse> Result, int ReadCommandCount, IReadOnlyList<Seat> UpdatedSeats)> UpdateSeatsAsync(int seatCount)
+    private static async Task<(ServiceResult<SeatBatchUpdateResponse> Result, int ReadCommandCount, int UpdateCommandCount, IReadOnlyList<Seat> UpdatedSeats)> UpdateSeatsAsync(int seatCount)
     {
         await using var database = await QueryCountDatabase.CreateAsync();
         await database.SeedSeatSectionAsync(seatCount);
@@ -223,12 +226,13 @@ public sealed class SeatZoneQueryCountTests
             CancellationToken.None);
 
         var readCommandCount = database.Counter.ReadCommandCount;
+        var updateCommandCount = database.Counter.UpdateCommandCount;
         var updatedSeats = await database.Db.Seats.AsNoTracking()
             .Where(item => item.SeatSectionId == 40 && SeatIds(seatCount).Contains(item.SeatId))
             .OrderBy(item => item.SeatId)
             .ToListAsync();
 
-        return (result, readCommandCount, updatedSeats);
+        return (result, readCommandCount, updateCommandCount, updatedSeats);
     }
 
     private static IReadOnlyList<long> SeatIds(int count) =>
@@ -258,7 +262,7 @@ public sealed class SeatZoneQueryCountTests
     }
 
     private static void AssertUpdateSemantics(
-        (ServiceResult<SeatBatchUpdateResponse> Result, int ReadCommandCount, IReadOnlyList<Seat> UpdatedSeats) execution,
+        (ServiceResult<SeatBatchUpdateResponse> Result, int ReadCommandCount, int UpdateCommandCount, IReadOnlyList<Seat> UpdatedSeats) execution,
         IReadOnlyList<long> requestedSeatIds)
     {
         var response = execution.Result.Data!;
