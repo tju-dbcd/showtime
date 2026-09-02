@@ -11,7 +11,6 @@ public sealed class SeatAdminService
 {
     private const decimal MaxNumber10Scale2 = 99_999_999.99m;
     private const int MaxBatchUpdatedSeats = 999;
-    private const int PersistenceChunkSize = 100;
     // 管理端座位图一次可读取 1000 个座位；批量修改仍受独立的 999 条上限约束。
     private const int MaxSeatListPageSize = 1000;
     private static readonly HashSet<string> SeatTypes = ["NORMAL", "COUPLE", "ACCESSIBLE", "COMPANION"];
@@ -73,58 +72,117 @@ public sealed class SeatAdminService
                 $"Seat section {seatSectionId} does not exist.");
         }
 
-        var seats = await _db.Seats
-            .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
-            .OrderBy(seat => seat.RowIndex)
-            .ThenBy(seat => seat.ColIndex)
-            .ThenBy(seat => seat.SeatId)
-            .ToListAsync(cancellationToken);
-
-        if (seats.Count != seatIds.Length)
-            return ServiceResult<SeatBatchUpdateResponse>.Failure(
-                404,
-                "Seat not found",
-                "One or more seats do not belong to the requested seat section.");
-
-        // 在一个事务内分块提交，降低 Oracle provider 单次处理大批量生成列的开销；
-        // 任一分块失败都会回滚，调用方不会看到部分更新。
-        await using var transaction = _db.Database.IsRelational()
-            ? await _db.Database.BeginTransactionAsync(cancellationToken)
-            : null;
-        try
+        if (!_db.Database.IsRelational())
         {
-            foreach (var chunk in seats.Chunk(PersistenceChunkSize))
-            {
-                foreach (var seat in chunk)
-                {
-                    if (request.SeatType is not null)
-                        seat.SeatType = request.SeatType;
-                    if (request.SeatStatus is not null)
-                        seat.SeatStatus = request.SeatStatus;
-                    if (request.IsAisleSide is not null)
-                        seat.IsAisleSide = request.IsAisleSide.Value;
-                    if (request.IsSellable is not null)
-                        seat.IsSellable = request.IsSellable.Value;
-                }
+            var seats = await _db.Seats
+                .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
+                .OrderBy(seat => seat.RowIndex)
+                .ThenBy(seat => seat.ColIndex)
+                .ThenBy(seat => seat.SeatId)
+                .ToListAsync(cancellationToken);
 
-                await _db.SaveChangesAsync(cancellationToken);
+            if (seats.Count != seatIds.Length)
+                return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                    404,
+                    "Seat not found",
+                    "One or more seats do not belong to the requested seat section.");
+
+            foreach (var seat in seats)
+            {
+                if (request.SeatType is not null)
+                    seat.SeatType = request.SeatType;
+                if (request.SeatStatus is not null)
+                    seat.SeatStatus = request.SeatStatus;
+                if (request.IsAisleSide is not null)
+                    seat.IsAisleSide = request.IsAisleSide.Value;
+                if (request.IsSellable is not null)
+                    seat.IsSellable = request.IsSellable.Value;
             }
 
-            if (transaction is not null)
-                await transaction.CommitAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
+            return ServiceResult<SeatBatchUpdateResponse>.Success(
+                new SeatBatchUpdateResponse(
+                    seatSectionId,
+                    seats.Count,
+                    seats.Select(ToResponse).ToList()));
+        }
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        var transactionCommitted = false;
+        try
+        {
+            var seats = await _db.Seats
+                .AsNoTracking()
+                .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
+                .OrderBy(seat => seat.RowIndex)
+                .ThenBy(seat => seat.ColIndex)
+                .ThenBy(seat => seat.SeatId)
+                .ToListAsync(cancellationToken);
+
+            if (seats.Count != seatIds.Length)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                    404,
+                    "Seat not found",
+                    "One or more seats do not belong to the requested seat section.");
+            }
+
+            var updatedCount = await _db.Seats
+                .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
+                .ExecuteUpdateAsync(setters =>
+                {
+                    if (request.SeatType is not null)
+                        setters.SetProperty(seat => seat.SeatType, request.SeatType);
+                    if (request.SeatStatus is not null)
+                        setters.SetProperty(seat => seat.SeatStatus, request.SeatStatus);
+                    if (request.IsAisleSide is not null)
+                        setters.SetProperty(seat => seat.IsAisleSide, request.IsAisleSide.Value);
+                    if (request.IsSellable is not null)
+                        setters.SetProperty(seat => seat.IsSellable, request.IsSellable.Value);
+                }, cancellationToken);
+
+            if (updatedCount != seatIds.Length)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                    404,
+                    "Seat not found",
+                    "One or more seats do not belong to the requested seat section.");
+            }
+
+            var updatedSeats = await _db.Seats
+                .AsNoTracking()
+                .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
+                .OrderBy(seat => seat.RowIndex)
+                .ThenBy(seat => seat.ColIndex)
+                .ThenBy(seat => seat.SeatId)
+                .ToListAsync(cancellationToken);
+
+            if (updatedSeats.Count != seatIds.Length)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                    404,
+                    "Seat not found",
+                    "One or more seats do not belong to the requested seat section.");
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            transactionCommitted = true;
+
+            return ServiceResult<SeatBatchUpdateResponse>.Success(
+                new SeatBatchUpdateResponse(
+                    seatSectionId,
+                    updatedSeats.Count,
+                    updatedSeats.Select(ToResponse).ToList()));
         }
         catch
         {
-            if (transaction is not null)
+            if (!transactionCommitted)
                 await transaction.RollbackAsync(CancellationToken.None);
             throw;
         }
-
-        return ServiceResult<SeatBatchUpdateResponse>.Success(
-            new SeatBatchUpdateResponse(
-                seatSectionId,
-                seats.Count,
-                seats.Select(ToResponse).ToList()));
     }
 
     public async Task<ServiceResult<SeatResponse>> GetSeatAsync(long seatId, CancellationToken cancellationToken)

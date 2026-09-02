@@ -1,5 +1,7 @@
+using System.Data.Common;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.SeatZone;
@@ -75,7 +77,40 @@ public sealed class SeatZoneQueryCountTests
         AssertUpdateSemantics(small, SeatIds(1));
         AssertUpdateSemantics(large, SeatIds(100));
         Assert.Equal(small.ReadCommandCount, large.ReadCommandCount);
-        Assert.Equal(2, small.ReadCommandCount);
+        Assert.Equal(3, small.ReadCommandCount);
+        Assert.Equal(small.UpdateCommandCount, large.UpdateCommandCount);
+    }
+
+    [Fact]
+    public async Task UpdateSeats_HandlesChunkBoundaryWithSinglePersistenceCommand()
+    {
+        var execution = await UpdateSeatsAsync(999);
+
+        Assert.True(execution.Result.IsSuccess);
+        AssertUpdateSemantics(execution, SeatIds(999));
+        Assert.Equal(999, execution.Result.Data!.UpdatedCount);
+        Assert.Equal(1, execution.UpdateCommandCount);
+    }
+
+    [Fact]
+    public async Task UpdateSeats_RollsBackWhenExecuteUpdateFails()
+    {
+        await using var database = await QueryCountDatabase.CreateAsync(new ThrowingUpdateInterceptor());
+        await database.SeedSeatSectionAsync(2);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new SeatAdminService(database.Db).UpdateSeatsAsync(
+            40,
+            new SeatBatchUpdateRequest(SeatIds(2), null, "DISABLED", null, null),
+            CancellationToken.None));
+
+        database.Db.ChangeTracker.Clear();
+        var statuses = await database.Db.Seats.AsNoTracking()
+            .Where(seat => seat.SeatSectionId == 40)
+            .Select(seat => seat.SeatStatus)
+            .ToListAsync();
+
+        Assert.Equal(2, statuses.Count);
+        Assert.All(statuses, status => Assert.Equal("ENABLED", status));
     }
 
     [Fact]
@@ -100,44 +135,28 @@ public sealed class SeatZoneQueryCountTests
     }
 
     [Fact]
-    public async Task UpdateSeats_UsesMultiplePersistenceBatchesBeyondChunkBoundary()
+    public async Task LockSeats_UsesNativeBatchWriterAndPreservesRequestOrder()
     {
         await using var database = await QueryCountDatabase.CreateAsync();
-        await database.SeedSeatSectionAsync(101);
-        database.Counter.Reset();
-        database.Db.ResetPersistenceCounter();
+        await database.SeedSellableSessionAsync(501);
+        var writer = new RecordingSeatLockBatchWriter();
+        var requestedSeatIds = SeatIds(501).Reverse().ToArray();
 
-        var result = await new SeatAdminService(database.Db).UpdateSeatsAsync(
-            40,
-            new SeatBatchUpdateRequest(SeatIds(101), null, "DISABLED", null, null),
-            CancellationToken.None);
+        var result = await new SeatLockService(
+                database.Db,
+                new FixedTimeProvider(Now),
+                TimeSpan.FromMinutes(10),
+                seatLockGuard: null,
+                guardEnabled: false,
+                seatLockBatchWriter: writer)
+            .LockAsync(7, "query-count-test", 10,
+                new SeatLockBatchRequest(requestedSeatIds), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(101, result.Data!.UpdatedCount);
-        Assert.True(database.Db.SaveChangesCallCount >= 2);
-    }
-
-    [Fact]
-    public async Task UpdateSeats_RollsBackWhenLaterPersistenceBatchFails()
-    {
-        await using var database = await QueryCountDatabase.CreateAsync();
-        await database.SeedSeatSectionAsync(101);
-        database.Db.ResetPersistenceCounter();
-        database.Db.ThrowOnSaveChangesCall = 2;
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new SeatAdminService(database.Db)
-            .UpdateSeatsAsync(
-                40,
-                new SeatBatchUpdateRequest(SeatIds(101), null, "DISABLED", null, null),
-                CancellationToken.None));
-
-        database.Db.ChangeTracker.Clear();
-        var statuses = await database.Db.Seats.AsNoTracking()
-            .OrderBy(seat => seat.SeatId)
-            .Select(seat => seat.SeatStatus)
-            .ToListAsync();
-        Assert.Equal(101, statuses.Count);
-        Assert.All(statuses, status => Assert.Equal("ENABLED", status));
+        Assert.Equal(requestedSeatIds, result.Value!.Locks.Select(item => item.SeatId));
+        Assert.Equal(1, writer.CallCount);
+        Assert.Equal(501, writer.ReceivedCount);
+        Assert.All(writer.ReceivedStates, state => Assert.Equal(EntityState.Detached, state));
     }
 
     [Fact]
@@ -160,6 +179,68 @@ public sealed class SeatZoneQueryCountTests
         database.Db.ChangeTracker.Clear();
         Assert.Empty(await database.Db.SeatLocks.AsNoTracking().ToListAsync());
         Assert.Equal(101, guard.ReleaseCalls.Count);
+    }
+
+    [Fact]
+    public async Task LockSeats_RollsBackAndReleasesGuardWhenNativeWriterFailsAfterWrite()
+    {
+        await using var database = await QueryCountDatabase.CreateAsync();
+        await database.SeedSellableSessionAsync(2);
+        var guard = new RecordingSeatLockGuard();
+        var writer = new RecordingSeatLockBatchWriter(persistCount: 1, throwAfterWrite: true);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new SeatLockService(
+                database.Db,
+                new FixedTimeProvider(Now),
+                TimeSpan.FromMinutes(10),
+                guard,
+                guardEnabled: true,
+                seatLockBatchWriter: writer)
+            .LockAsync(7, "query-count-test", 10, new SeatLockBatchRequest(SeatIds(2)), CancellationToken.None));
+
+        Assert.Equal("Injected native batch writer failure.", exception.Message);
+        database.Db.ChangeTracker.Clear();
+        Assert.Empty(await database.Db.SeatLocks.AsNoTracking().ToListAsync());
+        Assert.Equal(1, writer.CallCount);
+        Assert.Equal(2, writer.ReceivedCount);
+        AssertGuardReleasesForTwoSeats(guard);
+    }
+
+    [Fact]
+    public async Task LockSeats_RollsBackWhenNativeWriterPersistsIncompleteBatch()
+    {
+        await using var database = await QueryCountDatabase.CreateAsync();
+        await database.SeedSellableSessionAsync(2);
+        var guard = new RecordingSeatLockGuard();
+        var writer = new RecordingSeatLockBatchWriter(persistCount: 1);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new SeatLockService(
+                database.Db,
+                new FixedTimeProvider(Now),
+                TimeSpan.FromMinutes(10),
+                guard,
+                guardEnabled: true,
+                seatLockBatchWriter: writer)
+            .LockAsync(7, "query-count-test", 10, new SeatLockBatchRequest(SeatIds(2)), CancellationToken.None));
+
+        Assert.Equal("Oracle seat-lock array insert verification failed.", exception.Message);
+        database.Db.ChangeTracker.Clear();
+        Assert.Empty(await database.Db.SeatLocks.AsNoTracking().ToListAsync());
+        Assert.Equal(1, writer.CallCount);
+        Assert.Equal(2, writer.ReceivedCount);
+        AssertGuardReleasesForTwoSeats(guard);
+    }
+
+    private static void AssertGuardReleasesForTwoSeats(RecordingSeatLockGuard guard)
+    {
+        Assert.Equal(2, guard.ReleaseCalls.Count);
+        Assert.All(guard.ReleaseCalls, call =>
+        {
+            Assert.Equal(10, call.SessionId);
+            Assert.False(string.IsNullOrWhiteSpace(call.Token));
+        });
+        Assert.Equal(new long[] { 1, 2 }, guard.ReleaseCalls.Select(call => call.SeatId).OrderBy(seatId => seatId));
+        Assert.Equal(2, guard.ReleaseCalls.Select(call => call.Token).Distinct().Count());
     }
 
     private static async Task<(ServiceResult<SessionSeatMapDto> Result, int ReadCommandCount)> ReadSessionSeatMapAsync(int seatCount)
@@ -211,7 +292,7 @@ public sealed class SeatZoneQueryCountTests
         return (result, database.Counter.ReadCommandCount);
     }
 
-    private static async Task<(ServiceResult<SeatBatchUpdateResponse> Result, int ReadCommandCount, IReadOnlyList<Seat> UpdatedSeats)> UpdateSeatsAsync(int seatCount)
+    private static async Task<(ServiceResult<SeatBatchUpdateResponse> Result, int ReadCommandCount, int UpdateCommandCount, IReadOnlyList<Seat> UpdatedSeats)> UpdateSeatsAsync(int seatCount)
     {
         await using var database = await QueryCountDatabase.CreateAsync();
         await database.SeedSeatSectionAsync(seatCount);
@@ -223,12 +304,13 @@ public sealed class SeatZoneQueryCountTests
             CancellationToken.None);
 
         var readCommandCount = database.Counter.ReadCommandCount;
+        var updateCommandCount = database.Counter.UpdateCommandCount;
         var updatedSeats = await database.Db.Seats.AsNoTracking()
             .Where(item => item.SeatSectionId == 40 && SeatIds(seatCount).Contains(item.SeatId))
             .OrderBy(item => item.SeatId)
             .ToListAsync();
 
-        return (result, readCommandCount, updatedSeats);
+        return (result, readCommandCount, updateCommandCount, updatedSeats);
     }
 
     private static IReadOnlyList<long> SeatIds(int count) =>
@@ -258,7 +340,7 @@ public sealed class SeatZoneQueryCountTests
     }
 
     private static void AssertUpdateSemantics(
-        (ServiceResult<SeatBatchUpdateResponse> Result, int ReadCommandCount, IReadOnlyList<Seat> UpdatedSeats) execution,
+        (ServiceResult<SeatBatchUpdateResponse> Result, int ReadCommandCount, int UpdateCommandCount, IReadOnlyList<Seat> UpdatedSeats) execution,
         IReadOnlyList<long> requestedSeatIds)
     {
         var response = execution.Result.Data!;
@@ -269,6 +351,7 @@ public sealed class SeatZoneQueryCountTests
         Assert.Equal(requestedSeatIds.Count, execution.UpdatedSeats.Count);
         Assert.Equal(requestedSeatIds.Order(), execution.UpdatedSeats.Select(item => item.SeatId));
         Assert.All(execution.UpdatedSeats, item => Assert.Equal("DISABLED", item.SeatStatus));
+        Assert.Equal(1, execution.UpdateCommandCount);
     }
 
     private sealed class QueryCountDatabase : IAsyncDisposable
@@ -285,14 +368,16 @@ public sealed class SeatZoneQueryCountTests
         public SqliteAuthDbContext Db { get; }
         public SeatZoneCommandCounter Counter { get; }
 
-        public static async Task<QueryCountDatabase> CreateAsync()
+        public static async Task<QueryCountDatabase> CreateAsync(DbCommandInterceptor? additionalInterceptor = null)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
             var counter = new SeatZoneCommandCounter();
             var options = new DbContextOptionsBuilder<SqliteAuthDbContext>()
                 .UseSqlite(connection)
-                .AddInterceptors(counter)
+                .AddInterceptors(additionalInterceptor is null
+                    ? [counter]
+                    : [counter, additionalInterceptor])
                 .Options;
             var db = new SqliteAuthDbContext(options);
             await db.Database.EnsureCreatedAsync();
@@ -462,6 +547,98 @@ public sealed class SeatZoneQueryCountTests
         {
             ReleaseCalls.Add((sessionId, seatId, token));
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingSeatLockBatchWriter(
+        int? persistCount = null,
+        bool throwAfterWrite = false) : ISeatLockBatchWriter
+    {
+        public int CallCount { get; private set; }
+        public int ReceivedCount { get; private set; }
+        public IReadOnlyList<EntityState> ReceivedStates { get; private set; } = [];
+
+        public bool CanWrite(AppDbContext dbContext) => true;
+
+        public async Task InsertAsync(
+            AppDbContext dbContext,
+            IReadOnlyList<SeatLock> locks,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            ReceivedCount = locks.Count;
+            ReceivedStates = locks.Select(item => dbContext.Entry(item).State).ToArray();
+
+            var count = Math.Clamp(persistCount ?? locks.Count, 0, locks.Count);
+            dbContext.SeatLocks.AddRange(locks.Take(count).Select(Clone));
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            if (throwAfterWrite)
+            {
+                throw new InvalidOperationException("Injected native batch writer failure.");
+            }
+        }
+
+        private static SeatLock Clone(SeatLock source) => new()
+        {
+            SessionId = source.SessionId,
+            SeatId = source.SeatId,
+            UserId = source.UserId,
+            LockToken = source.LockToken,
+            LockStatus = source.LockStatus,
+            LockTime = source.LockTime,
+            ExpireTime = source.ExpireTime,
+            ReleaseTime = source.ReleaseTime,
+            Remark = source.Remark,
+            CreateBy = source.CreateBy,
+            UpdateBy = source.UpdateBy
+        };
+    }
+
+    private sealed class ThrowingUpdateInterceptor : DbCommandInterceptor
+    {
+        public override InterceptionResult<int> NonQueryExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result)
+        {
+            ThrowIfUpdate(command);
+            return base.NonQueryExecuting(command, eventData, result);
+        }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfUpdate(command);
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override InterceptionResult<DbDataReader> ReaderExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result)
+        {
+            ThrowIfUpdate(command);
+            return base.ReaderExecuting(command, eventData, result);
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfUpdate(command);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        private static void ThrowIfUpdate(DbCommand command)
+        {
+            if (command.CommandText.TrimStart().StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Injected ExecuteUpdate failure.");
         }
     }
 }
