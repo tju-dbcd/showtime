@@ -2,7 +2,7 @@
 
 Commit base: `e9f97366ace26b3defef36a338015f8636efb921`
 Measurement date: 2026-09-01 baseline and 2026-09-02 Oracle write/read runs
-Status: **CHUNKING VALIDATED — 999-row scenarios complete, but remain slow over the remote Oracle connection.**
+Status: **SET-BASED UPDATE VALIDATED — ExecuteUpdateAsync completes the 999-row update, while LockAsync remains a slow chunked insert.**
 
 ## Safety preflight
 
@@ -88,17 +88,25 @@ Before the production change, `LockAsync_999` did not complete under the stagnat
 |  | 2 | 7742.87 | 21571.17 | 250 | 100 |
 |  | 3 | 13945.35 | 25322.71 | 250 | 100 |
 
-Before the production change, `UpdateSeats_999` did not complete under the stagnation condition. After bounded persistence chunking (100 entities per `SaveChangesAsync` inside one transaction), the quick validation run completed all three samples:
+Before the production change, `UpdateSeats_999` did not complete under the stagnation condition. The earlier bounded-persistence comparison (100 entities per `SaveChangesAsync` inside one transaction) completed all three samples:
 
 | Scenario | Samples | P50 (ms) | P95 (ms) | Min / Max (ms) | Sql | Rows |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | UpdateSeats_999 (post-change) | 3 | 97,575.17 | 109,275.28 | 94,809.51 / 109,275.28 | 96 | 999 |
 
+The current `ExecuteUpdateAsync` implementation was rechecked against real Oracle on 2026-09-02 using the personal `CHENNAN` schema with `PERF_QUICK=1` (one warmup and three samples); temporary data was cleaned up afterwards:
+
+| Scenario | Samples | P50 (ms) | P95 (ms) | Min / Max (ms) | Sql | Rows |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| UpdateSeats_999 (`ExecuteUpdateAsync`) | 3 | 3,489.05 | 4,021.04 | 3,467.53 / 4,021.04 | 12 (4 / sample) | 999 |
+
+The older chunked result above remains the comparison point: `UpdateSeats_999` P50 97,575.17 ms and P95 109,275.28 ms.
+
 ## Command-count and evidence interpretation
 
 - For Lock/List/Update, `Sql` is the count of service action commands only. `afterSample` release/delete cleanup is not included.
 - `CommandEvidence` is a de-duplicated set of SQL templates. Lock evidence includes the cleanup shape, so it must not be interpreted as the action command count.
-- `UpdateSeats_100` produced five commands per sample. This is the Oracle provider's three PL/SQL batch-update blocks plus `SELECT` and `COUNT`; it is not evidence of one round-trip per entity and should not be described as such.
+- The current set-based update uses four commands per request: section-existence count, seat precheck, one `ExecuteUpdateAsync`, and response reload. `UpdateSeats_100`'s earlier five-command result is not the command count for the current implementation.
 
 ## Constraints and diagnostic findings
 
@@ -109,11 +117,11 @@ Before the production change, `UpdateSeats_999` did not complete under the stagn
 
 ## Decision
 
-**USE_BOUNDED_CHUNKING; DEFER PROVIDER-SPECIFIC SECOND STAGE.** The production change keeps the public 999-seat limit, persists at most 100 entities per `SaveChangesAsync`, and commits only after the complete transaction succeeds. SQLite regression tests prove chunk boundaries and rollback/guard-release semantics. Real Oracle validation now completes both 999-row scenarios, but the roughly 1.5–2 minute end-to-end latency is still too high for an interactive request. Do not create an index or change schema from this run; evaluate set-based updates or ODP.NET array binding only after a DBA/provider review of the generated SQL and an agreed latency target.
+**ADOPT SET-BASED UPDATE.** The current `ExecuteUpdateAsync` implementation completes the 999-row update in the quick Oracle recheck at roughly 3.5–4.0 seconds end to end. `LockAsync` remains a separate, slow chunked insert path; its insertion optimization should be evaluated independently, including ODP.NET array binding, and must not be conflated with the set-based update decision. Do not create an index or change schema from this run.
 
 ## Graphical-editor backend acceptance
 
-Coordinate fields `RowIndex`, `ColIndex`, `XCoord`, and `YCoord` are present in the backend contract. API boundary validation explicitly covers `pageSize=1000` and `seatIds=999`. Both 999-row scenarios now complete after chunking; the latency result is separate from API boundary/correctness validation.
+Coordinate fields `RowIndex`, `ColIndex`, `XCoord`, and `YCoord` are present in the backend contract. API boundary validation explicitly covers `pageSize=1000` and `seatIds=999`. The LockAsync 999-row scenario completes after chunking and the UpdateSeats 999-row scenario completes with the set-based update; the latency result is separate from API boundary/correctness validation.
 
 ## Verification record
 
@@ -128,7 +136,7 @@ git status --short
 
 Results:
 
-- SeatZone filter: **PASS**, 65/65 tests passed.
+- SeatZone filter: **PASS**, 64/64 tests passed.
 - Release solution build: **PASS**, 0 warnings and 0 errors (3.80 s).
 - `git diff --check`: **PASS** (no output).
 - Full test run: 747 passed, 17 skipped, 7 unrelated failures in other modules while deleting concurrently used temporary SQLite files (`IOException`); no SeatZone test failed.
