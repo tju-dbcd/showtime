@@ -2,7 +2,7 @@
 
 Commit base: `e9f97366ace26b3defef36a338015f8636efb921`
 Measurement date: 2026-09-01 baseline and 2026-09-02 Oracle write/read runs
-Status: **SET-BASED UPDATE VALIDATED — ExecuteUpdateAsync completes the 999-row update, while LockAsync remains a slow chunked insert.**
+Status: **SET-BASED UPDATE AND LOCK ARRAY BINDING VALIDATED — ExecuteUpdateAsync completes the 999-row update, and LockAsync uses fixed 500+499 Oracle array binding for 999 rows.**
 
 ## Safety preflight
 
@@ -10,6 +10,7 @@ Status: **SET-BASED UPDATE VALIDATED — ExecuteUpdateAsync completes the 999-ro
 - The protected connection verified `SESSION_USER = CHENNAN`; the session switched `CURRENT_SCHEMA` to `APP_OWNER` for the approved read/write fixture. No `DEPLOY_USER` or shared-schema credentials were used.
 - Required tables and relevant existing indexes were confirmed before the run. A harmless `EXPLAIN PLAN` preflight succeeded; its generated `PLAN_TABLE` row was removed precisely afterwards.
 - All runner source, raw logs, and cleanup helpers remain in the system Temp directory. They are local evidence only and are not part of the PR.
+- Runner self-checks were executed before the quick benchmark with `PERF_QUICK` unset: `--guard-self-test` printed `GUARD_SELF_TEST_SUCCESS`, and `--measure-self-test` printed `MEASURE_SELF_TEST_SUCCESS` (160 calls across 3 × 50 measured samples). `PERF_QUICK=1` was set only for the subsequent Oracle benchmark.
 
 ## Fixture validation and cleanup
 
@@ -25,7 +26,7 @@ The fixture inserted and verified:
 | SEAT | 12,200 |
 | SEAT_LOCK / SEAT_RESERVATION | 2,000 / 1,000 |
 
-After every attempt, cleanup used the tag as a bound parameter in child-to-parent order. The ten touched tables were individually verified at zero tagged rows. No shared-schema operation, `DROP`, `TRUNCATE`, Redis flush, or key scan was performed.
+After every attempt, cleanup used the tag as a bound parameter in child-to-parent order. The ten touched tables were individually verified at zero tagged rows. No shared-schema credentials were used; no production data was modified and no destructive shared-schema operation (`DROP`, `TRUNCATE`, Redis flush, or key scan) was performed.
 
 ## Measured session-seat-map read baseline
 
@@ -57,11 +58,21 @@ All scenarios below used `LockDuration = 600s` (including non-lock actions for a
 |  | 2 | 8720.92 | 11194.44 | 350 | 100 |
 |  | 3 | 8440.87 | 9489.98 | 350 | 100 |
 
-Before the production change, `LockAsync_999` did not complete under the stagnation condition. After bounded persistence chunking (100 entities per `SaveChangesAsync` inside one transaction), the quick validation run completed all three samples:
+Before the production array-binding change, `LockAsync_999` did not complete under the stagnation condition. The historical bounded-persistence comparison (100 entities per `SaveChangesAsync` inside one transaction) completed all three samples:
 
 | Scenario | Samples | P50 (ms) | P95 (ms) | Min / Max (ms) | Sql | Rows |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| LockAsync_999 (post-change) | 3 | 87,620.28 | 94,547.96 | 83,622.93 / 94,547.96 | 102 | 999 |
+| LockAsync_999 (historical chunked baseline) | 3 | 87,620.28 | 94,547.96 | 83,622.93 / 94,547.96 | 102 | 999 |
+
+### LockAsync_999 — Oracle Array Binding
+
+The production `OracleSeatLockBatchWriter` was exercised against the personal `CHENNAN` schema with `PERF_QUICK=1` (one warmup and three measured samples). The prior chunked-insert baseline was **Before P50=87,620 ms / P95=94,548 ms**. The array-binding path completed all three samples with the following end-to-end timings:
+
+| Scenario | Samples | P50 (ms) | P95 (ms) | Min / Max (ms) | Sql | Rows | arrayBindCommands |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| LockAsync_999 (After, Oracle Array Binding) | 3 | 2,295.46 | 2,376.47 | 2,235.59 / 2,376.47 | 15 | 999 | 2 |
+
+The writer's fixed 500-row batches are `500 + 499`, so `arrayBindCommands=(rowCount+500-1)/500=2` is a deterministic production-writer batch count. `Sql=15` remains the EF `DbCommandInterceptor` service-action count and does not include `arrayBindCommands`. The warmup and each measured sample emitted `SAMPLE_CLEANUP ... cleanup=0` after release, confirming zero residual locks under the benchmark tag. A no-Redis same-seat race using two independent `AppDbContext`/`SeatLockService` instances produced exactly one success and one `SEAT_LOCK_CONFLICT`; the winning token was released and strict-tag cleanup verified `cleanup=0`.
 
 ### ListSeats
 
@@ -117,7 +128,7 @@ The older chunked result above remains the comparison point: `UpdateSeats_999` P
 
 ## Decision
 
-**ADOPT SET-BASED UPDATE.** The current `ExecuteUpdateAsync` implementation completes the 999-row update in the quick Oracle recheck at roughly 3.5–4.0 seconds end to end. `LockAsync` remains a separate, slow chunked insert path; its insertion optimization should be evaluated independently, including ODP.NET array binding, and must not be conflated with the set-based update decision. Do not create an index or change schema from this run.
+**ADOPT SET-BASED UPDATE AND ARRAY-BINDING LOCK WRITES.** The current `ExecuteUpdateAsync` implementation completes the 999-row update in the quick Oracle recheck at roughly 3.5–4.0 seconds end to end. `LockAsync` now uses the production `OracleSeatLockBatchWriter` with fixed 500-row array-binding batches (500+499 for 999 rows), while the older chunked-insert numbers remain historical comparison data. Do not create an index or change schema from this run.
 
 ## Graphical-editor backend acceptance
 
