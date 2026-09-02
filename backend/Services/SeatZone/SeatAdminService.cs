@@ -151,9 +151,6 @@ public sealed class SeatAdminService
                     "One or more seats do not belong to the requested seat section.");
             }
 
-            await transaction.CommitAsync(cancellationToken);
-            transactionCommitted = true;
-
             var updatedSeats = await _db.Seats
                 .AsNoTracking()
                 .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
@@ -161,6 +158,18 @@ public sealed class SeatAdminService
                 .ThenBy(seat => seat.ColIndex)
                 .ThenBy(seat => seat.SeatId)
                 .ToListAsync(cancellationToken);
+
+            if (updatedSeats.Count != seatIds.Length)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                    404,
+                    "Seat not found",
+                    "One or more seats do not belong to the requested seat section.");
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            transactionCommitted = true;
 
             return ServiceResult<SeatBatchUpdateResponse>.Success(
                 new SeatBatchUpdateResponse(
