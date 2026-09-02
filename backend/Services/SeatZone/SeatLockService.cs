@@ -18,6 +18,7 @@ public sealed class SeatLockService(
 {
     // NUMBER(3) 的选座规则最多允许 999 个座位，同时避免超过 Oracle IN 条件数量限制。
     private const int MaxSeatsPerRequest = 999;
+    private const int PersistenceChunkSize = 100;
 
     // 锁座时间统一由服务端计算，防止客户端自行延长有效期；
     // 锁期（lockDuration）由调用方从配置 Redis:SeatLockTtlSeconds 注入，
@@ -182,8 +183,11 @@ public sealed class SeatLockService(
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
 
-            dbContext.SeatLocks.AddRange(locks);
-            await dbContext.SaveChangesAsync(cancellationToken);
+            foreach (var chunk in locks.Chunk(PersistenceChunkSize))
+            {
+                dbContext.SeatLocks.AddRange(chunk);
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
             if (transaction is not null)
             {
                 await transaction.CommitAsync(cancellationToken);
@@ -193,11 +197,24 @@ public sealed class SeatLockService(
         {
             // 两个请求同时通过前置查询/Redis 判定时，最终由 Oracle 唯一索引决定谁获得座位。
             // 仲裁失败方回滚 Redis 已获取的锁，保持双通道一致。
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
             await ReleaseGuardKeysAsync(sessionId, locks);
             return SeatZoneResult<SeatLockBatchResponse>.Fail(
                 SeatZoneFailure.Conflict,
                 "SEAT_LOCK_CONFLICT",
                 "One or more seats are already locked.");
+        }
+        catch
+        {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+            await ReleaseGuardKeysAsync(sessionId, locks);
+            throw;
         }
 
         return SeatZoneResult<SeatLockBatchResponse>.Success(
