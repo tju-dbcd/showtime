@@ -181,6 +181,68 @@ public sealed class SeatZoneQueryCountTests
         Assert.Equal(101, guard.ReleaseCalls.Count);
     }
 
+    [Fact]
+    public async Task LockSeats_RollsBackAndReleasesGuardWhenNativeWriterFailsAfterWrite()
+    {
+        await using var database = await QueryCountDatabase.CreateAsync();
+        await database.SeedSellableSessionAsync(2);
+        var guard = new RecordingSeatLockGuard();
+        var writer = new RecordingSeatLockBatchWriter(persistCount: 1, throwAfterWrite: true);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new SeatLockService(
+                database.Db,
+                new FixedTimeProvider(Now),
+                TimeSpan.FromMinutes(10),
+                guard,
+                guardEnabled: true,
+                seatLockBatchWriter: writer)
+            .LockAsync(7, "query-count-test", 10, new SeatLockBatchRequest(SeatIds(2)), CancellationToken.None));
+
+        Assert.Equal("Injected native batch writer failure.", exception.Message);
+        database.Db.ChangeTracker.Clear();
+        Assert.Empty(await database.Db.SeatLocks.AsNoTracking().ToListAsync());
+        Assert.Equal(1, writer.CallCount);
+        Assert.Equal(2, writer.ReceivedCount);
+        AssertGuardReleasesForTwoSeats(guard);
+    }
+
+    [Fact]
+    public async Task LockSeats_RollsBackWhenNativeWriterPersistsIncompleteBatch()
+    {
+        await using var database = await QueryCountDatabase.CreateAsync();
+        await database.SeedSellableSessionAsync(2);
+        var guard = new RecordingSeatLockGuard();
+        var writer = new RecordingSeatLockBatchWriter(persistCount: 1);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new SeatLockService(
+                database.Db,
+                new FixedTimeProvider(Now),
+                TimeSpan.FromMinutes(10),
+                guard,
+                guardEnabled: true,
+                seatLockBatchWriter: writer)
+            .LockAsync(7, "query-count-test", 10, new SeatLockBatchRequest(SeatIds(2)), CancellationToken.None));
+
+        Assert.Equal("Oracle seat-lock array insert verification failed.", exception.Message);
+        database.Db.ChangeTracker.Clear();
+        Assert.Empty(await database.Db.SeatLocks.AsNoTracking().ToListAsync());
+        Assert.Equal(1, writer.CallCount);
+        Assert.Equal(2, writer.ReceivedCount);
+        AssertGuardReleasesForTwoSeats(guard);
+    }
+
+    private static void AssertGuardReleasesForTwoSeats(RecordingSeatLockGuard guard)
+    {
+        Assert.Equal(2, guard.ReleaseCalls.Count);
+        Assert.All(guard.ReleaseCalls, call =>
+        {
+            Assert.Equal(10, call.SessionId);
+            Assert.False(string.IsNullOrWhiteSpace(call.Token));
+        });
+        Assert.Equal(new long[] { 1, 2 }, guard.ReleaseCalls.Select(call => call.SeatId).OrderBy(seatId => seatId));
+        Assert.Equal(2, guard.ReleaseCalls.Select(call => call.Token).Distinct().Count());
+    }
+
     private static async Task<(ServiceResult<SessionSeatMapDto> Result, int ReadCommandCount)> ReadSessionSeatMapAsync(int seatCount)
     {
         await using var database = await QueryCountDatabase.CreateAsync();
