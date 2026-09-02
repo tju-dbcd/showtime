@@ -9,16 +9,44 @@ namespace ShowtimeBackend.Services.SeatZone;
 /// <summary>
 /// 使用 Oracle 锁座表完成临时占座和释放；数据库活动锁唯一索引负责处理并发竞争。
 /// </summary>
-public sealed class SeatLockService(
-    AppDbContext dbContext,
-    TimeProvider timeProvider,
-    TimeSpan lockDuration,
-    ISeatLockGuard? seatLockGuard = null,
-    bool guardEnabled = true) : ISeatLockService
+public sealed class SeatLockService : ISeatLockService
 {
     // NUMBER(3) 的选座规则最多允许 999 个座位，同时避免超过 Oracle IN 条件数量限制。
     private const int MaxSeatsPerRequest = 999;
     private const int PersistenceChunkSize = 100;
+
+    private readonly AppDbContext dbContext;
+    private readonly TimeProvider timeProvider;
+    private readonly TimeSpan lockDuration;
+    private readonly ISeatLockGuard? seatLockGuard;
+    private readonly bool guardEnabled;
+    private readonly ISeatLockBatchWriter seatLockBatchWriter;
+
+    public SeatLockService(
+        AppDbContext dbContext,
+        TimeProvider timeProvider,
+        TimeSpan lockDuration,
+        ISeatLockGuard? seatLockGuard = null,
+        bool guardEnabled = true)
+        : this(dbContext, timeProvider, lockDuration, seatLockGuard, guardEnabled, new OracleSeatLockBatchWriter())
+    {
+    }
+
+    internal SeatLockService(
+        AppDbContext dbContext,
+        TimeProvider timeProvider,
+        TimeSpan lockDuration,
+        ISeatLockGuard? seatLockGuard,
+        bool guardEnabled,
+        ISeatLockBatchWriter seatLockBatchWriter)
+    {
+        this.dbContext = dbContext;
+        this.timeProvider = timeProvider;
+        this.lockDuration = lockDuration;
+        this.seatLockGuard = seatLockGuard;
+        this.guardEnabled = guardEnabled;
+        this.seatLockBatchWriter = seatLockBatchWriter;
+    }
 
     // 锁座时间统一由服务端计算，防止客户端自行延长有效期；
     // 锁期（lockDuration）由调用方从配置 Redis:SeatLockTtlSeconds 注入，
@@ -168,6 +196,7 @@ public sealed class SeatLockService(
         await using var transaction = dbContext.Database.IsRelational()
             ? await dbContext.Database.BeginTransactionAsync(cancellationToken)
             : null;
+        IReadOnlyDictionary<string, SeatLock>? persistedLocksByToken = null;
         try
         {
             // 先把过期记录移出 ACTIVE 状态，再插入新锁，避免命中活动锁唯一索引。
@@ -183,17 +212,36 @@ public sealed class SeatLockService(
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
 
-            foreach (var chunk in locks.Chunk(PersistenceChunkSize))
+            var useNativeBatchWriter = transaction is not null && seatLockBatchWriter.CanWrite(dbContext);
+            if (useNativeBatchWriter)
             {
-                dbContext.SeatLocks.AddRange(chunk);
-                await dbContext.SaveChangesAsync(cancellationToken);
+                await seatLockBatchWriter.InsertAsync(dbContext, locks, cancellationToken);
+                var lockTokens = locks.Select(item => item.LockToken).ToArray();
+                var persistedLocks = await dbContext.SeatLocks
+                    .AsNoTracking()
+                    .Where(item => lockTokens.Contains(item.LockToken))
+                    .ToListAsync(cancellationToken);
+                if (persistedLocks.Count != locks.Count)
+                {
+                    throw new InvalidOperationException("Oracle seat-lock array insert verification failed.");
+                }
+
+                persistedLocksByToken = persistedLocks.ToDictionary(item => item.LockToken, StringComparer.Ordinal);
+            }
+            else
+            {
+                foreach (var chunk in locks.Chunk(PersistenceChunkSize))
+                {
+                    dbContext.SeatLocks.AddRange(chunk);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
             }
             if (transaction is not null)
             {
                 await transaction.CommitAsync(cancellationToken);
             }
         }
-        catch (DbUpdateException exception) when (ContainsOracleError(exception, 1))
+        catch (Exception exception) when (ContainsOracleError(exception, 1))
         {
             // 两个请求同时通过前置查询/Redis 判定时，最终由 Oracle 唯一索引决定谁获得座位。
             // 仲裁失败方回滚 Redis 已获取的锁，保持双通道一致。
@@ -217,11 +265,15 @@ public sealed class SeatLockService(
             throw;
         }
 
+        var responseLocks = persistedLocksByToken is null
+            ? locks
+            : locks.Select(item => persistedLocksByToken[item.LockToken]).ToList();
+
         return SeatZoneResult<SeatLockBatchResponse>.Success(
             new SeatLockBatchResponse(
                 sessionId,
                 expireTime,
-                locks.Select(item => new SeatLockItemResponse(
+                responseLocks.Select(item => new SeatLockItemResponse(
                     item.SeatId,
                     item.LockToken,
                     item.ExpireTime)).ToList()));

@@ -135,6 +135,31 @@ public sealed class SeatZoneQueryCountTests
     }
 
     [Fact]
+    public async Task LockSeats_UsesNativeBatchWriterAndPreservesRequestOrder()
+    {
+        await using var database = await QueryCountDatabase.CreateAsync();
+        await database.SeedSellableSessionAsync(501);
+        var writer = new RecordingSeatLockBatchWriter();
+        var requestedSeatIds = SeatIds(501).Reverse().ToArray();
+
+        var result = await new SeatLockService(
+                database.Db,
+                new FixedTimeProvider(Now),
+                TimeSpan.FromMinutes(10),
+                seatLockGuard: null,
+                guardEnabled: false,
+                seatLockBatchWriter: writer)
+            .LockAsync(7, "query-count-test", 10,
+                new SeatLockBatchRequest(requestedSeatIds), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(requestedSeatIds, result.Value!.Locks.Select(item => item.SeatId));
+        Assert.Equal(1, writer.CallCount);
+        Assert.Equal(501, writer.ReceivedCount);
+        Assert.All(writer.ReceivedStates, state => Assert.Equal(EntityState.Detached, state));
+    }
+
+    [Fact]
     public async Task LockSeats_RollsBackAndReleasesGuardWhenLaterPersistenceBatchFails()
     {
         await using var database = await QueryCountDatabase.CreateAsync();
@@ -461,6 +486,51 @@ public sealed class SeatZoneQueryCountTests
             ReleaseCalls.Add((sessionId, seatId, token));
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class RecordingSeatLockBatchWriter(
+        int? persistCount = null,
+        bool throwAfterWrite = false) : ISeatLockBatchWriter
+    {
+        public int CallCount { get; private set; }
+        public int ReceivedCount { get; private set; }
+        public IReadOnlyList<EntityState> ReceivedStates { get; private set; } = [];
+
+        public bool CanWrite(AppDbContext dbContext) => true;
+
+        public async Task InsertAsync(
+            AppDbContext dbContext,
+            IReadOnlyList<SeatLock> locks,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            ReceivedCount = locks.Count;
+            ReceivedStates = locks.Select(item => dbContext.Entry(item).State).ToArray();
+
+            var count = Math.Clamp(persistCount ?? locks.Count, 0, locks.Count);
+            dbContext.SeatLocks.AddRange(locks.Take(count).Select(Clone));
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            if (throwAfterWrite)
+            {
+                throw new InvalidOperationException("Injected native batch writer failure.");
+            }
+        }
+
+        private static SeatLock Clone(SeatLock source) => new()
+        {
+            SessionId = source.SessionId,
+            SeatId = source.SeatId,
+            UserId = source.UserId,
+            LockToken = source.LockToken,
+            LockStatus = source.LockStatus,
+            LockTime = source.LockTime,
+            ExpireTime = source.ExpireTime,
+            ReleaseTime = source.ReleaseTime,
+            Remark = source.Remark,
+            CreateBy = source.CreateBy,
+            UpdateBy = source.UpdateBy
+        };
     }
 
     private sealed class ThrowingUpdateInterceptor : DbCommandInterceptor
