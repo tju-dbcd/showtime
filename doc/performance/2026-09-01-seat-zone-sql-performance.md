@@ -142,4 +142,4 @@ Results:
 - Full test run: 747 passed, 17 skipped, 7 unrelated failures in other modules while deleting concurrently used temporary SQLite files (`IOException`); no SeatZone test failed.
 - Real Oracle quick validation: `LockAsync_999` and `UpdateSeats_999` each completed 3/3 samples; tagged fixture cleanup reported zero rows in every touched table.
 - `V$SESSION` and `V$SQL` were readable for the personal session; `V$SESSION_BLOCKERS` remained unavailable (`ORA-00942`) under the granted role. No active blocking session was observed in the captured `V$SESSION` sample.
-- No files were staged, committed, or pushed. The local implementation plan, temporary runner, raw JSON, and raw logs remain outside the PR file set.
+- At that run's end, no files were pending commit or push; subsequent implementation, test, and report commits are recorded in git history, and the current branch has not been pushed. The local implementation plan, temporary runner, raw JSON, and raw logs remain outside the PR file set.
