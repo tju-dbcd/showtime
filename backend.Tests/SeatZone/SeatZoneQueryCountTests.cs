@@ -78,6 +78,90 @@ public sealed class SeatZoneQueryCountTests
         Assert.Equal(2, small.ReadCommandCount);
     }
 
+    [Fact]
+    public async Task LockSeats_UsesMultiplePersistenceBatchesBeyondChunkBoundary()
+    {
+        await using var database = await QueryCountDatabase.CreateAsync();
+        await database.SeedSellableSessionAsync(101);
+        database.Counter.Reset();
+        database.Db.ResetPersistenceCounter();
+
+        var result = await new SeatLockService(
+                database.Db,
+                new FixedTimeProvider(Now),
+                TimeSpan.FromMinutes(10),
+                seatLockGuard: null,
+                guardEnabled: false)
+            .LockAsync(7, "query-count-test", 10, new SeatLockBatchRequest(SeatIds(101)), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(101, result.Value!.Locks.Count);
+        Assert.True(database.Db.SaveChangesCallCount >= 2);
+    }
+
+    [Fact]
+    public async Task UpdateSeats_UsesMultiplePersistenceBatchesBeyondChunkBoundary()
+    {
+        await using var database = await QueryCountDatabase.CreateAsync();
+        await database.SeedSeatSectionAsync(101);
+        database.Counter.Reset();
+        database.Db.ResetPersistenceCounter();
+
+        var result = await new SeatAdminService(database.Db).UpdateSeatsAsync(
+            40,
+            new SeatBatchUpdateRequest(SeatIds(101), null, "DISABLED", null, null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(101, result.Data!.UpdatedCount);
+        Assert.True(database.Db.SaveChangesCallCount >= 2);
+    }
+
+    [Fact]
+    public async Task UpdateSeats_RollsBackWhenLaterPersistenceBatchFails()
+    {
+        await using var database = await QueryCountDatabase.CreateAsync();
+        await database.SeedSeatSectionAsync(101);
+        database.Db.ResetPersistenceCounter();
+        database.Db.ThrowOnSaveChangesCall = 2;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new SeatAdminService(database.Db)
+            .UpdateSeatsAsync(
+                40,
+                new SeatBatchUpdateRequest(SeatIds(101), null, "DISABLED", null, null),
+                CancellationToken.None));
+
+        database.Db.ChangeTracker.Clear();
+        var statuses = await database.Db.Seats.AsNoTracking()
+            .OrderBy(seat => seat.SeatId)
+            .Select(seat => seat.SeatStatus)
+            .ToListAsync();
+        Assert.Equal(101, statuses.Count);
+        Assert.All(statuses, status => Assert.Equal("ENABLED", status));
+    }
+
+    [Fact]
+    public async Task LockSeats_RollsBackAndReleasesGuardWhenLaterPersistenceBatchFails()
+    {
+        await using var database = await QueryCountDatabase.CreateAsync();
+        await database.SeedSellableSessionAsync(101);
+        database.Db.ResetPersistenceCounter();
+        database.Db.ThrowOnSaveChangesCall = 2;
+        var guard = new RecordingSeatLockGuard();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new SeatLockService(
+                database.Db,
+                new FixedTimeProvider(Now),
+                TimeSpan.FromMinutes(10),
+                guard,
+                guardEnabled: true)
+            .LockAsync(7, "query-count-test", 10, new SeatLockBatchRequest(SeatIds(101)), CancellationToken.None));
+
+        database.Db.ChangeTracker.Clear();
+        Assert.Empty(await database.Db.SeatLocks.AsNoTracking().ToListAsync());
+        Assert.Equal(101, guard.ReleaseCalls.Count);
+    }
+
     private static async Task<(ServiceResult<SessionSeatMapDto> Result, int ReadCommandCount)> ReadSessionSeatMapAsync(int seatCount)
     {
         await using var database = await QueryCountDatabase.CreateAsync();
@@ -191,14 +275,14 @@ public sealed class SeatZoneQueryCountTests
     {
         private readonly SqliteConnection _connection;
 
-        private QueryCountDatabase(SqliteConnection connection, AppDbContext db, SeatZoneCommandCounter counter)
+        private QueryCountDatabase(SqliteConnection connection, SqliteAuthDbContext db, SeatZoneCommandCounter counter)
         {
             _connection = connection;
             Db = db;
             Counter = counter;
         }
 
-        public AppDbContext Db { get; }
+        public SqliteAuthDbContext Db { get; }
         public SeatZoneCommandCounter Counter { get; }
 
         public static async Task<QueryCountDatabase> CreateAsync()
@@ -361,5 +445,23 @@ public sealed class SeatZoneQueryCountTests
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class RecordingSeatLockGuard : ISeatLockGuard
+    {
+        public List<(long SessionId, long SeatId, string Token)> ReleaseCalls { get; } = [];
+
+        public Task<SeatLockGuardAcquireResult> TryAcquireAsync(
+            long sessionId,
+            IReadOnlyCollection<SeatLock> locks,
+            TimeSpan ttl,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(SeatLockGuardAcquireResult.Acquired);
+
+        public Task ReleaseAsync(long sessionId, long seatId, string token)
+        {
+            ReleaseCalls.Add((sessionId, seatId, token));
+            return Task.CompletedTask;
+        }
     }
 }

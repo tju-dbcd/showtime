@@ -11,6 +11,7 @@ public sealed class SeatAdminService
 {
     private const decimal MaxNumber10Scale2 = 99_999_999.99m;
     private const int MaxBatchUpdatedSeats = 999;
+    private const int PersistenceChunkSize = 100;
     // 管理端座位图一次可读取 1000 个座位；批量修改仍受独立的 999 条上限约束。
     private const int MaxSeatListPageSize = 1000;
     private static readonly HashSet<string> SeatTypes = ["NORMAL", "COUPLE", "ACCESSIBLE", "COMPANION"];
@@ -85,19 +86,39 @@ public sealed class SeatAdminService
                 "Seat not found",
                 "One or more seats do not belong to the requested seat section.");
 
-        foreach (var seat in seats)
+        // 在一个事务内分块提交，降低 Oracle provider 单次处理大批量生成列的开销；
+        // 任一分块失败都会回滚，调用方不会看到部分更新。
+        await using var transaction = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        try
         {
-            if (request.SeatType is not null)
-                seat.SeatType = request.SeatType;
-            if (request.SeatStatus is not null)
-                seat.SeatStatus = request.SeatStatus;
-            if (request.IsAisleSide is not null)
-                seat.IsAisleSide = request.IsAisleSide.Value;
-            if (request.IsSellable is not null)
-                seat.IsSellable = request.IsSellable.Value;
-        }
+            foreach (var chunk in seats.Chunk(PersistenceChunkSize))
+            {
+                foreach (var seat in chunk)
+                {
+                    if (request.SeatType is not null)
+                        seat.SeatType = request.SeatType;
+                    if (request.SeatStatus is not null)
+                        seat.SeatStatus = request.SeatStatus;
+                    if (request.IsAisleSide is not null)
+                        seat.IsAisleSide = request.IsAisleSide.Value;
+                    if (request.IsSellable is not null)
+                        seat.IsSellable = request.IsSellable.Value;
+                }
 
-        await _db.SaveChangesAsync(cancellationToken);
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
+            if (transaction is not null)
+                await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            if (transaction is not null)
+                await transaction.RollbackAsync(CancellationToken.None);
+            throw;
+        }
 
         return ServiceResult<SeatBatchUpdateResponse>.Success(
             new SeatBatchUpdateResponse(
