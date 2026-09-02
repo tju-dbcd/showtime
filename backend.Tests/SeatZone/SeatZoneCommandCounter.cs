@@ -68,6 +68,7 @@ internal sealed class SeatZoneCommandCounter : DbCommandInterceptor
         CommandEventData eventData,
         InterceptionResult<DbDataReader> result)
     {
+        RecordUpdateCommand(command.CommandText);
         RecordReadCommand(command.CommandText);
         return base.ReaderExecuting(command, eventData, result);
     }
@@ -78,6 +79,7 @@ internal sealed class SeatZoneCommandCounter : DbCommandInterceptor
         InterceptionResult<DbDataReader> result,
         CancellationToken cancellationToken = default)
     {
+        RecordUpdateCommand(command.CommandText);
         RecordReadCommand(command.CommandText);
         return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
     }
