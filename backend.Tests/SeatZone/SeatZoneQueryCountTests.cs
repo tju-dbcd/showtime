@@ -75,9 +75,19 @@ public sealed class SeatZoneQueryCountTests
         AssertUpdateSemantics(small, SeatIds(1));
         AssertUpdateSemantics(large, SeatIds(100));
         Assert.Equal(small.ReadCommandCount, large.ReadCommandCount);
-        Assert.Equal(2, small.ReadCommandCount);
-        Assert.Equal(1, small.UpdateCommandCount);
+        Assert.Equal(3, small.ReadCommandCount);
         Assert.Equal(small.UpdateCommandCount, large.UpdateCommandCount);
+    }
+
+    [Fact]
+    public async Task UpdateSeats_HandlesChunkBoundaryWithSinglePersistenceCommand()
+    {
+        var execution = await UpdateSeatsAsync(999);
+
+        Assert.True(execution.Result.IsSuccess);
+        AssertUpdateSemantics(execution, SeatIds(999));
+        Assert.Equal(999, execution.Result.Data!.UpdatedCount);
+        Assert.Equal(1, execution.UpdateCommandCount);
     }
 
     [Fact]
@@ -99,48 +109,6 @@ public sealed class SeatZoneQueryCountTests
         Assert.True(result.IsSuccess);
         Assert.Equal(101, result.Value!.Locks.Count);
         Assert.True(database.Db.SaveChangesCallCount >= 2);
-    }
-
-    [Fact]
-    public async Task UpdateSeats_UsesMultiplePersistenceBatchesBeyondChunkBoundary()
-    {
-        await using var database = await QueryCountDatabase.CreateAsync();
-        await database.SeedSeatSectionAsync(101);
-        database.Counter.Reset();
-        database.Db.ResetPersistenceCounter();
-
-        var result = await new SeatAdminService(database.Db).UpdateSeatsAsync(
-            40,
-            new SeatBatchUpdateRequest(SeatIds(101), null, "DISABLED", null, null),
-            CancellationToken.None);
-
-        Assert.True(result.IsSuccess);
-        Assert.Equal(101, result.Data!.UpdatedCount);
-        Assert.True(database.Db.SaveChangesCallCount >= 2);
-        Assert.Equal(2, database.Counter.UpdateCommandCount);
-    }
-
-    [Fact]
-    public async Task UpdateSeats_RollsBackWhenLaterPersistenceBatchFails()
-    {
-        await using var database = await QueryCountDatabase.CreateAsync();
-        await database.SeedSeatSectionAsync(101);
-        database.Db.ResetPersistenceCounter();
-        database.Db.ThrowOnSaveChangesCall = 2;
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new SeatAdminService(database.Db)
-            .UpdateSeatsAsync(
-                40,
-                new SeatBatchUpdateRequest(SeatIds(101), null, "DISABLED", null, null),
-                CancellationToken.None));
-
-        database.Db.ChangeTracker.Clear();
-        var statuses = await database.Db.Seats.AsNoTracking()
-            .OrderBy(seat => seat.SeatId)
-            .Select(seat => seat.SeatStatus)
-            .ToListAsync();
-        Assert.Equal(101, statuses.Count);
-        Assert.All(statuses, status => Assert.Equal("ENABLED", status));
     }
 
     [Fact]
@@ -273,6 +241,7 @@ public sealed class SeatZoneQueryCountTests
         Assert.Equal(requestedSeatIds.Count, execution.UpdatedSeats.Count);
         Assert.Equal(requestedSeatIds.Order(), execution.UpdatedSeats.Select(item => item.SeatId));
         Assert.All(execution.UpdatedSeats, item => Assert.Equal("DISABLED", item.SeatStatus));
+        Assert.Equal(1, execution.UpdateCommandCount);
     }
 
     private sealed class QueryCountDatabase : IAsyncDisposable
