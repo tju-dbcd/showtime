@@ -11,7 +11,6 @@ public sealed class SeatAdminService
 {
     private const decimal MaxNumber10Scale2 = 99_999_999.99m;
     private const int MaxBatchUpdatedSeats = 999;
-    private const int PersistenceChunkSize = 100;
     // 管理端座位图一次可读取 1000 个座位；批量修改仍受独立的 999 条上限约束。
     private const int MaxSeatListPageSize = 1000;
     private static readonly HashSet<string> SeatTypes = ["NORMAL", "COUPLE", "ACCESSIBLE", "COMPANION"];
