@@ -1,5 +1,7 @@
+using System.Data.Common;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.SeatZone;
@@ -88,6 +90,27 @@ public sealed class SeatZoneQueryCountTests
         AssertUpdateSemantics(execution, SeatIds(999));
         Assert.Equal(999, execution.Result.Data!.UpdatedCount);
         Assert.Equal(1, execution.UpdateCommandCount);
+    }
+
+    [Fact]
+    public async Task UpdateSeats_RollsBackWhenExecuteUpdateFails()
+    {
+        await using var database = await QueryCountDatabase.CreateAsync(new ThrowingUpdateInterceptor());
+        await database.SeedSeatSectionAsync(2);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new SeatAdminService(database.Db).UpdateSeatsAsync(
+            40,
+            new SeatBatchUpdateRequest(SeatIds(2), null, "DISABLED", null, null),
+            CancellationToken.None));
+
+        database.Db.ChangeTracker.Clear();
+        var statuses = await database.Db.Seats.AsNoTracking()
+            .Where(seat => seat.SeatSectionId == 40)
+            .Select(seat => seat.SeatStatus)
+            .ToListAsync();
+
+        Assert.Equal(2, statuses.Count);
+        Assert.All(statuses, status => Assert.Equal("ENABLED", status));
     }
 
     [Fact]
@@ -258,14 +281,16 @@ public sealed class SeatZoneQueryCountTests
         public SqliteAuthDbContext Db { get; }
         public SeatZoneCommandCounter Counter { get; }
 
-        public static async Task<QueryCountDatabase> CreateAsync()
+        public static async Task<QueryCountDatabase> CreateAsync(DbCommandInterceptor? additionalInterceptor = null)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
             var counter = new SeatZoneCommandCounter();
             var options = new DbContextOptionsBuilder<SqliteAuthDbContext>()
                 .UseSqlite(connection)
-                .AddInterceptors(counter)
+                .AddInterceptors(additionalInterceptor is null
+                    ? [counter]
+                    : [counter, additionalInterceptor])
                 .Options;
             var db = new SqliteAuthDbContext(options);
             await db.Database.EnsureCreatedAsync();
@@ -435,6 +460,53 @@ public sealed class SeatZoneQueryCountTests
         {
             ReleaseCalls.Add((sessionId, seatId, token));
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingUpdateInterceptor : DbCommandInterceptor
+    {
+        public override InterceptionResult<int> NonQueryExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result)
+        {
+            ThrowIfUpdate(command);
+            return base.NonQueryExecuting(command, eventData, result);
+        }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfUpdate(command);
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override InterceptionResult<DbDataReader> ReaderExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result)
+        {
+            ThrowIfUpdate(command);
+            return base.ReaderExecuting(command, eventData, result);
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfUpdate(command);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        private static void ThrowIfUpdate(DbCommand command)
+        {
+            if (command.CommandText.TrimStart().StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Injected ExecuteUpdate failure.");
         }
     }
 }
