@@ -54,6 +54,7 @@ public class OrderItemConfiguration : IEntityTypeConfiguration<OrderItem>
             .HasMaxLength(20)
             .IsUnicode(false)
             .HasDefaultValue("NORMAL")
+            .IsConcurrencyToken()
             .IsRequired();
 
         builder.ConfigureAuditableEntity();

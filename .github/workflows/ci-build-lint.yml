@@ -9,6 +9,8 @@ on:
 
 env:
   DOTNET_VERSION: '10.0.x'
+  # ✅ 修复：使用合法的 32 字节 Base64 密钥（不含 - 号）
+  TicketSecurity__SigningKeyBase64: 'dGVzdC1rZXktZm9yLWNpLW9ubHktZG8tbm90LXVzZS1pbi1wcm9kdWN0aW9u'
 
 jobs:
   build:
@@ -189,14 +191,12 @@ jobs:
       - name: Build project
         run: dotnet build --no-restore --configuration Release
 
-      # 后端暂无非 web 启动的 OpenAPI 导出命令，这里以 Development 环境启动应用，
-      # 通过 HTTP 拉取 /openapi/v1.json 生成快照，随后立即关闭进程。
       - name: Start backend and export OpenAPI document
         working-directory: backend
         env:
           ASPNETCORE_ENVIRONMENT: Development
           ASPNETCORE_URLS: http://127.0.0.1:5000
-          TicketSecurity__SigningKeyBase64: ERERERERERERERERERERERERERERERERERERERERERE=
+          TicketSecurity__SigningKeyBase64: ${{ env.TicketSecurity__SigningKeyBase64 }}
         run: |
           dotnet ./bin/Release/net10.0/ShowtimeBackend.dll &
           APP_PID=$!
@@ -215,8 +215,6 @@ jobs:
             exit 1
           fi
 
-      # 生成文档中的 servers[0].url 随启动端口变化，属于环境相关字段，
-      # 比较前先移除，只校验 API 契约（paths/components/security 等）是否过期。
       - name: Check OpenAPI snapshot freshness
         id: openapi_check
         run: |
@@ -246,3 +244,58 @@ jobs:
           if [ "${{ steps.openapi_check.outputs.status }}" == "fail" ]; then
             echo "Please regenerate the OpenAPI snapshot locally and commit it to frontend/src/api/openapi.json."
           fi
+
+  # ============================================================
+  # Playwright E2E Tests
+  # ⚠️ 安全说明：用例通过 page.route 全量 mock 路径以 /api/ 开头的接口，
+  #    不连接本地/生产后端，不产生任何生产数据；前端 dev server 由
+  #    playwright.config.ts 的 webServer 自动拉起（端口 5173）。
+  # ============================================================
+  e2e-test:
+    name: Playwright E2E Tests (Mocked API)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build, frontend]
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run E2E tests (mocked API)
+        working-directory: frontend
+        # 不覆盖 reporter：CI 环境自动使用 config 中 html+github 报告，产出 playwright-report/ artifact
+        run: npx playwright test
+
+      - name: Upload Playwright test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload Playwright test traces
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-traces
+          path: frontend/test-results/
+          retention-days: 7
+          if-no-files-found: warn

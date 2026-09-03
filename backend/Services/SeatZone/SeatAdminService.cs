@@ -11,6 +11,8 @@ public sealed class SeatAdminService
 {
     private const decimal MaxNumber10Scale2 = 99_999_999.99m;
     private const int MaxBatchUpdatedSeats = 999;
+    // 管理端座位图一次可读取 1000 个座位；批量修改仍受独立的 999 条上限约束。
+    private const int MaxSeatListPageSize = 1000;
     private static readonly HashSet<string> SeatTypes = ["NORMAL", "COUPLE", "ACCESSIBLE", "COMPANION"];
     private static readonly HashSet<string> SeatStatuses = ["ENABLED", "DISABLED", "MAINTENANCE"];
     private const string SeatHistoryConflictDetail = "Seat locks or reservations exist. Set seatStatus to DISABLED or isSellable to false instead.";
@@ -70,38 +72,117 @@ public sealed class SeatAdminService
                 $"Seat section {seatSectionId} does not exist.");
         }
 
-        var seats = await _db.Seats
-            .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
-            .OrderBy(seat => seat.RowIndex)
-            .ThenBy(seat => seat.ColIndex)
-            .ThenBy(seat => seat.SeatId)
-            .ToListAsync(cancellationToken);
-
-        if (seats.Count != seatIds.Length)
-            return ServiceResult<SeatBatchUpdateResponse>.Failure(
-                404,
-                "Seat not found",
-                "One or more seats do not belong to the requested seat section.");
-
-        foreach (var seat in seats)
+        if (!_db.Database.IsRelational())
         {
-            if (request.SeatType is not null)
-                seat.SeatType = request.SeatType;
-            if (request.SeatStatus is not null)
-                seat.SeatStatus = request.SeatStatus;
-            if (request.IsAisleSide is not null)
-                seat.IsAisleSide = request.IsAisleSide.Value;
-            if (request.IsSellable is not null)
-                seat.IsSellable = request.IsSellable.Value;
+            var seats = await _db.Seats
+                .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
+                .OrderBy(seat => seat.RowIndex)
+                .ThenBy(seat => seat.ColIndex)
+                .ThenBy(seat => seat.SeatId)
+                .ToListAsync(cancellationToken);
+
+            if (seats.Count != seatIds.Length)
+                return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                    404,
+                    "Seat not found",
+                    "One or more seats do not belong to the requested seat section.");
+
+            foreach (var seat in seats)
+            {
+                if (request.SeatType is not null)
+                    seat.SeatType = request.SeatType;
+                if (request.SeatStatus is not null)
+                    seat.SeatStatus = request.SeatStatus;
+                if (request.IsAisleSide is not null)
+                    seat.IsAisleSide = request.IsAisleSide.Value;
+                if (request.IsSellable is not null)
+                    seat.IsSellable = request.IsSellable.Value;
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+            return ServiceResult<SeatBatchUpdateResponse>.Success(
+                new SeatBatchUpdateResponse(
+                    seatSectionId,
+                    seats.Count,
+                    seats.Select(ToResponse).ToList()));
         }
 
-        await _db.SaveChangesAsync(cancellationToken);
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        var transactionCommitted = false;
+        try
+        {
+            var seats = await _db.Seats
+                .AsNoTracking()
+                .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
+                .OrderBy(seat => seat.RowIndex)
+                .ThenBy(seat => seat.ColIndex)
+                .ThenBy(seat => seat.SeatId)
+                .ToListAsync(cancellationToken);
 
-        return ServiceResult<SeatBatchUpdateResponse>.Success(
-            new SeatBatchUpdateResponse(
-                seatSectionId,
-                seats.Count,
-                seats.Select(ToResponse).ToList()));
+            if (seats.Count != seatIds.Length)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                    404,
+                    "Seat not found",
+                    "One or more seats do not belong to the requested seat section.");
+            }
+
+            var updatedCount = await _db.Seats
+                .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
+                .ExecuteUpdateAsync(setters =>
+                {
+                    if (request.SeatType is not null)
+                        setters.SetProperty(seat => seat.SeatType, request.SeatType);
+                    if (request.SeatStatus is not null)
+                        setters.SetProperty(seat => seat.SeatStatus, request.SeatStatus);
+                    if (request.IsAisleSide is not null)
+                        setters.SetProperty(seat => seat.IsAisleSide, request.IsAisleSide.Value);
+                    if (request.IsSellable is not null)
+                        setters.SetProperty(seat => seat.IsSellable, request.IsSellable.Value);
+                }, cancellationToken);
+
+            if (updatedCount != seatIds.Length)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                    404,
+                    "Seat not found",
+                    "One or more seats do not belong to the requested seat section.");
+            }
+
+            var updatedSeats = await _db.Seats
+                .AsNoTracking()
+                .Where(seat => seat.SeatSectionId == seatSectionId && seatIds.Contains(seat.SeatId))
+                .OrderBy(seat => seat.RowIndex)
+                .ThenBy(seat => seat.ColIndex)
+                .ThenBy(seat => seat.SeatId)
+                .ToListAsync(cancellationToken);
+
+            if (updatedSeats.Count != seatIds.Length)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                return ServiceResult<SeatBatchUpdateResponse>.Failure(
+                    404,
+                    "Seat not found",
+                    "One or more seats do not belong to the requested seat section.");
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            transactionCommitted = true;
+
+            return ServiceResult<SeatBatchUpdateResponse>.Success(
+                new SeatBatchUpdateResponse(
+                    seatSectionId,
+                    updatedSeats.Count,
+                    updatedSeats.Select(ToResponse).ToList()));
+        }
+        catch
+        {
+            if (!transactionCommitted)
+                await transaction.RollbackAsync(CancellationToken.None);
+            throw;
+        }
     }
 
     public async Task<ServiceResult<SeatResponse>> GetSeatAsync(long seatId, CancellationToken cancellationToken)
@@ -201,8 +282,11 @@ public sealed class SeatAdminService
 
     private static string? ValidatePaging(int page, int pageSize)
     {
-        if (page < 1 || pageSize < 1 || pageSize > 100) return "page must be positive and pageSize must be between 1 and 100.";
-        return ((long)page - 1) * pageSize > int.MaxValue ? "page and pageSize produce an offset that is too large." : null;
+        if (page < 1 || pageSize < 1 || pageSize > MaxSeatListPageSize)
+            return $"page must be positive and pageSize must be between 1 and {MaxSeatListPageSize}.";
+        return ((long)page - 1) * pageSize > int.MaxValue
+            ? "page and pageSize produce an offset that is too large."
+            : null;
     }
 
     private static string? ValidateBatchUpdateRequest(SeatBatchUpdateRequest? request)

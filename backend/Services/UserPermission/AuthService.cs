@@ -17,6 +17,9 @@ public sealed partial class AuthService(
 {
     private const string DefaultRoleCode = "USER";
 
+    /// <summary>头像 URL 长度上限，与 SYS_USER.AVATAR_URL VARCHAR2(500 CHAR) 一致。</summary>
+    private const int MaxAvatarUrlLength = 500;
+
     public async Task<AuthServiceResult<RegisterResponse>> RegisterAsync(
         RegisterRequest request,
         CancellationToken cancellationToken)
@@ -227,6 +230,49 @@ public sealed partial class AuthService(
         return AuthFailure.None;
     }
 
+    public async Task<AuthServiceResult<UserResponse>> UpdateAvatarAsync(
+        long userId,
+        string avatarUrl,
+        CancellationToken cancellationToken)
+    {
+        var normalized = avatarUrl?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized)
+            || normalized.Length > MaxAvatarUrlLength
+            || !Uri.TryCreate(normalized, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp
+                && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return AuthServiceResult<UserResponse>.Failed(
+                AuthFailure.InvalidAvatarUrl);
+        }
+
+        var user = await dbContext.Set<SysUser>()
+            .Include(user => user.UserRoles)
+            .ThenInclude(userRole => userRole.Role)
+            .SingleOrDefaultAsync(
+                user => user.UserId == userId,
+                cancellationToken);
+        if (user is null)
+        {
+            return AuthServiceResult<UserResponse>.Failed(
+                AuthFailure.UserNotFound);
+        }
+
+        user.AvatarUrl = normalized;
+        user.UpdateBy = userId.ToString();
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var roleCodes = user.UserRoles
+            .Where(userRole => userRole.Role.Status)
+            .Select(userRole => userRole.Role.RoleCode)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        return AuthServiceResult<UserResponse>.Succeeded(
+            CreateUserResponse(user, roleCodes));
+    }
+
     private static UserResponse CreateUserResponse(
         SysUser user,
         IReadOnlyList<string> roleCodes) =>
@@ -236,7 +282,8 @@ public sealed partial class AuthService(
             user.Nickname,
             user.Phone,
             user.Email,
-            roleCodes);
+            roleCodes,
+            user.AvatarUrl);
 
     private static string? NormalizeOptionalEmail(string? value)
     {

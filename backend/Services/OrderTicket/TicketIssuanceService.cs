@@ -12,7 +12,7 @@ public sealed class TicketIssuanceService(ITicketTokenService ticketTokenService
         string actor,
         DateTimeOffset operationTime)
     {
-        if (!IsIssuableState(order.OrderStatus, context))
+        if (!IsIssuableState(order, context))
         {
             return Conflict(
                 "TICKET_ORDER_NOT_ISSUABLE",
@@ -83,11 +83,15 @@ public sealed class TicketIssuanceService(ITicketTokenService ticketTokenService
     }
 
     private static bool IsIssuableState(
-        string orderStatus,
+        Order order,
         TicketIssuanceContext context) => context switch
         {
-            TicketIssuanceContext.Payment => orderStatus == "PENDING_PAY",
-            TicketIssuanceContext.Compensation => orderStatus is "PAID" or "ISSUED",
+            TicketIssuanceContext.Payment =>
+                order.OrderType != "EXCHANGE" && order.OrderStatus == "PENDING_PAY",
+            TicketIssuanceContext.Compensation =>
+                order.OrderType != "EXCHANGE" && order.OrderStatus is "PAID" or "ISSUED",
+            TicketIssuanceContext.Exchange =>
+                order.OrderType == "EXCHANGE" && order.OrderStatus == "PENDING_PAY",
             _ => false,
         };
 

@@ -9,6 +9,7 @@ import Performance from '../pages/admin/Performance';
 import Session from '../pages/admin/Session';
 import AdminOrder from '../pages/admin/Order';
 import Publish from '../pages/admin/Publish';
+import SeatMapEditor from '../pages/admin/SeatMap';
 
 // ========== 客户端页面懒加载 ==========
 const Home = lazy(() => import('../pages/Home'));
@@ -77,6 +78,7 @@ const router = createBrowserRouter([
       { path: 'session', element: <Session /> },
       { path: 'order', element: <AdminOrder /> },
       { path: 'publish', element: <Publish /> },
+      { path: 'seat-map', element: <SeatMapEditor /> },
     ],
   },
 ]);

@@ -138,6 +138,365 @@ public sealed class OpenApiTests
         AssertSchemaProperties(schemas, "OrderResponse", "issueTime");
     }
 
+    [Fact]
+    public async Task OpenApiDocument_DeclaresTicketRedemptionContract()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+
+        using var document = JsonDocument.Parse(
+            await client.GetStringAsync("/openapi/v1.json"));
+        var root = document.RootElement;
+        var paths = root.GetProperty("paths");
+        var operation = paths
+            .GetProperty("/api/admin/tickets/redeem")
+            .GetProperty("post");
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+        var requestSchema = schemas.GetProperty("RedeemTicketRequest");
+        var required = requestSchema.GetProperty("required")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .ToHashSet();
+
+        Assert.Contains("qrCode", required);
+        Assert.Contains("checkDevice", required);
+        var qrCode = requestSchema.GetProperty("properties").GetProperty("qrCode");
+        var checkDevice = requestSchema.GetProperty("properties").GetProperty("checkDevice");
+        Assert.Equal("string", qrCode.GetProperty("type").GetString());
+        Assert.Equal(255, qrCode.GetProperty("maxLength").GetInt32());
+        Assert.Equal("string", checkDevice.GetProperty("type").GetString());
+        Assert.Equal(100, checkDevice.GetProperty("maxLength").GetInt32());
+        AssertResponseCodes(operation, "200", "400", "401", "403", "404", "409", "500");
+        AssertSecurityApplied(
+            paths,
+            "/api/admin/tickets/redeem",
+            "post",
+            expectApplied: true);
+        AssertSchemaProperties(
+            schemas,
+            "TicketRedemptionResponse",
+            "eTicketId",
+            "eTicketNo",
+            "orderId",
+            "orderItemId",
+            "sessionId",
+            "ticketStatus",
+            "checkTime",
+            "checkDevice",
+            "checkBy");
+    }
+
+    [Fact]
+    public async Task OpenApiDocument_DeclaresRefundWorkflowContracts()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+
+        var response = await client.GetAsync("/openapi/v1.json");
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+        var root = document.RootElement;
+        var paths = root.GetProperty("paths");
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+
+        AssertOperationExists(paths, "/api/orders/{orderId}/refunds/quote", "post");
+        AssertOperationExists(paths, "/api/orders/{orderId}/refunds", "post");
+        AssertOperationExists(paths, "/api/orders/{orderId}/refunds", "get");
+        AssertOperationExists(paths, "/api/refunds/{refundId}", "get");
+        AssertOperationExists(paths, "/api/admin/refunds", "get");
+        AssertOperationExists(paths, "/api/admin/refunds/{refundId}", "get");
+        AssertOperationExists(paths, "/api/admin/refunds/{refundId}/approve", "post");
+        AssertOperationExists(paths, "/api/admin/refunds/{refundId}/reject", "post");
+        AssertOperationExists(paths, "/api/admin/refund-policies", "get");
+        AssertOperationExists(paths, "/api/admin/refund-policies", "post");
+        AssertOperationExists(paths, "/api/admin/refund-policies/{policyId}", "put");
+        AssertOperationExists(paths, "/api/admin/refund-policies/{policyId}/status", "patch");
+
+        AssertSchemaProperties(
+            schemas,
+            "RefundResponse",
+            "refundId",
+            "refundNo",
+            "orderId",
+            "userId",
+            "refundType",
+            "refundReason",
+            "appliedPolicyId",
+            "policyName",
+            "refundAmount",
+            "feeRate",
+            "appliedServiceFee",
+            "actualRefund",
+            "approveStatus",
+            "refundStatus",
+            "reviewBy",
+            "reviewTime",
+            "reviewRemark",
+            "completeTime",
+            "createTime",
+            "items");
+        AssertEnumValues(schemas, "RefundResponse", "refundType", ["FULL", "PART"]);
+        AssertEnumValues(
+            schemas,
+            "RefundResponse",
+            "approveStatus",
+            ["PENDING", "APPROVED", "REJECTED"]);
+        AssertEnumValues(
+            schemas,
+            "RefundResponse",
+            "refundStatus",
+            ["PENDING", "PROCESSING", "COMPLETED", "FAILED"]);
+        AssertEnumValues(
+            schemas,
+            "RefundItemResponse",
+            "itemStatus",
+            ["NORMAL", "REFUNDING", "REFUNDED", "EXCHANGING", "EXCHANGED"]);
+        AssertEnumValues(
+            schemas,
+            "RefundItemResponse",
+            "ticketStatus",
+            ["UNUSED", "REFUNDING", "USED", "REFUNDED", "EXCHANGING", "EXCHANGED"]);
+        AssertQueryParameterEnumValues(
+            paths,
+            schemas,
+            "/api/orders/{orderId}/refunds",
+            "get",
+            "ApproveStatus",
+            ["PENDING", "APPROVED", "REJECTED"]);
+        AssertQueryParameterEnumValues(
+            paths,
+            schemas,
+            "/api/orders/{orderId}/refunds",
+            "get",
+            "RefundStatus",
+            ["PENDING", "PROCESSING", "COMPLETED", "FAILED"]);
+        AssertQueryParameterEnumValues(
+            paths,
+            schemas,
+            "/api/admin/refunds",
+            "get",
+            "ApproveStatus",
+            ["PENDING", "APPROVED", "REJECTED"]);
+        AssertQueryParameterEnumValues(
+            paths,
+            schemas,
+            "/api/admin/refunds",
+            "get",
+            "RefundStatus",
+            ["PENDING", "PROCESSING", "COMPLETED", "FAILED"]);
+    }
+
+    [Fact]
+    public async Task OpenApiDocument_MarksEveryRefundOperationWithBearerSecurity()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+
+        using var document = JsonDocument.Parse(
+            await client.GetStringAsync("/openapi/v1.json"));
+        var paths = document.RootElement.GetProperty("paths");
+
+        AssertSecurityApplied(paths, "/api/orders/{orderId}/refunds/quote", "post", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/orders/{orderId}/refunds", "post", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/orders/{orderId}/refunds", "get", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/refunds/{refundId}", "get", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/admin/refunds", "get", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/admin/refunds/{refundId}", "get", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/admin/refunds/{refundId}/approve", "post", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/admin/refunds/{refundId}/reject", "post", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/admin/refund-policies", "get", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/admin/refund-policies", "post", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/admin/refund-policies/{policyId}", "put", expectApplied: true);
+        AssertSecurityApplied(paths, "/api/admin/refund-policies/{policyId}/status", "patch", expectApplied: true);
+    }
+
+    [Fact]
+    public async Task OpenApiDocument_DeclaresExactRefundApiResponseContracts()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+
+        using var document = JsonDocument.Parse(
+            await client.GetStringAsync("/openapi/v1.json"));
+        var root = document.RootElement;
+        var paths = root.GetProperty("paths");
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/orders/{orderId}/refunds/quote",
+            "post",
+            "RefundQuoteResponse",
+            "200", "400", "401", "404", "409");
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/orders/{orderId}/refunds",
+            "post",
+            "RefundResponse",
+            "201", "400", "401", "404", "409", "500");
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/orders/{orderId}/refunds",
+            "get",
+            "PagedRefundResponse",
+            "200", "400", "401", "404");
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/refunds/{refundId}",
+            "get",
+            "RefundResponse",
+            "200", "401", "404");
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/admin/refunds",
+            "get",
+            "PagedRefundResponse",
+            "200", "400", "401", "403");
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/admin/refunds/{refundId}",
+            "get",
+            "RefundResponse",
+            "200", "401", "403", "404");
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/admin/refunds/{refundId}/approve",
+            "post",
+            "RefundResponse",
+            "200", "400", "401", "403", "404", "409", "500");
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/admin/refunds/{refundId}/reject",
+            "post",
+            "RefundResponse",
+            "200", "400", "401", "403", "404", "409", "500");
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/admin/refund-policies",
+            "get",
+            "PagedRefundPolicyResponse",
+            "200", "400", "401", "403");
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/admin/refund-policies",
+            "post",
+            "RefundPolicyResponse",
+            "201", "400", "401", "403", "404");
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/admin/refund-policies/{policyId}",
+            "put",
+            "RefundPolicyResponse",
+            "200", "400", "401", "403", "404");
+        AssertApiResponseContract(
+            paths,
+            schemas,
+            "/api/admin/refund-policies/{policyId}/status",
+            "patch",
+            "RefundPolicyResponse",
+            "200", "400", "401", "403", "404");
+    }
+
+    [Fact]
+    public async Task OpenApiDocument_DeclaresExchangeWorkflowContracts()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+        using var document = JsonDocument.Parse(await client.GetStringAsync("/openapi/v1.json"));
+        var root = document.RootElement;
+        var paths = root.GetProperty("paths");
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+
+        (string Path, string Method)[] operations =
+        [
+            ("/api/orders/{orderId}/exchanges/quote", "post"),
+            ("/api/orders/{orderId}/exchanges", "post"),
+            ("/api/orders/{orderId}/exchanges", "get"),
+            ("/api/exchanges/{exchangeId}", "get"),
+            ("/api/exchanges/{exchangeId}/pay", "post"),
+            ("/api/admin/exchanges", "get"),
+            ("/api/admin/exchanges/{exchangeId}", "get"),
+            ("/api/admin/exchanges/{exchangeId}/reject", "post"),
+            ("/api/admin/exchanges/{exchangeId}/approve", "post"),
+            ("/api/admin/exchange-policies", "get"),
+            ("/api/admin/exchange-policies", "post"),
+            ("/api/admin/exchange-policies/{policyId}", "put"),
+            ("/api/admin/exchange-policies/{policyId}/status", "patch"),
+        ];
+        foreach (var operation in operations)
+        {
+            AssertOperationExists(paths, operation.Path, operation.Method);
+            AssertSecurityApplied(paths, operation.Path, operation.Method, expectApplied: true);
+        }
+
+        AssertSchemaProperties(schemas, "ExchangeQuoteResponse",
+            "quotedAt", "orderId", "origSessionId", "targetSessionId", "origDeduction",
+            "targetAmount", "priceDiff", "exchangeFee", "amountDue", "appliedPolicyId",
+            "policyName", "items");
+        AssertSchemaProperties(schemas, "ExchangeResponse",
+            "exchangeId", "exchangeNo", "originalOrderId", "childOrderId", "userId",
+            "origSessionId", "targetSessionId", "origDeduction", "targetAmount", "priceDiff",
+            "exchangeFee", "amountDue", "approveStatus", "exchangeStatus", "expireTime", "items");
+        AssertEnumValues(schemas, "ExchangeResponse", "approveStatus",
+            ["PENDING", "APPROVED", "REJECTED"]);
+        AssertEnumValues(schemas, "ExchangeResponse", "exchangeStatus",
+            ["PENDING", "PROCESSING", "COMPLETED", "FAILED"]);
+        AssertSchemaProperties(schemas, "OrderResponse",
+            "orderType", "parentOrderId", "canPay", "canCancel");
+
+        AssertApiResponseContract(paths, schemas,
+            "/api/orders/{orderId}/exchanges/quote", "post",
+            "ExchangeQuoteResponse", "200", "400", "401", "404", "409");
+        AssertApiResponseContract(paths, schemas,
+            "/api/orders/{orderId}/exchanges", "post",
+            "ExchangeResponse", "201", "400", "401", "404", "409");
+        AssertApiResponseContract(paths, schemas,
+            "/api/orders/{orderId}/exchanges", "get",
+            "PagedExchangeResponse", "200", "400", "401", "404");
+        AssertApiResponseContract(paths, schemas,
+            "/api/exchanges/{exchangeId}", "get",
+            "ExchangeResponse", "200", "401", "404", "409");
+        AssertApiResponseContract(paths, schemas,
+            "/api/exchanges/{exchangeId}/pay", "post",
+            "ExchangePaymentResponse", "200", "400", "401", "404", "409");
+        AssertApiResponseContract(paths, schemas,
+            "/api/admin/exchanges", "get",
+            "PagedExchangeResponse", "200", "400", "401", "403");
+        AssertApiResponseContract(paths, schemas,
+            "/api/admin/exchanges/{exchangeId}", "get",
+            "ExchangeResponse", "200", "401", "403", "404", "409");
+        AssertApiResponseContract(paths, schemas,
+            "/api/admin/exchanges/{exchangeId}/reject", "post",
+            "ExchangeResponse", "200", "400", "401", "403", "404", "409");
+        AssertApiResponseContract(paths, schemas,
+            "/api/admin/exchanges/{exchangeId}/approve", "post",
+            "ExchangeResponse", "200", "400", "401", "403", "404", "409");
+        AssertApiResponseContract(paths, schemas,
+            "/api/admin/exchange-policies", "get",
+            "PagedExchangePolicyResponse", "200", "400", "401", "403");
+        AssertApiResponseContract(paths, schemas,
+            "/api/admin/exchange-policies", "post",
+            "ExchangePolicyResponse", "201", "400", "401", "403", "404");
+        AssertApiResponseContract(paths, schemas,
+            "/api/admin/exchange-policies/{policyId}", "put",
+            "ExchangePolicyResponse", "200", "400", "401", "403", "404");
+        AssertApiResponseContract(paths, schemas,
+            "/api/admin/exchange-policies/{policyId}/status", "patch",
+            "ExchangePolicyResponse", "200", "400", "401", "403", "404");
+    }
+
     private static void AssertSecurityApplied(
         JsonElement paths,
         string path,
@@ -159,7 +518,6 @@ public sealed class OpenApiTests
                 $"{method} {path} 不应带有 Bearer security");
         }
     }
-
 
     [Fact]
     public async Task OpenApiDocument_DeclaresEnumConstraints_ForStatusFields()
@@ -269,6 +627,68 @@ public sealed class OpenApiTests
                 properties.TryGetProperty(propertyName, out _),
                 $"Property '{schemaName}.{propertyName}' should exist.");
         }
+    }
+
+    private static void AssertOperationExists(
+        JsonElement paths,
+        string path,
+        string method)
+    {
+        Assert.True(paths.TryGetProperty(path, out var pathItem), $"Path '{path}' should exist.");
+        Assert.True(
+            pathItem.TryGetProperty(method, out _),
+            $"Operation '{method.ToUpperInvariant()} {path}' should exist.");
+    }
+
+    private static void AssertApiResponseContract(
+        JsonElement paths,
+        JsonElement schemas,
+        string path,
+        string method,
+        string dataSchemaName,
+        params string[] statusCodes)
+    {
+        var responses = paths.GetProperty(path)
+            .GetProperty(method)
+            .GetProperty("responses");
+        var actualStatusCodes = responses.EnumerateObject()
+            .Select(property => property.Name)
+            .OrderBy(statusCode => statusCode)
+            .ToArray();
+        Assert.Equal(statusCodes.OrderBy(statusCode => statusCode), actualStatusCodes);
+
+        string? apiResponseReference = null;
+        foreach (var statusCode in statusCodes)
+        {
+            var currentReference = responses.GetProperty(statusCode)
+                .GetProperty("content")
+                .GetProperty("application/json")
+                .GetProperty("schema")
+                .GetProperty("$ref")
+                .GetString();
+            Assert.False(
+                string.IsNullOrWhiteSpace(currentReference),
+                $"Response '{statusCode}' for {method.ToUpperInvariant()} {path} should use an ApiResponse schema.");
+            apiResponseReference ??= currentReference;
+            Assert.Equal(apiResponseReference, currentReference);
+        }
+
+        var apiResponseSchemaName = apiResponseReference!.Split('/').Last();
+        var apiResponseProperties = schemas.GetProperty(apiResponseSchemaName).GetProperty("properties");
+        foreach (var propertyName in new[] { "success", "data", "code", "message" })
+        {
+            Assert.True(
+                apiResponseProperties.TryGetProperty(propertyName, out _),
+                $"Property '{apiResponseSchemaName}.{propertyName}' should exist.");
+        }
+
+        var dataReference = apiResponseProperties.GetProperty("data")
+            .GetProperty("oneOf")
+            .EnumerateArray()
+            .Single(item => item.TryGetProperty("$ref", out _))
+            .GetProperty("$ref")
+            .GetString();
+        Assert.Equal($"#/components/schemas/{dataSchemaName}", dataReference);
     }
 
     private static void AssertResponseCodes(

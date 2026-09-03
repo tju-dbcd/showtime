@@ -1,6 +1,7 @@
 import { Form, Input, Select, DatePicker, Button, Card, message, InputNumber, Space, Divider } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useState, useEffect } from 'react'
+import FileUploader from '../../../components/FileUploader'
 import {
   createShow,
   addSession,
@@ -240,10 +241,11 @@ const Publish = () => {
           </Space>
 
           <Form.Item
-            label="海报图片URL"
+            label="演出海报"
             name="posterUrl"
+            extra="支持 jpg/jpeg/png/webp/gif，不超过 5MB；上传后自动填写海报 URL"
           >
-            <Input placeholder="请输入海报图片链接（可选）" size="large" />
+            <FileUploader folder="show" />
           </Form.Item>
 
           <Form.Item

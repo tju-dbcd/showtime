@@ -19,6 +19,11 @@ public class ExchangeRequestConfiguration : IEntityTypeConfiguration<ExchangeReq
             table.HasCheckConstraint(
                 "CHK_EXCHANGE_STATUS",
                 "EXCHANGE_STATUS IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')");
+            table.HasCheckConstraint(
+                "CHK_EXCHANGE_STATE_COMBO",
+                "(APPROVE_STATUS = 'PENDING' AND EXCHANGE_STATUS = 'PENDING') OR " +
+                "(APPROVE_STATUS = 'APPROVED' AND EXCHANGE_STATUS IN ('PROCESSING', 'COMPLETED', 'FAILED')) OR " +
+                "(APPROVE_STATUS = 'REJECTED' AND EXCHANGE_STATUS = 'FAILED')");
         });
 
         builder.HasKey(entity => entity.ExchangeId)
@@ -72,12 +77,17 @@ public class ExchangeRequestConfiguration : IEntityTypeConfiguration<ExchangeReq
             .HasDefaultValue(0m)
             .IsRequired();
 
+        builder.Property(entity => entity.AppliedPolicyId)
+            .HasColumnName("APPLIED_POLICY_ID")
+            .HasColumnType("NUMBER(19)");
+
         builder.Property(entity => entity.ApproveStatus)
             .HasColumnName("APPROVE_STATUS")
             .HasColumnType("VARCHAR2(20 CHAR)")
             .HasMaxLength(20)
             .IsUnicode(false)
             .HasDefaultValue("PENDING")
+            .IsConcurrencyToken()
             .IsRequired();
 
         builder.Property(entity => entity.ReviewBy)
@@ -102,6 +112,7 @@ public class ExchangeRequestConfiguration : IEntityTypeConfiguration<ExchangeReq
             .HasMaxLength(20)
             .IsUnicode(false)
             .HasDefaultValue("PENDING")
+            .IsConcurrencyToken()
             .IsRequired();
 
         builder.Property(entity => entity.CompleteTime)
@@ -132,6 +143,9 @@ public class ExchangeRequestConfiguration : IEntityTypeConfiguration<ExchangeReq
         builder.HasIndex(entity => entity.ApproveStatus)
             .HasDatabaseName("IDX_EXCHANGE_APPROVE");
 
+        builder.HasIndex(entity => entity.AppliedPolicyId)
+            .HasDatabaseName("IDX_EXCHANGE_APPLIED_POLICY");
+
         builder.HasIndex(entity => new { entity.OrderId, entity.ExchangeStatus })
             .HasDatabaseName("IDX_EXCHANGE_ORDER_STATUS");
 
@@ -146,5 +160,11 @@ public class ExchangeRequestConfiguration : IEntityTypeConfiguration<ExchangeReq
             .HasForeignKey(entity => entity.UserId)
             .OnDelete(DeleteBehavior.NoAction)
             .HasConstraintName("FK_EXCHANGE_USER");
+
+        builder.HasOne(entity => entity.AppliedPolicy)
+            .WithMany()
+            .HasForeignKey(entity => entity.AppliedPolicyId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_EXCHANGE_APPLIED_POLICY");
     }
 }

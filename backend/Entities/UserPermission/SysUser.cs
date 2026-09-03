@@ -16,6 +16,9 @@ public class SysUser : AuditableEntity
 
     public string? Email { get; set; }
 
+    /// <summary>用户头像公开访问 URL（OSS 上传后写入）。</summary>
+    public string? AvatarUrl { get; set; }
+
     public long? OrgId { get; set; }
 
     public string UserType { get; set; } = "NORMAL";

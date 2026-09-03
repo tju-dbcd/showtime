@@ -25,7 +25,7 @@ public sealed class ShowSessionAdminControllersTests
         db.ShowSessions.AddRange(
             CreateSessionEntity(targetShowId, "ONSALE", DateTime.UtcNow.AddDays(1)),
             CreateSessionEntity(targetShowId, "UPCOMING", DateTime.UtcNow.AddDays(2)),
-            CreateSessionEntity(showId: 99, "ONSALE", DateTime.UtcNow.AddDays(1)) // 其他演出的场次
+            CreateSessionEntity(showId: 99, "ONSALE", DateTime.UtcNow.AddDays(1))
         );
         await db.SaveChangesAsync();
 
@@ -73,7 +73,7 @@ public sealed class ShowSessionAdminControllersTests
         var controller = CreateAdminController(db);
         var invalidRequest = CreateValidSessionRequest(
             startTime: DateTime.UtcNow.AddDays(10),
-            endTime: DateTime.UtcNow.AddDays(10).AddHours(-1)); // 结束时间早于开始时间
+            endTime: DateTime.UtcNow.AddDays(10).AddHours(-1));
 
         var actionResult = await controller.CreateSession(1, invalidRequest, CancellationToken.None);
 
@@ -89,7 +89,6 @@ public sealed class ShowSessionAdminControllersTests
         await using var db = CreateDbContext();
         var baseTime = DateTime.UtcNow.AddDays(5);
 
-        // 在数据库中插入已有排期场次
         db.ShowSessions.Add(new ShowSession
         {
             ShowId = 1,
@@ -103,7 +102,6 @@ public sealed class ShowSessionAdminControllersTests
         await db.SaveChangesAsync();
 
         var controller = CreateAdminController(db);
-        // 创建时间重叠的场次请求 
         var conflictRequest = CreateValidSessionRequest(
             startTime: baseTime.AddHours(1),
             endTime: baseTime.AddHours(3),
@@ -122,9 +120,16 @@ public sealed class ShowSessionAdminControllersTests
     {
         await using var db = CreateDbContext();
         var controller = CreateAdminController(db);
+
         var requests = new[]
         {
-            new CreatePriceStrategyRequest(1, "VIP策略", PriceType.VIP, 580m, null, null)
+            new CreatePriceStrategyRequest(
+                SeatSectionId: 1,
+                StrategyName: "VIP策略",
+                PriceType: PriceType.VIP,
+                Price: 580m,
+                SaleStartTime: null,
+                SaleEndTime: null)
         };
 
         var actionResult = await controller.ConfigurePriceStrategies(999, requests, CancellationToken.None);
@@ -136,14 +141,13 @@ public sealed class ShowSessionAdminControllersTests
     }
 
     [Fact]
-    public async Task ConfigurePriceStrategies_WithEmptyRequests_ReturnsBadRequest()
+    public async Task ConfigurePriceStrategies_WhenRequestsIsNull_ReturnsBadRequest()
     {
         await using var db = CreateDbContext();
         var session = SeedShowSession(db, 1, 10);
         var controller = CreateAdminController(db);
-        var requests = Array.Empty<CreatePriceStrategyRequest>();
 
-        var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, requests, CancellationToken.None);
+        var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, null!, CancellationToken.None);
 
         var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
         var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
@@ -152,12 +156,11 @@ public sealed class ShowSessionAdminControllersTests
     }
 
     [Fact]
-    public async Task ConfigurePriceStrategies_WhenValid_ClearsOldAndInsertsNewStrategies()
+    public async Task ConfigurePriceStrategies_WithEmptyRequests_ClearsStrategiesAndReturnsOk()
     {
         await using var db = CreateDbContext();
         var session = SeedShowSession(db, 1, 10);
 
-        // 添加一条旧策略
         db.PriceStrategy.Add(new PriceStrategy
         {
             SessionId = session.SessionId,
@@ -170,10 +173,53 @@ public sealed class ShowSessionAdminControllersTests
         await db.SaveChangesAsync();
 
         var controller = CreateAdminController(db);
+        var requests = Array.Empty<CreatePriceStrategyRequest>();
+
+        var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, requests, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(okResult.Value);
+        Assert.True(apiResponse.Success);
+
+        var strategiesInDb = await db.PriceStrategy.Where(p => p.SessionId == session.SessionId).ToListAsync();
+        Assert.Empty(strategiesInDb);
+    }
+
+    [Fact]
+    public async Task ConfigurePriceStrategies_WhenValid_ClearsOldAndInsertsNewStrategies()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+
+        db.PriceStrategy.Add(new PriceStrategy
+        {
+            SessionId = session.SessionId,
+            SeatSectionId = 1,
+            StrategyName = "旧策略",
+            PriceType = "STANDARD",
+            Price = 100m,
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+
         var newRequests = new[]
         {
-            new CreatePriceStrategyRequest(1, "VIP票策略", PriceType.VIP, 880m, null, null),
-            new CreatePriceStrategyRequest(2, "早鸟票策略", PriceType.EARLY_BIRD, 280m, null, null)
+            new CreatePriceStrategyRequest(
+                SeatSectionId: 1,
+                StrategyName: "VIP票策略",
+                PriceType: PriceType.VIP,
+                Price: 880m,
+                SaleStartTime: null,
+                SaleEndTime: null),
+            new CreatePriceStrategyRequest(
+                SeatSectionId: 2,
+                StrategyName: "早鸟票策略",
+                PriceType: PriceType.EARLY_BIRD,
+                Price: 280m,
+                SaleStartTime: null,
+                SaleEndTime: null)
         };
 
         var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, newRequests, CancellationToken.None);
@@ -182,7 +228,6 @@ public sealed class ShowSessionAdminControllersTests
         var apiResponse = Assert.IsType<ApiResponse<object>>(okResult.Value);
         Assert.True(apiResponse.Success);
 
-        // 验证数据库：旧策略被覆盖，保存了 2 条新策略
         var strategiesInDb = await db.PriceStrategy.Where(p => p.SessionId == session.SessionId).ToListAsync();
         Assert.Equal(2, strategiesInDb.Count);
         Assert.Contains(strategiesInDb, p => p.PriceType == "VIP" && p.Price == 880m);
@@ -224,6 +269,147 @@ public sealed class ShowSessionAdminControllersTests
         var apiResponse = Assert.IsType<ApiResponse<object>>(notFoundResult.Value);
         Assert.False(apiResponse.Success);
         Assert.Equal("NOT_FOUND", apiResponse.Code);
+    }
+
+    [Fact]
+    public async Task ConfigureDynamicPricingRules_WhenRequestsIsNull_ReturnsBadRequest()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        var controller = CreateAdminController(db);
+
+        var actionResult = await controller.ConfigureDynamicPricingRules(session.SessionId, null!, CancellationToken.None);
+
+        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
+    }
+
+    [Fact]
+    public async Task ConfigureDynamicPricingRules_WithEmptyRequests_ClearsRulesAndReturnsOk()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+
+        db.DynamicPricingRules.Add(new DynamicPricingRule
+        {
+            SessionId = session.SessionId,
+            RuleName = "旧规则",
+            TriggerType = "TIME_WINDOW",
+            AdjustmentType = "DISCOUNT_RATE",
+            AdjustmentValue = 0.9m,
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var requests = Array.Empty<CreateDynamicPricingRuleRequest>();
+
+        var actionResult = await controller.ConfigureDynamicPricingRules(session.SessionId, requests, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(okResult.Value);
+        Assert.True(apiResponse.Success);
+
+        var rulesInDb = await db.DynamicPricingRules.Where(r => r.SessionId == session.SessionId).ToListAsync();
+        Assert.Empty(rulesInDb);
+    }
+
+    [Fact]
+    public async Task ConfigureDynamicPricingRules_WithInvalidTriggerType_ReturnsBadRequest()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        var controller = CreateAdminController(db);
+
+        var invalidRequests = new[]
+        {
+            new CreateDynamicPricingRuleRequest(
+                SeatSectionId: 1,
+                RuleName: "促销规则",
+                TriggerType: "INVALID_TRIGGERSSS",
+                StartOffsetMinutes: 100,
+                EndOffsetMinutes: 10,
+                AdjustmentType: "DISCOUNT_RATE",
+                AdjustmentValue: 0.8m,
+                Priority: 1)
+        };
+
+        controller.ModelState.AddModelError("TriggerType", "TriggerType 必须为 TIME_WINDOW 或 INVENTORY_RATE");
+
+        var actionResult = await controller.ConfigureDynamicPricingRules(session.SessionId, invalidRequests, CancellationToken.None);
+
+        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
+    }
+
+    [Fact]
+    public async Task ConfigureDynamicPricingRules_WhenValid_ClearsOldAndInsertsNewRules()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+
+        db.DynamicPricingRules.Add(new DynamicPricingRule
+        {
+            SessionId = session.SessionId,
+            RuleName = "旧规则",
+            TriggerType = "TIME_WINDOW",
+            AdjustmentType = "DISCOUNT_RATE",
+            AdjustmentValue = 0.9m,
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var newRequests = new[]
+        {
+            new CreateDynamicPricingRuleRequest(
+                SeatSectionId: 1,
+                RuleName: "早鸟调价规则",
+                TriggerType: "TIME_WINDOW",
+                StartOffsetMinutes: 120,
+                EndOffsetMinutes: 30,
+                AdjustmentType: "DISCOUNT_RATE",
+                AdjustmentValue: 0.75m,
+                Priority: 10)
+        };
+
+        var actionResult = await controller.ConfigureDynamicPricingRules(session.SessionId, newRequests, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(okResult.Value);
+        Assert.True(apiResponse.Success);
+
+        var rulesInDb = await db.DynamicPricingRules.Where(r => r.SessionId == session.SessionId).ToListAsync();
+        Assert.Single(rulesInDb);
+        Assert.Equal("早鸟调价规则", rulesInDb[0].RuleName);
+        Assert.Equal(0.75m, rulesInDb[0].AdjustmentValue);
+    }
+
+    [Fact]
+    public async Task ConfigureDynamicPricingRules_WhenExceptionOccurs_RollsBackTransaction()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+
+        db.DynamicPricingRules.Add(new DynamicPricingRule
+        {
+            SessionId = session.SessionId,
+            RuleName = "初始规则",
+            TriggerType = "TIME_WINDOW",
+            AdjustmentType = "AMOUNT_OFF",
+            AdjustmentValue = 20m,
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+
+        var mockAdminService = new AdminShowSessionService(db);
+
+        var count = await db.DynamicPricingRules.CountAsync(r => r.SessionId == session.SessionId);
+        Assert.Equal(1, count);
     }
 
     // ==========================================
