@@ -83,10 +83,64 @@
 | 429 | 请求过于频繁 | 触发限流 |
 | 500 | 服务器内部错误 | 未预期异常 |
 
-### 2.4 认证约定（草案）
+### 2.4 认证与会话约定
 
-- 采用 **JWT Bearer Token**：登录成功后返回 `accessToken`，前端置于请求头 `Authorization: Bearer <token>`。
-- 规划中的会话能力：Refresh Token 刷新、异地登录检测、会话状态管理（对应 `USER_SESSION` 表）。
+- 采用 **JWT Bearer Token**：登录成功后返回 15 分钟有效的 `accessToken`，前端置于请求头 `Authorization: Bearer <token>`。
+- Access Token 包含用户 ID、用户名、角色和 `sid` 会话 ID；每次鉴权都会验证 `USER_SESSION` 仍为 `ACTIVE`，所以退出或踢出后旧 JWT 立即失效。
+- 登录同时返回 7 天有效的 `refreshToken`。刷新后 Refresh Token 必须轮换，旧 Token 立即失效；检测到旧 Token 重用时锁定该会话。
+- 服务端只保存 Refresh Token 的 SHA-256 摘要，接口、会话列表和日志均不返回摘要。
+- 每个用户只允许一个活跃会话。再次登录会使旧会话失效；IP 或 User-Agent 变化时旧会话标记为 `LOCKED` 和风险会话。
+- Token 通过 JSON 请求/响应传递；当前版本未使用 Cookie，前端不得把 Refresh Token 输出到日志。
+
+登录响应在原有字段上增加：
+
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "<access-token>",
+    "tokenType": "Bearer",
+    "expiresIn": 900,
+    "expiresAtUtc": "2026-09-03T08:15:00Z",
+    "refreshToken": "<refresh-token>",
+    "refreshTokenExpiresAtUtc": "2026-09-10T08:00:00Z",
+    "user": {}
+  },
+  "code": null,
+  "message": "Login succeeded."
+}
+```
+
+会话接口：
+
+| 方法 | 路径 | 身份要求 | 说明 |
+|------|------|----------|------|
+| POST | `/api/auth/refresh` | Refresh Token | 轮换并返回一组新 Token |
+| POST | `/api/auth/logout` | JWT | 退出当前会话 |
+| POST | `/api/auth/logout-all` | JWT | 退出当前用户的全部活跃会话 |
+| GET | `/api/auth/sessions` | JWT | 查询当前用户的会话历史与状态 |
+| DELETE | `/api/auth/sessions/{sessionId}` | JWT | 踢出自己的指定会话；他人或未知会话统一返回 404 |
+
+### 2.4.1 API 限流
+
+| 请求类型 | 分区 | 固定窗口额度 |
+|----------|------|--------------|
+| 登录 | IP | 5 次/分钟 |
+| 注册 | IP | 3 次/分钟 |
+| 刷新 Token | IP | 10 次/分钟 |
+| 已认证普通请求 | 用户 ID | 120 次/分钟 |
+| 匿名普通请求 | IP | 60 次/分钟 |
+
+登录、注册和刷新只计入各自专属额度，不重复消耗匿名普通额度。超限响应为 HTTP 429，并包含整数秒 `Retry-After`：
+
+```json
+{
+  "success": false,
+  "data": null,
+  "code": "RATE_LIMIT_EXCEEDED",
+  "message": "Too many requests. Please retry later."
+}
+```
 
 ### 2.5 命名与格式约定
 
@@ -248,9 +302,15 @@
 | 方法 | 路径 | 说明 | 对应本周任务 |
 |------|------|------|--------------|
 | POST | `/api/auth/register` | 用户注册 | — |
-| POST | `/api/auth/login` | 登录（返回 JWT） | 埋点登录 |
-| POST | `/api/auth/logout` | 登出 | — |
-| GET/POST/PUT/DELETE | `/api/users/{id}/real-name` | 实名信息增删查改 | 实名 API 的增删查 |
+| POST | `/api/auth/login` | 登录（返回 Access + Refresh Token） | 登录审计、单活会话 |
+| POST | `/api/auth/refresh` | 轮换 Refresh Token | 会话安全 |
+| POST | `/api/auth/logout` | 退出当前会话 | 会话安全 |
+| POST | `/api/auth/logout-all` | 退出全部会话 | 会话安全 |
+| GET | `/api/auth/sessions` | 查询本人会话 | 会话安全 |
+| DELETE | `/api/auth/sessions/{sessionId}` | 踢出本人指定会话 | 会话安全 |
+| GET/POST | `/api/users/me/real-names` | 本人实名信息查询与新增 | 实名 API |
+| PUT/DELETE | `/api/users/me/real-names/{realNameId}` | 本人实名信息修改与删除 | 实名 API |
+| PATCH | `/api/users/me/real-names/{realNameId}/default` | 设置默认实名信息 | 实名 API |
 
 ### 5.2 演出与场次
 

@@ -670,6 +670,7 @@ internal sealed class RefundTestData : IAsyncDisposable
             [
                 new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
                 new Claim(JwtRegisteredClaimNames.UniqueName, userName),
+                new Claim("sid", AuthTestFactory.TestSessionId.ToString()),
                 new Claim("role", role),
             ],
             expires: DateTime.UtcNow.AddHours(1),

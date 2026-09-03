@@ -16,5 +16,8 @@ public sealed class JwtOptions
     public string Audience { get; init; } = null!;
 
     [Range(1, int.MaxValue)]
-    public int ExpirationMinutes { get; init; } = 120;
+    public int ExpirationMinutes { get; init; } = 15;
+
+    [Range(1, int.MaxValue)]
+    public int RefreshTokenExpirationDays { get; init; } = 7;
 }

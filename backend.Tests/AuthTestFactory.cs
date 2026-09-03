@@ -13,6 +13,7 @@ using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.FileStorage;
+using ShowtimeBackend.Services.UserPermission;
 
 namespace ShowtimeBackend.Tests;
 
@@ -22,6 +23,7 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
     public const string TestAudience = "ShowtimeFrontend.Tests";
     public const string TestKey =
         "showtime-tests-only-jwt-key-which-is-longer-than-32-bytes";
+    public const long TestSessionId = long.MaxValue;
 
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
     private readonly FixedTimeProvider _timeProvider;
@@ -31,34 +33,38 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
     private readonly IFileStorageService? _customFileStorage;
     private readonly bool _localStorageEnabled;
     private readonly string? _localStorageRoot;
+    private readonly IReadOnlyDictionary<string, string?>? _additionalConfiguration;
 
     public AuthTestFactory(
         string? jwtKey = TestKey,
         bool ossEnabled = false,
         bool replaceWithFakeStorage = false,
         IFileStorageService? customFileStorage = null,
-        bool localStorageEnabled = false)
+        bool localStorageEnabled = false,
+        IReadOnlyDictionary<string, string?>? additionalConfiguration = null)
     {
         _jwtKey = jwtKey;
         _ossEnabled = ossEnabled;
         _replaceWithFakeStorage = replaceWithFakeStorage;
         _customFileStorage = customFileStorage;
         _localStorageEnabled = localStorageEnabled;
+        _additionalConfiguration = additionalConfiguration;
         // 本地磁盘存储用例指向独立临时目录，测试结束整目录清理
         _localStorageRoot = localStorageEnabled
             ? Path.Combine(
                 Path.GetTempPath(),
                 "showtime-tests-files-" + Guid.NewGuid().ToString("N"))
             : null;
-        UtcNow = DateTimeOffset.UtcNow;
-        _timeProvider = new FixedTimeProvider(UtcNow);
+        _timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
         _connection.Open();
     }
 
     /// <summary>localStorageEnabled=true 时本地磁盘存储的根目录（测试临时目录），供用例断言落盘。</summary>
     public string? LocalStorageRoot => _localStorageRoot;
 
-    public DateTimeOffset UtcNow { get; }
+    public DateTimeOffset UtcNow => _timeProvider.GetUtcNow();
+
+    public void AdvanceTime(TimeSpan amount) => _timeProvider.Advance(amount);
 
     public HttpClient CreateApiClient() =>
         CreateClient(new WebApplicationFactoryClientOptions
@@ -128,7 +134,13 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
                 ["Jwt:Key"] = _jwtKey,
                 ["Jwt:Issuer"] = TestIssuer,
                 ["Jwt:Audience"] = TestAudience,
-                ["Jwt:ExpirationMinutes"] = "120",
+                ["Jwt:ExpirationMinutes"] = "15",
+                ["Jwt:RefreshTokenExpirationDays"] = "7",
+                ["RateLimiting:LoginPerMinute"] = "5",
+                ["RateLimiting:RegisterPerMinute"] = "3",
+                ["RateLimiting:RefreshPerMinute"] = "10",
+                ["RateLimiting:AuthenticatedPerMinute"] = "120",
+                ["RateLimiting:AnonymousPerMinute"] = "60",
                 ["TicketSecurity:SigningKeyBase64"] =
                     "ERERERERERERERERERERERERERERERERERERERERERE=",
                 ["IdentityData:EncryptionKey"] =
@@ -152,6 +164,10 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
                     _localStorageEnabled ? _localStorageRoot! : Path.GetTempPath(),
                 ["LocalStorage:BaseUrl"] = "/files",
             });
+            if (_additionalConfiguration is not null)
+            {
+                configuration.AddInMemoryCollection(_additionalConfiguration);
+            }
         });
         builder.ConfigureServices(services =>
         {
@@ -159,6 +175,7 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
             services.RemoveAll<TimeProvider>();
+            services.RemoveAll<IUserSessionService>();
 
             if (_customFileStorage is not null)
             {
@@ -189,6 +206,10 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
             // 表结构由 SqliteAuthDbContext.EnsureCreated 建立，factory 仅负责出实例做 INSERT。
             services.AddDbContextFactory<AppDbContext>(options =>
                 options.UseSqlite(_connection));
+            services.AddScoped<UserSessionService>();
+            services.AddScoped<IUserSessionService>(provider =>
+                new TestUserSessionService(
+                    provider.GetRequiredService<UserSessionService>()));
         });
     }
 
@@ -218,6 +239,58 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => utcNow;
+        private long _utcTicks = utcNow.UtcTicks;
+
+        public override DateTimeOffset GetUtcNow() =>
+            new(Interlocked.Read(ref _utcTicks), TimeSpan.Zero);
+
+        public void Advance(TimeSpan amount) =>
+            Interlocked.Add(ref _utcTicks, amount.Ticks);
+    }
+
+    private sealed class TestUserSessionService(
+        UserSessionService inner) : IUserSessionService
+    {
+        public Task<UserSessionResult<SessionIssueData>> StartAsync(
+            long userId,
+            ClientRequestMetadata client,
+            CancellationToken cancellationToken) =>
+            inner.StartAsync(userId, client, cancellationToken);
+
+        public Task<UserSessionResult<SessionRefreshData>> RotateAsync(
+            string refreshToken,
+            CancellationToken cancellationToken) =>
+            inner.RotateAsync(refreshToken, cancellationToken);
+
+        public Task<bool> IsActiveAsync(
+            long userId,
+            long sessionId,
+            CancellationToken cancellationToken) =>
+            sessionId == TestSessionId
+                ? Task.FromResult(true)
+                : inner.IsActiveAsync(userId, sessionId, cancellationToken);
+
+        public Task<int> LogoutCurrentAsync(
+            long userId,
+            long sessionId,
+            CancellationToken cancellationToken) =>
+            inner.LogoutCurrentAsync(userId, sessionId, cancellationToken);
+
+        public Task<int> LogoutAllAsync(
+            long userId,
+            CancellationToken cancellationToken) =>
+            inner.LogoutAllAsync(userId, cancellationToken);
+
+        public Task<IReadOnlyList<ShowtimeBackend.DTOs.UserPermission.UserSessionResponse>> ListAsync(
+            long userId,
+            long currentSessionId,
+            CancellationToken cancellationToken) =>
+            inner.ListAsync(userId, currentSessionId, cancellationToken);
+
+        public Task<UserSessionResult<int>> RevokeAsync(
+            long userId,
+            long targetSessionId,
+            CancellationToken cancellationToken) =>
+            inner.RevokeAsync(userId, targetSessionId, cancellationToken);
     }
 }
