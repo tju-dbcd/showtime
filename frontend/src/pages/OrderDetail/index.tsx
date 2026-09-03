@@ -15,10 +15,18 @@ import {
   Select,
 } from 'antd';
 import { orderAPI, refundAPI, exchangeAPI, showAPI, showSessionAPI, sessionAPI } from '@/api/requests';
+import type { components } from '@/api/types';
 import type { OrderResponse } from '@/types/api';
 import './OrderDetail.css';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
+
+// ========== 生成类型（openapi.json） ==========
+type ShowDto = components['schemas']['ShowDto'];
+type ShowSessionDto = components['schemas']['ShowSessionDto'];
+type RefundQuoteResponse = components['schemas']['RefundQuoteResponse'];
+type ExchangeQuoteResponse = components['schemas']['ExchangeQuoteResponse'];
+type ExchangeSummaryResponse = components['schemas']['ExchangeSummaryResponse'];
 
 const STATUS_MAP: Record<string, { color: string; text: string }> = {
   PENDING_PAY: { color: 'orange', text: '待支付' },
@@ -27,6 +35,19 @@ const STATUS_MAP: Record<string, { color: string; text: string }> = {
   PART_REFUND: { color: 'purple', text: '部分退款' },
   REFUNDED: { color: 'red', text: '已退款' },
   CANCELLED: { color: 'red', text: '已取消' },
+};
+
+const EXCHANGE_APPROVE_STATUS_MAP: Record<string, { color: string; text: string }> = {
+  PENDING: { color: 'orange', text: '待审核' },
+  APPROVED: { color: 'green', text: '审核通过' },
+  REJECTED: { color: 'red', text: '已驳回' },
+};
+
+const EXCHANGE_STATUS_MAP: Record<string, { color: string; text: string }> = {
+  PENDING: { color: 'orange', text: '待处理' },
+  PROCESSING: { color: 'blue', text: '处理中' },
+  COMPLETED: { color: 'green', text: '已完成' },
+  FAILED: { color: 'red', text: '已失败' },
 };
 
 interface SessionDetail {
@@ -38,6 +59,16 @@ interface SessionDetail {
   seatMapId: number;
 }
 
+/** 从选座页带回的目标座位（含与原票明细的 1:1 映射） */
+interface ExchangeTargetSeat {
+  seatId: number;
+  rowCode?: string;
+  colIndex?: number;
+  originalOrderItemId: number | null;
+  priceStrategyId: number;
+  lockToken: string;
+}
+
 const OrderDetail = () => {
   const { orderId } = useParams<{ orderId: string }>();
   const navigate = useNavigate();
@@ -47,30 +78,37 @@ const OrderDetail = () => {
 
   // 场次和演出详情
   const [sessionDetail, setSessionDetail] = useState<SessionDetail | null>(null);
-  const [showDetail, setShowDetail] = useState<any>(null);
+  const [showDetail, setShowDetail] = useState<ShowDto | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   // ========== 退票相关 ==========
   const [refundModalVisible, setRefundModalVisible] = useState(false);
-  const [refundQuote, setRefundQuote] = useState<any>(null);
+  const [refundQuote, setRefundQuote] = useState<RefundQuoteResponse | null>(null);
   const [refundReason, setRefundReason] = useState('');
   const [refundLoading, setRefundLoading] = useState(false);
   const [refundSubmitting, setRefundSubmitting] = useState(false);
 
   // ========== 改签相关 ==========
   const [exchangeModalVisible, setExchangeModalVisible] = useState(false);
-  const [exchangeQuote, setExchangeQuote] = useState<any>(null);
+  const [exchangeQuote, setExchangeQuote] = useState<ExchangeQuoteResponse | null>(null);
   const [exchangeLoading, setExchangeLoading] = useState(false);
   const [exchangeSubmitting, setExchangeSubmitting] = useState(false);
   const [exchangeReason, setExchangeReason] = useState('');
-  // 改签目标选择
-  const [targetShows, setTargetShows] = useState<any[]>([]);
+  // 改签目标选择（后端契约：仅支持同演出换场次，1:1 换票）
+  const [targetShows, setTargetShows] = useState<ShowDto[]>([]);
   const [targetShowId, setTargetShowId] = useState<number | null>(null);
-  const [targetSessions, setTargetSessions] = useState<any[]>([]);
+  const [targetSessions, setTargetSessions] = useState<ShowSessionDto[]>([]);
   const [targetSessionId, setTargetSessionId] = useState<number | null>(null);
-  const [selectedTargetSeats, setSelectedTargetSeats] = useState<any[]>([]);
+  const [selectedTargetSeats, setSelectedTargetSeats] = useState<ExchangeTargetSeat[]>([]);
   const [loadingShows, setLoadingShows] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  // 从选座页返回后自动触发报价（用状态标记，避免首帧闭包问题）
+  const [pendingAutoQuote, setPendingAutoQuote] = useState(false);
+
+  // ========== 改签申请列表（待审核 / 待支付差价链路） ==========
+  const [exchangeRequests, setExchangeRequests] = useState<ExchangeSummaryResponse[]>([]);
+  const [exchangeListLoading, setExchangeListLoading] = useState(false);
+  const [payingExchange, setPayingExchange] = useState(false);
 
   // ========== 获取订单详情 ==========
   const fetchOrder = async () => {
@@ -118,6 +156,7 @@ const OrderDetail = () => {
         if (orderData.sessionId) {
           fetchSessionAndShow(orderData.sessionId);
         }
+        fetchExchangeRequests();
       } else {
         message.error(data?.message || '获取订单详情失败');
       }
@@ -129,7 +168,7 @@ const OrderDetail = () => {
     }
   };
 
-    // ========== 获取场次和演出详情 ==========
+  // ========== 获取场次和演出详情 ==========
   const fetchSessionAndShow = async (sessionId: number) => {
     setLoadingDetail(true);
     try {
@@ -179,15 +218,26 @@ const OrderDetail = () => {
       if (targetSeats && targetSeats.length > 0 && sessionId) {
         setSelectedTargetSeats(targetSeats);
         setTargetSessionId(sessionId);
-        // 自动获取改签报价
-        setTimeout(() => {
-          handleGetExchangeQuote();
-        }, 300);
-        // 清除 state，防止刷新页面后重复触发
-        window.history.replaceState({}, document.title);
+        // 自动重新打开改签弹窗，展示报价并可直接提交
+        setExchangeModalVisible(true);
+        // 先置标记，待 order/targetSessionId/selectedTargetSeats 全部就绪后再自动报价
+        setPendingAutoQuote(true);
       }
+      // 清除 state，防止刷新页面后重复触发
+      window.history.replaceState({}, document.title);
     }
   }, [location.state]);
+
+  // ========== 自动获取改签报价 ==========
+  // 修复：setTimeout 里捕获的是首帧 render 闭包（order/targetSessionId 恒为 null），
+  // 改为依赖最新 state 的 effect，state 就绪后只会触发一次报价。
+  useEffect(() => {
+    if (pendingAutoQuote && order && targetSessionId && selectedTargetSeats.length > 0) {
+      setPendingAutoQuote(false);
+      handleGetExchangeQuote();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAutoQuote, order, targetSessionId, selectedTargetSeats]);
 
   // ========== 退票功能 ==========
   const fetchRefundQuote = async () => {
@@ -250,18 +300,28 @@ const OrderDetail = () => {
   const fetchTargetShows = async () => {
     setLoadingShows(true);
     try {
-      const { data, error } = await showAPI.getShows({
-        PageSize: 50,
-        Status: 'PUBLISHED',
-      });
+      // 后端契约：EXCHANGE_CROSS_SHOW_NOT_ALLOWED —— 改签仅支持同演出换场次，
+      // 目标演出固定为原订单演出，不再让用户选择跨演出。
+      let showId = sessionDetail?.showId;
+      if (!showId && order?.sessionId) {
+        const { data } = await sessionAPI.getSessionSeatMap(order.sessionId);
+        showId = Number(data?.data?.showId) || undefined;
+      }
+      if (!showId) {
+        setTargetShows([]);
+        return;
+      }
+      const { data, error } = await showAPI.getShowDetail(showId);
       if (error) {
-        message.error('获取演出列表失败');
+        message.error('获取演出信息失败');
         return;
       }
       if (data?.success && data?.data) {
-        setTargetShows(data.data.items || []);
+        setTargetShows([data.data]);
+        setTargetShowId(Number(data.data.showId));
+        fetchTargetSessions(Number(data.data.showId));
       } else {
-        message.error(data?.message || '获取演出列表失败');
+        message.error(data?.message || '获取演出信息失败');
       }
     } catch (error) {
       console.error('获取演出列表失败:', error);
@@ -282,10 +342,16 @@ const OrderDetail = () => {
         return;
       }
       if (data?.success && data?.data) {
-        const sessions = data.data.filter((s: any) => s.sessionStatus === 'ONSALE');
+        // 仅保留在售场次，并排除原场次（改签意义为换到其他场次）
+        const sessions = data.data
+          .filter((s: any) => s.sessionStatus === 'ONSALE' && Number(s.sessionId) !== order?.sessionId);
         setTargetSessions(sessions);
+        // 保留从选座页带回的目标场次（若仍在售），避免自动报价被打断
+        setTargetSessionId((prev) =>
+          prev && sessions.some((s) => Number(s.sessionId) === prev) ? prev : null
+        );
         if (sessions.length === 0) {
-          message.warning('该演出暂无可用场次');
+          message.warning('该演出暂无其他可选场次');
         }
       } else {
         message.error(data?.message || '获取场次失败');
@@ -298,28 +364,56 @@ const OrderDetail = () => {
     }
   };
 
+  /**
+   * 组装改签 targetItems，强制 1:1 映射：
+   * 后端契约（ExchangeApplicationService.QuoteAsync）：
+   *  - originalItems.Count != originalItemIds.Length → EXCHANGE_ITEM_NOT_ELIGIBLE
+   *  - 同一 OrderItemId 重复 → ToDictionaryAsync 抛异常（500）
+   * 因此：换几张票必须选几个座位，且每个目标座位必须携带唯一的原票明细 ID。
+   */
+  const buildExchangeTargetItems = (): { originalOrderItemId: number; seatId: number; priceStrategyId: number; lockToken: string }[] | null => {
+    if (!order) return null;
+    if (selectedTargetSeats.length !== order.items.length) {
+      message.warning(`改签需要选择 ${order.items.length} 个目标座位（与原票一一对应），当前已选 ${selectedTargetSeats.length} 个`);
+      return null;
+    }
+    const missing = selectedTargetSeats.filter((seat) => !seat.originalOrderItemId);
+    if (missing.length > 0) {
+      message.warning('部分目标座位缺少原票明细映射，请重新选择目标座位');
+      return null;
+    }
+    const seen = new Set<number>();
+    const items = selectedTargetSeats.map((seat) => ({
+      originalOrderItemId: seat.originalOrderItemId as number,
+      seatId: seat.seatId,
+      priceStrategyId: seat.priceStrategyId,
+      lockToken: seat.lockToken,
+    }));
+    for (const item of items) {
+      if (seen.has(item.originalOrderItemId)) {
+        message.warning('存在重复的原票明细映射，请重新选择目标座位');
+        return null;
+      }
+      seen.add(item.originalOrderItemId);
+    }
+    return items;
+  };
+
   const handleGetExchangeQuote = async () => {
     if (!order || !targetSessionId) {
       message.warning('请先选择目标场次');
       return;
     }
-    if (selectedTargetSeats.length === 0) {
-      message.warning('请先选择目标座位');
-      return;
-    }
+    const targetItems = buildExchangeTargetItems();
+    if (!targetItems) return;
     setExchangeLoading(true);
     try {
       const { data, error } = await exchangeAPI.getExchangeQuote(Number(orderId), {
-        targetSessionId: targetSessionId,
-        targetItems: selectedTargetSeats.map((seat) => ({
-          originalOrderItemId: seat.originalOrderItemId || order.items[0]?.orderItemId || 0,
-          seatId: seat.seatId,
-          priceStrategyId: seat.priceStrategyId || 0,
-          lockToken: seat.lockToken || '',
-        })),
+        targetSessionId,
+        targetItems,
       });
       if (error) {
-        message.error('获取改签报价失败');
+        handleExchangeError(error, '获取改签报价失败');
         return;
       }
       if (data?.success && data?.data) {
@@ -337,24 +431,21 @@ const OrderDetail = () => {
   };
 
   const handleSubmitExchange = async () => {
-    if (!order || !targetSessionId || selectedTargetSeats.length === 0) {
+    if (!order || !targetSessionId) {
       message.warning('请选择完整的目标场次和座位');
       return;
     }
+    const targetItems = buildExchangeTargetItems();
+    if (!targetItems) return;
     setExchangeSubmitting(true);
     try {
       const { data, error } = await exchangeAPI.applyExchange(Number(orderId), {
-        targetSessionId: targetSessionId,
-        targetItems: selectedTargetSeats.map((seat) => ({
-          originalOrderItemId: seat.originalOrderItemId || order.items[0]?.orderItemId || 0,
-          seatId: seat.seatId,
-          priceStrategyId: seat.priceStrategyId || 0,
-          lockToken: seat.lockToken || '',
-        })),
+        targetSessionId,
+        targetItems,
         reason: exchangeReason || null,
       });
       if (error) {
-        message.error('提交改签申请失败');
+        handleExchangeError(error, '提交改签申请失败');
         return;
       }
       if (data?.success && data?.data) {
@@ -365,6 +456,7 @@ const OrderDetail = () => {
         setTargetSessionId(null);
         setSelectedTargetSeats([]);
         setExchangeQuote(null);
+        // 刷新订单并加载改签申请列表（进入「待审核」状态面板）
         fetchOrder();
       } else {
         message.error(data?.message || '提交改签申请失败');
@@ -374,6 +466,83 @@ const OrderDetail = () => {
       message.error('提交改签申请失败');
     } finally {
       setExchangeSubmitting(false);
+    }
+  };
+
+  /** 统一处理改签相关错误（锁座 TTL 过期等场景引导重选） */
+  const handleExchangeError = (error: any, fallback: string) => {
+    const code = error?.code || error?.data?.code;
+    if (code === 'EXCHANGE_SEAT_LOCK_INVALID' || code === 'EXCHANGE_TARGET_SEAT_UNAVAILABLE') {
+      message.error('目标座位锁定已失效（锁定期 600 秒）或不可用，请重新选择目标座位');
+      setSelectedTargetSeats([]);
+      setExchangeQuote(null);
+    } else {
+      message.error(error?.message || fallback);
+    }
+  };
+
+  // ========== 改签申请列表与差价支付 ==========
+  const fetchExchangeRequests = async () => {
+    if (!orderId) return;
+    setExchangeListLoading(true);
+    try {
+      const { data, error } = await exchangeAPI.getExchangeList(Number(orderId), {
+        Page: 1,
+        PageSize: 20,
+      });
+      if (error) return;
+      if (data?.success && data?.data) {
+        const items = (data.data.items || []).map((item: any) => ({
+          ...item,
+          exchangeId: Number(item.exchangeId),
+          originalOrderId: Number(item.originalOrderId),
+          childOrderId: Number(item.childOrderId),
+          amountDue: Number(item.amountDue),
+        }));
+        setExchangeRequests(items);
+      }
+    } catch (error) {
+      console.error('获取改签申请列表失败:', error);
+    } finally {
+      setExchangeListLoading(false);
+    }
+  };
+
+  // 存在未终结的改签申请时，轮询改签列表（审核通过后可支付差价）
+  useEffect(() => {
+    if (!order || exchangeRequests.length === 0) return;
+    const hasActive = exchangeRequests.some(
+      (ex) => ex.approveStatus === 'PENDING' || ex.exchangeStatus === 'PROCESSING',
+    );
+    if (!hasActive) return;
+    const timer = setInterval(() => void fetchExchangeRequests(), 10_000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, exchangeRequests]);
+
+  const handlePayExchange = async (exchange: ExchangeSummaryResponse) => {
+    setPayingExchange(true);
+    try {
+      const { data, error } = await exchangeAPI.payExchange(Number(exchange.exchangeId), {
+        payChannel: 'WECHAT',
+        result: 'SUCCESS',
+      });
+      if (error) {
+        message.error(error?.message || '差价支付失败');
+        return;
+      }
+      if (data?.success && data?.data) {
+        message.success('差价支付成功，改签完成');
+        fetchExchangeRequests();
+        fetchOrder();
+      } else {
+        message.error(data?.message || '差价支付失败');
+      }
+    } catch (error) {
+      console.error('差价支付失败:', error);
+      message.error('差价支付失败');
+    } finally {
+      setPayingExchange(false);
     }
   };
 
@@ -534,6 +703,83 @@ const OrderDetail = () => {
           </>
         )}
 
+        {/* ========== 改签申请状态面板 ========== */}
+        {exchangeRequests.length > 0 && (
+          <>
+            <Divider />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Title level={5} style={{ margin: 0 }}>改签申请</Title>
+              {exchangeListLoading && <Spin size="small" />}
+            </div>
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {exchangeRequests.map((ex) => {
+                const approveInfo = EXCHANGE_APPROVE_STATUS_MAP[ex.approveStatus] || {
+                  color: 'default',
+                  text: ex.approveStatus,
+                };
+                const execInfo = EXCHANGE_STATUS_MAP[ex.exchangeStatus] || {
+                  color: 'default',
+                  text: ex.exchangeStatus,
+                };
+                const canPay =
+                  ex.approveStatus === 'APPROVED' && ex.exchangeStatus === 'PROCESSING';
+                return (
+                  <div
+                    key={ex.exchangeId}
+                    style={{
+                      border: '1px solid #f0f0f0',
+                      borderRadius: 8,
+                      padding: '12px 16px',
+                      background: '#fafafa',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                      }}
+                    >
+                      <div>
+                        <span style={{ fontWeight: 600 }}>改签单号：{ex.exchangeNo}</span>
+                        <Tag color={approveInfo.color} style={{ marginLeft: 8 }}>
+                          {approveInfo.text}
+                        </Tag>
+                        <Tag color={execInfo.color}>{execInfo.text}</Tag>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span>
+                          需补差价：
+                          <b style={{ color: '#ff4d4f' }}>¥{ex.amountDue}</b>
+                        </span>
+                        {canPay && (
+                          <Button
+                            type="primary"
+                            size="small"
+                            loading={payingExchange}
+                            onClick={() => handlePayExchange(ex)}
+                          >
+                            支付差价
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ color: '#888', fontSize: 13, marginTop: 6 }}>
+                      申请时间：{new Date(ex.createTime).toLocaleString('zh-CN')}
+                      {ex.approveStatus === 'PENDING' && ' · 管理员审核中，请耐心等待'}
+                      {canPay && ' · 审核已通过，请支付差价完成改签'}
+                      {ex.exchangeStatus === 'COMPLETED' && ' · 改签已完成'}
+                      {ex.approveStatus === 'REJECTED' && ' · 改签申请未通过'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
         <Divider />
 
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -584,7 +830,7 @@ const OrderDetail = () => {
             </p>
             <p>
               <strong>退票费率：</strong>
-              {(refundQuote.feeRate * 100).toFixed(1)}%
+              {(Number(refundQuote.feeRate) * 100).toFixed(1)}%
             </p>
             <p>
               <strong>服务费：</strong>¥{refundQuote.appliedServiceFee}
@@ -627,7 +873,11 @@ const OrderDetail = () => {
             key="submit"
             type="primary"
             loading={exchangeSubmitting}
-            disabled={!targetSessionId || selectedTargetSeats.length === 0}
+            disabled={
+              !targetSessionId ||
+              selectedTargetSeats.length !== order.items.length ||
+              !exchangeQuote
+            }
             onClick={handleSubmitExchange}
           >
             提交改签申请
@@ -643,26 +893,22 @@ const OrderDetail = () => {
 
           <div style={{ marginBottom: 16 }}>
             <p>
-              <strong>选择目标演出</strong>
+              <strong>目标演出</strong>
             </p>
-            <Select
-              style={{ width: '100%' }}
-              placeholder="请选择目标演出"
-              value={targetShowId}
-              onChange={(value) => {
-                setTargetShowId(value);
-                fetchTargetSessions(value);
-              }}
-              loading={loadingShows}
-              showSearch
-              optionFilterProp="children"
-            >
-              {targetShows.map((show) => (
-                <Select.Option key={show.showId} value={show.showId}>
-                  {show.showName}
-                </Select.Option>
-              ))}
-            </Select>
+            {loadingShows ? (
+              <Spin size="small" />
+            ) : (
+              <>
+                {targetShows.length > 0 && (
+                  <div style={{ padding: '8px 12px', background: '#fafafa', borderRadius: 8 }}>
+                    {targetShows[0].showName}
+                    <div style={{ color: '#888', fontSize: 13, marginTop: 2 }}>
+                      改签仅支持同场演出换场次（跨演出改签暂不支持）
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {targetSessions.length > 0 && (
@@ -682,7 +928,7 @@ const OrderDetail = () => {
                 loading={loadingSessions}
               >
                 {targetSessions.map((session) => (
-                  <Select.Option key={session.sessionId} value={session.sessionId}>
+                  <Select.Option key={session.sessionId} value={Number(session.sessionId)}>
                     {new Date(session.startTime).toLocaleString('zh-CN')}
                   </Select.Option>
                 ))}
@@ -694,24 +940,32 @@ const OrderDetail = () => {
             <div style={{ marginBottom: 16 }}>
               <p>
                 <strong>选择目标座位</strong>
+                <Text type="secondary" style={{ fontSize: 13, marginLeft: 8 }}>
+                  需选择 {order.items.length} 个座位（与原票一一对应）
+                </Text>
               </p>
               <Button
                 type="dashed"
                 block
                 onClick={() => {
-                  // 跳转时带上目标场次 ID，并标记为改签模式
+                  // 跳转时带上目标场次 ID 与原票明细映射，标记为改签模式
                   navigate(`/seat-selection/${targetShowId}`, {
                     state: {
                       fromExchange: true,
                       orderId: order.orderId,
-                      preSelectedSessionId: targetSessionId,  // ← 关键：预选场次 ID
+                      preSelectedSessionId: targetSessionId,
+                      originalItems: order.items.map((item) => ({
+                        orderItemId: item.orderItemId,
+                        seatId: item.seatId,
+                        unitPrice: item.unitPrice,
+                      })),
                     },
                   });
                 }}
               >
                 {selectedTargetSeats.length > 0
-                  ? `已选 ${selectedTargetSeats.length} 个座位（点击重新选择）`
-                  : '点击选择目标座位'}
+                  ? `已选 ${selectedTargetSeats.length}/${order.items.length} 个座位（点击重新选择）`
+                  : `点击选择目标座位（需选 ${order.items.length} 个）`}
               </Button>
               {selectedTargetSeats.length > 0 && (
                 <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -746,7 +1000,7 @@ const OrderDetail = () => {
               </p>
               <p>
                 <strong>差价：</strong>
-                <span style={{ color: exchangeQuote.priceDiff > 0 ? '#ff4d4f' : '#52c41a' }}>
+                <span style={{ color: Number(exchangeQuote.priceDiff) > 0 ? '#ff4d4f' : '#52c41a' }}>
                   ¥{exchangeQuote.priceDiff}
                 </span>
               </p>
@@ -757,7 +1011,7 @@ const OrderDetail = () => {
                 需补差价：¥{exchangeQuote.amountDue}
               </p>
             </div>
-          ) : targetSessionId && selectedTargetSeats.length > 0 ? (
+          ) : targetSessionId && selectedTargetSeats.length === order.items.length ? (
             <Button type="primary" onClick={handleGetExchangeQuote} loading={exchangeLoading}>
               获取改签报价
             </Button>

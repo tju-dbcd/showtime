@@ -68,6 +68,35 @@ async function pickSeatAndOrder(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/order$/);
 }
 
+/** 在选座页选两个可用座位并确认下单，最终落在 /order */
+async function pickTwoSeatsAndOrder(page: Page): Promise<void> {
+  await page.locator('.seat.available').first().waitFor({ state: 'visible', timeout: 15000 });
+  await page.locator('.seat.available').nth(0).click();
+  await page.locator('.seat.available').nth(1).click();
+  await expect(page.locator('.seat.selected')).toHaveCount(2);
+  await page.locator('button:has-text("确认选座")').click();
+  await page.waitForURL(/\/order$/, { timeout: 15000 });
+  await expect(page).toHaveURL(/\/order$/);
+}
+
+/** 支付当前第一笔待支付订单（微信 mock 支付），订单进入已支付 */
+async function payFirstOrder(page: Page): Promise<void> {
+  const payBtn = page.locator('.pay-btn:has-text("立即付款")');
+  await payBtn.waitFor({ state: 'visible', timeout: 15000 });
+  await payBtn.click();
+  await page.locator('.payment-modal').waitFor({ state: 'visible', timeout: 10000 });
+  await page.locator('button:has-text("微信支付")').click();
+  await expect(page.getByText('支付成功')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.ant-tag:has-text("已支付")').first()).toBeVisible({ timeout: 15000 });
+}
+
+/** 从订单列表进入第一笔已支付订单的详情页 */
+async function gotoFirstOrderDetail(page: Page): Promise<void> {
+  await page.locator('button:has-text("查看详情")').first().waitFor({ state: 'visible', timeout: 15000 });
+  await page.locator('button:has-text("查看详情")').first().click();
+  await page.waitForURL(/\/order\/\d+$/, { timeout: 15000 });
+}
+
 test.describe.serial('Showtime 完整业务E2E测试集', () => {
   // 全部 /api 请求走 mock，不触达任何真实后端（本地/生产均不连接）
   test.beforeEach(async ({ page }) => {
@@ -312,5 +341,83 @@ test.describe.serial('Showtime 完整业务E2E测试集', () => {
     } else {
       throw new Error('错误密码登录成功：后端密码验证未启用，请修复认证逻辑（见 issue #52）');
     }
+  });
+
+  // ============================================================
+  // 1️⃣3️⃣ 退票提交流程：已支付订单 → 申请退票 → 报价 → 提交待审核
+  // ============================================================
+  test('退票提交（报价→填写原因→提交进入待审核）', async ({ page }) => {
+    test.setTimeout(90000);
+    const testUser = generateTestUser();
+
+    await registerUser(page, testUser);
+    await loginUser(page, testUser);
+
+    await gotoSeatSelection(page);
+    await pickSeatAndOrder(page);
+    await payFirstOrder(page);
+    await gotoFirstOrderDetail(page);
+
+    // 1. 打开申请退票弹窗，展示报价（可退金额）
+    await page.locator('button:has-text("申请退票")').waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator('button:has-text("申请退票")').click();
+    await expect(page.getByText('可退金额')).toBeVisible({ timeout: 15000 });
+
+    // 2. 填写原因并提交，进入待审核
+    await page.locator('textarea[placeholder="请填写退票原因（必填）"]').fill('行程冲突，无法观演');
+    await page.locator('button:has-text("提交退票申请")').click();
+    await expect(page.getByText('退票申请已提交，请等待审核')).toBeVisible({ timeout: 15000 });
+  });
+
+  // ============================================================
+  // 1️⃣4️⃣ 改签多票 1:1 映射：双票订单 → 改签选 2 座 → 正确一一对应 → 自动报价 → 提交待审核
+  // 回归守卫：若前端把两个目标座位都兜底映射到同一张原票（originalOrderItemId 重复）
+  // 或数量不匹配（≠2），mock 会按后端契约拒绝并返回 EXCHANGE_ITEM_NOT_ELIGIBLE，
+  // 报价/提交将失败，该用例随即报错。
+  // ============================================================
+  test('改签多票 1:1 映射（2 张原票 → 2 个目标座位 → 自动报价 → 提交待审核）', async ({ page }) => {
+    test.setTimeout(120000);
+    const testUser = generateTestUser();
+
+    await registerUser(page, testUser);
+    await loginUser(page, testUser);
+
+    await gotoSeatSelection(page);
+    await pickTwoSeatsAndOrder(page);
+    await payFirstOrder(page);
+    await gotoFirstOrderDetail(page);
+
+    // 1. 打开申请改签弹窗，目标演出固定为原演出，且仅列出其他在售场次
+    await page.locator('button:has-text("申请改签")').waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator('button:has-text("申请改签")').click();
+    await expect(page.getByText('选择目标场次', { exact: true })).toBeVisible({ timeout: 15000 });
+
+    // 2. 选择目标场次（原场次 9001 被排除，仅剩 9003）
+    const sessionSelect = page.locator('.ant-modal .ant-select').last();
+    await sessionSelect.click();
+    await page.locator('.ant-select-dropdown .ant-select-item-option').first().click();
+
+    // 3. 跳转选座页，改签模式需选 2 个目标座位（与原票一一对应）
+    await expect(page.getByText('需选择 2 个座位（与原票一一对应）')).toBeVisible({ timeout: 15000 });
+    await page.locator('button:has-text("点击选择目标座位")').click();
+    await page.waitForURL(/\/seat-selection\/\d+$/, { timeout: 15000 });
+    await expect(page.getByText('（改签模式）')).toBeVisible({ timeout: 15000 });
+
+    await page.locator('.seat.available').first().waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator('.seat.available').nth(0).click();
+    await page.locator('.seat.available').nth(1).click();
+    await expect(page.locator('.seat.selected')).toHaveCount(2);
+    await page.locator('button:has-text("确认改签座位")').click();
+    await page.waitForURL(/\/order\/\d+$/, { timeout: 15000 });
+
+    // 4. 返回订单详情：弹窗自动打开并自动报价（1:1 映射通过 mock 契约校验）
+    await expect(page.getByText('需补差价')).toBeVisible({ timeout: 20000 });
+    await expect(page.getByText('获取改签报价')).not.toBeVisible();
+
+    // 5. 提交改签申请，进入待审核状态面板
+    await page.locator('button:has-text("提交改签申请")').click();
+    await expect(page.getByText('改签申请已提交，请等待审核')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('改签申请', { exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('待审核', { exact: true }).first()).toBeVisible({ timeout: 15000 });
   });
 });

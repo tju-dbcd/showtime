@@ -1,4 +1,10 @@
 import { client } from './request';
+import type { components } from './types';
+
+type ShowStatus = components['schemas']['ShowStatus'];
+type OrderStatus = components['schemas']['OrderStatus'];
+type PaymentChannel = components['schemas']['PaymentChannel'];
+type PaymentResult = components['schemas']['PaymentResult'];
 
 // ========== Auth API ==========
 export const authAPI = {
@@ -22,9 +28,9 @@ export const showAPI = {
     PageSize?: number;
     Keyword?: string;
     CategoryId?: number;
-    Status?: string;
+    Status?: ShowStatus;
   }) =>
-    client.GET('/api/client/shows', { params: params as any }),
+    client.GET('/api/client/shows', { params: { query: params } }),
 
   getShowDetail: (showId: number) =>
     client.GET('/api/client/shows/{showId}', { params: { path: { showId } } }),
@@ -47,8 +53,8 @@ export const sessionAPI = {
 
 // ========== Order API ==========
 export const orderAPI = {
-  getOrders: (params?: { Status?: string; Page?: number; PageSize?: number }) =>
-    client.GET('/api/orders', { params: params as any }),
+  getOrders: (params?: { Status?: OrderStatus; Page?: number; PageSize?: number }) =>
+    client.GET('/api/orders', { params: { query: params } }),
 
   getOrder: (orderId: number) =>
     client.GET('/api/orders/{orderId}', { params: { path: { orderId } } }),
@@ -63,7 +69,7 @@ export const orderAPI = {
     }>;
     remark: string | null;
   }) =>
-    client.POST('/api/orders', { body: data as any }),
+    client.POST('/api/orders', { body: data }),
 
   cancelOrder: (orderId: number) =>
     client.PATCH('/api/orders/{orderId}/cancel', { params: { path: { orderId } } }),
@@ -80,12 +86,11 @@ export const paymentAPI = {
   getPayments: (orderId: number) =>
     client.GET('/api/orders/{orderId}/payments', { params: { path: { orderId } } }),
 
-  // payChannel: 'ALIPAY' | 'WECHAT' | 'UNIONPAY' | 'BALANCE'
-  // result: 'SUCCESS' | 'FAIL'
-  mockPayment: (orderId: number, data: { payChannel: string; result: string }) =>
+  // payChannel/result 与后端 PaymentChannel/PaymentResult 枚举一致
+  mockPayment: (orderId: number, data: { payChannel: PaymentChannel; result: PaymentResult }) =>
     client.POST('/api/orders/{orderId}/payments/mock', {
       params: { path: { orderId } },
-      body: data as any,
+      body: data,
     }),
 };
 
@@ -108,7 +113,7 @@ export const seatLockAPI = {
 export const userAPI = {
   // 更新头像
   updateAvatar: (data: { avatarUrl: string }) =>
-    client.PUT('/api/users/me/avatar', { body: data as any }),
+    client.PUT('/api/users/me/avatar', { body: data }),
 };
 
 // ========== 退票 API ==========
@@ -205,5 +210,15 @@ export const exchangeAPI = {
   getExchangeDetail: (exchangeId: number) =>
     client.GET('/api/exchanges/{exchangeId}', {
       params: { path: { exchangeId } },
+    }),
+
+  // 支付改签差价（管理员审核通过后调用，body 与 ExchangePaymentRequest 契约一致）
+  payExchange: (
+    exchangeId: number,
+    data: { payChannel: PaymentChannel; result: PaymentResult }
+  ) =>
+    client.POST('/api/exchanges/{exchangeId}/pay', {
+      params: { path: { exchangeId } },
+      body: data,
     }),
 };

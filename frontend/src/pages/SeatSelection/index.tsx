@@ -32,6 +32,10 @@ const SeatSelection = () => {
   const fromExchange = location.state?.fromExchange || false;
   const exchangeOrderId = location.state?.orderId || null;
   const preSelectedSessionId = location.state?.preSelectedSessionId || null;
+  // 原订单票品明细（来自订单详情页），用于改签 1:1 映射：每个目标座位对应一张原票
+  const exchangeOriginalItems: Array<{ orderItemId: number; seatId: number; unitPrice?: number }> =
+    location.state?.originalItems || null;
+  const exchangeOriginalCount = exchangeOriginalItems?.length ?? 0;
 
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -191,9 +195,14 @@ const SeatSelection = () => {
     const seatId = seat.seatId;
     if (selectedSeats.includes(seatId)) {
       setSelectedSeats(selectedSeats.filter((id) => id !== seatId));
-    } else {
-      setSelectedSeats([...selectedSeats, seatId]);
+      return;
     }
+    // 改签模式：目标座位数量必须与原票一致（后端强制 1:1 映射）
+    if (fromExchange && exchangeOriginalCount > 0 && selectedSeats.length >= exchangeOriginalCount) {
+      message.warning(`改签目标座位数量需与原票一致（${exchangeOriginalCount} 个）`);
+      return;
+    }
+    setSelectedSeats([...selectedSeats, seatId]);
   };
 
   // ========== 获取座位价格 ==========
@@ -257,7 +266,15 @@ const SeatSelection = () => {
 
       // 改签模式：跳转回订单详情页，不创建订单
       if (fromExchange && exchangeOrderId) {
-        const targetSeats = uniqueSeatIds.map((seatId) => {
+        // 1:1 约束：换几张票必须选几个座位，每个目标座位按顺序对应一张原票明细
+        if (exchangeOriginalCount !== uniqueSeatIds.length) {
+          message.error(`改签需选择 ${exchangeOriginalCount || '与订单票数相同'} 个目标座位（与原票一一对应）`);
+          const tokens = lockData.data.locks.map((item: any) => item.lockToken);
+          await seatLockAPI.releaseSeats(selectedSessionId, tokens);
+          setSubmitting(false);
+          return;
+        }
+        const targetSeats = uniqueSeatIds.map((seatId, idx) => {
           const seat = seats.find((s) => s.seatId === seatId);
           const strategy = pricingStrategies.find(
             (s) => s.seatSectionId === seat?.seatSectionId
@@ -266,7 +283,8 @@ const SeatSelection = () => {
             seatId: seatId,
             rowCode: seat?.rowCode,
             colIndex: seat?.colIndex,
-            originalOrderItemId: null,
+            // 关键修复：携带原票明细 ID（原实现恒为 null，订单详情页只能危险兜底）
+            originalOrderItemId: exchangeOriginalItems?.[idx]?.orderItemId ?? null,
             priceStrategyId: strategy?.priceStrategyId || 0,
             lockToken: lockMap[seatId] || '',
           };
