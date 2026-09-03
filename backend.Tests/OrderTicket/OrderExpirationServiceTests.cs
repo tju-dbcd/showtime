@@ -125,6 +125,43 @@ public sealed class OrderExpirationServiceTests
     }
 
     [Fact]
+    public async Task ExpireOrderAsync_WhenAggregateUpdateFails_RollsBackAllChanges()
+    {
+        await using var connection = await CreateConnectionAsync();
+        await using var db = await CreateDbContextAsync(connection);
+        var order = CreateOrder(1, "PENDING_PAY", "NORMAL", Now);
+        order.Payments.Add(CreatePayment(1, order, "PENDING"));
+        db.Add(order);
+        db.Add(CreateReservation(1, 101, "ORDER", "ACTIVE"));
+        await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TRIGGER fail_expiration_payment_update
+            BEFORE UPDATE OF PAY_STATUS ON PAYMENT
+            WHEN OLD.ORDER_ID = 1 AND NEW.PAY_STATUS = 'CLOSED'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected expiration failure');
+            END;
+            """);
+        var service = CreateService(db);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => service.ExpireOrderAsync(
+            1,
+            OrderExpirationService.SystemActor,
+            Now,
+            CancellationToken.None));
+
+        var savedOrder = await db.Set<Order>().AsNoTracking().SingleAsync();
+        var reservation = await db.SeatReservations.AsNoTracking().SingleAsync();
+        var payment = await db.Set<Payment>().AsNoTracking().SingleAsync();
+        Assert.Equal("PENDING_PAY", savedOrder.OrderStatus);
+        Assert.Null(savedOrder.CancelTime);
+        Assert.Equal("ACTIVE", reservation.ReservationStatus);
+        Assert.Null(reservation.CancelTime);
+        Assert.Equal("PENDING", payment.PayStatus);
+    }
+
+    [Fact]
     public async Task ExpireDueBatchAsync_PoisonOrderDoesNotBlockLaterCandidateAndCursorAdvances()
     {
         await using var connection = await CreateConnectionAsync();
@@ -244,15 +281,15 @@ public sealed class OrderExpirationServiceTests
         long? orderItemId,
         string type,
         string status) => new()
-    {
-        SeatReservationId = id,
-        SessionId = 10,
-        SeatId = 100 + id,
-        OrderItemId = orderItemId,
-        ReservationType = type,
-        ReservationStatus = status,
-        ReserveTime = Now.AddMinutes(-10),
-    };
+        {
+            SeatReservationId = id,
+            SessionId = 10,
+            SeatId = 100 + id,
+            OrderItemId = orderItemId,
+            ReservationType = type,
+            ReservationStatus = status,
+            ReserveTime = Now.AddMinutes(-10),
+        };
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

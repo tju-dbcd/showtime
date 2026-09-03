@@ -83,6 +83,90 @@ public sealed class OrderExpirationConcurrencyTests
         Assert.Empty(await verification.Set<Payment>().Where(item => item.PayStatus == "SUCCESS").ToListAsync());
     }
 
+    [Fact]
+    public async Task PaymentWinsBeforeExpiration_ExpirationSkipsAndCompetingRequestReportsCurrentState()
+    {
+        var connectionString =
+            $"Data Source=payment-wins-{Guid.NewGuid():N};Mode=Memory;Cache=Shared;" +
+            "Pooling=False;Foreign Keys=False";
+        await using var keeper = new SqliteConnection(connectionString);
+        await keeper.OpenAsync();
+        await using (var setup = CreateDbContext(keeper))
+        {
+            await setup.Database.EnsureCreatedAsync();
+            setup.Add(CreateOrder());
+            setup.Add(new SeatReservation
+            {
+                SeatReservationId = 1,
+                SessionId = 10,
+                SeatId = 100,
+                OrderItemId = 1,
+                ReservationType = "ORDER",
+                ReservationStatus = "ACTIVE",
+                ReserveTime = new DateTime(2026, 9, 3, 11, 50, 0),
+            });
+            await setup.SaveChangesAsync();
+        }
+
+        await using var competingConnection = new SqliteConnection(connectionString);
+        await using var winnerConnection = new SqliteConnection(connectionString);
+        await using var expirationConnection = new SqliteConnection(connectionString);
+        await competingConnection.OpenAsync();
+        await winnerConnection.OpenAsync();
+        await expirationConnection.OpenAsync();
+        await using var competingDb = CreateDbContext(competingConnection);
+        await using var winnerDb = CreateDbContext(winnerConnection);
+        await using var expirationDb = CreateDbContext(expirationConnection);
+        var winnerPaymentService = new PaymentService(
+            winnerDb,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero)),
+            new TicketIssuanceService(new FixedTicketTokenService()),
+            NullLogger<PaymentService>.Instance,
+            new NullOrderTicketAuditSink(),
+            new OrderExpirationService(
+                winnerDb,
+                TimeProvider.System,
+                Options.Create(new OrderExpirationOptions()),
+                NullLogger<OrderExpirationService>.Instance));
+        var realExpirationService = new OrderExpirationService(
+            expirationDb,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 3, 12, 2, 0, TimeSpan.Zero)),
+            Options.Create(new OrderExpirationOptions()),
+            NullLogger<OrderExpirationService>.Instance);
+        var racingExpirationService = new PayThenExpireService(
+            winnerPaymentService,
+            realExpirationService);
+        var competingPaymentService = new PaymentService(
+            competingDb,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 3, 12, 2, 0, TimeSpan.Zero)),
+            new TicketIssuanceService(new FixedTicketTokenService()),
+            NullLogger<PaymentService>.Instance,
+            new NullOrderTicketAuditSink(),
+            racingExpirationService);
+
+        var result = await competingPaymentService.PayAsync(
+            7,
+            "competing-user",
+            1,
+            new MockPaymentRequest(PaymentChannel.WECHAT, PaymentResult.SUCCESS),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("PAYMENT_ALREADY_SUCCEEDED", result.ErrorCode);
+        Assert.Equal(OrderExpirationOutcome.Skipped, racingExpirationService.Outcome);
+        await using var verificationConnection = new SqliteConnection(connectionString);
+        await verificationConnection.OpenAsync();
+        await using var verification = CreateDbContext(verificationConnection);
+        Assert.Equal("ISSUED", (await verification.Set<Order>().SingleAsync()).OrderStatus);
+        Assert.Single(await verification.Set<ETicket>().ToListAsync());
+        Assert.Single(await verification.Set<Payment>()
+            .Where(item => item.PayStatus == "SUCCESS")
+            .ToListAsync());
+        Assert.Equal(
+            "ACTIVE",
+            (await verification.SeatReservations.SingleAsync()).ReservationStatus);
+    }
+
     private static AppDbContext CreateDbContext(SqliteConnection connection)
     {
         var options = new DbContextOptionsBuilder<SqliteAuthDbContext>()
@@ -133,6 +217,53 @@ public sealed class OrderExpirationConcurrencyTests
             Assert.Equal(OrderExpirationOutcome.Expired, outcome);
             return new TicketCredential("TKT-RACE", "anti-race", "qr-race");
         }
+
+        public bool TryValidate(string qrCode, out TicketTokenPayload? payload)
+        {
+            payload = null;
+            return false;
+        }
+    }
+
+    private sealed class PayThenExpireService(
+        IPaymentService winnerPaymentService,
+        IOrderExpirationService expirationService) : IOrderExpirationService
+    {
+        public OrderExpirationOutcome? Outcome { get; private set; }
+
+        public Task<OrderExpirationBatchResult> ExpireDueBatchAsync(
+            long? afterOrderId = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public async Task<OrderExpirationOutcome> ExpireOrderAsync(
+            long orderId,
+            string actor,
+            DateTime now,
+            CancellationToken cancellationToken = default)
+        {
+            var payment = await winnerPaymentService.PayAsync(
+                7,
+                "winner",
+                orderId,
+                new MockPaymentRequest(PaymentChannel.ALIPAY, PaymentResult.SUCCESS),
+                cancellationToken);
+            if (!payment.IsSuccess)
+                throw new InvalidOperationException(payment.ErrorCode);
+
+            Outcome = await expirationService.ExpireOrderAsync(
+                orderId,
+                actor,
+                now,
+                cancellationToken);
+            return Outcome.Value;
+        }
+    }
+
+    private sealed class FixedTicketTokenService : ITicketTokenService
+    {
+        public TicketCredential Generate(DateTimeOffset issuedAt) =>
+            new("TKT-WINNER", "anti-winner", "qr-winner");
 
         public bool TryValidate(string qrCode, out TicketTokenPayload? payload)
         {

@@ -152,6 +152,35 @@ public sealed class PaymentServiceTests
     }
 
     [Fact]
+    public async Task PayAsync_WhenExpirationLosesWithoutSuccessfulPayment_ReturnsCannotPay()
+    {
+        await using var connection = await CreateConnectionAsync();
+        await using var db = await CreateDbContextAsync(connection);
+        db.Add(CreateOrder(expireTime: new DateTime(2026, 8, 2, 11, 59, 59)));
+        await db.SaveChangesAsync();
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
+        var service = new PaymentService(
+            db,
+            new FixedTimeProvider(now),
+            new TicketIssuanceService(CreateTokenService()),
+            NullLogger<PaymentService>.Instance,
+            new NullOrderTicketAuditSink(),
+            new LosingExpirationService(db));
+
+        var result = await service.PayAsync(
+            7,
+            "alice",
+            1,
+            new MockPaymentRequest(PaymentChannel.ALIPAY, PaymentResult.SUCCESS),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ORDER_CANNOT_PAY", result.ErrorCode);
+        Assert.Equal("CANCELLED", (await db.Set<Order>().AsNoTracking().SingleAsync()).OrderStatus);
+        Assert.Empty(await db.Set<Payment>().ToListAsync());
+    }
+
+    [Fact]
     public async Task PayAsync_WhenSecondTicketGenerationFails_PersistsNothing()
     {
         await using var connection = await CreateConnectionAsync();
@@ -314,6 +343,29 @@ public sealed class PaymentServiceTests
             CancellationToken cancellationToken) =>
             ValueTask.FromException(
                 new InvalidOperationException("Simulated audit failure."));
+    }
+
+    private sealed class LosingExpirationService(AppDbContext dbContext)
+        : IOrderExpirationService
+    {
+        public Task<OrderExpirationBatchResult> ExpireDueBatchAsync(
+            long? afterOrderId = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public async Task<OrderExpirationOutcome> ExpireOrderAsync(
+            long orderId,
+            string actor,
+            DateTime now,
+            CancellationToken cancellationToken = default)
+        {
+            await dbContext.Set<Order>()
+                .Where(item => item.OrderId == orderId)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(item => item.OrderStatus, "CANCELLED"),
+                    cancellationToken);
+            return OrderExpirationOutcome.Skipped;
+        }
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
