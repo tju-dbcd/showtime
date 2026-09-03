@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Common.TicketSecurity;
 using ShowtimeBackend.DTOs.OrderTicket;
@@ -15,7 +16,12 @@ public sealed class ExchangeWorkflowGuardTests
         await using var fixture = await CreateExchangeOrderAsync();
         var service = new PaymentService(
             fixture.Db, fixture.TimeProvider, new TicketIssuanceService(new TokenService()),
-            NullLogger<PaymentService>.Instance, new NullOrderTicketAuditSink());
+            NullLogger<PaymentService>.Instance, new NullOrderTicketAuditSink(),
+            new OrderExpirationService(
+                fixture.Db,
+                fixture.TimeProvider,
+                Options.Create(new OrderExpirationOptions()),
+                NullLogger<OrderExpirationService>.Instance));
 
         var result = await service.PayAsync(7, "alice", 11,
             new MockPaymentRequest(PaymentChannel.ALIPAY, PaymentResult.SUCCESS), CancellationToken.None);

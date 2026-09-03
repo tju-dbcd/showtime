@@ -8,11 +8,13 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.FileStorage;
+using ShowtimeBackend.Services.OrderTicket;
 
 namespace ShowtimeBackend.Tests;
 
@@ -31,19 +33,22 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
     private readonly IFileStorageService? _customFileStorage;
     private readonly bool _localStorageEnabled;
     private readonly string? _localStorageRoot;
+    private readonly bool _enableOrderExpirationWorker;
 
     public AuthTestFactory(
         string? jwtKey = TestKey,
         bool ossEnabled = false,
         bool replaceWithFakeStorage = false,
         IFileStorageService? customFileStorage = null,
-        bool localStorageEnabled = false)
+        bool localStorageEnabled = false,
+        bool enableOrderExpirationWorker = false)
     {
         _jwtKey = jwtKey;
         _ossEnabled = ossEnabled;
         _replaceWithFakeStorage = replaceWithFakeStorage;
         _customFileStorage = customFileStorage;
         _localStorageEnabled = localStorageEnabled;
+        _enableOrderExpirationWorker = enableOrderExpirationWorker;
         // 本地磁盘存储用例指向独立临时目录，测试结束整目录清理
         _localStorageRoot = localStorageEnabled
             ? Path.Combine(
@@ -153,6 +158,17 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
         });
         builder.ConfigureServices(services =>
         {
+            if (!_enableOrderExpirationWorker)
+            {
+                var workerDescriptors = services
+                    .Where(descriptor =>
+                        descriptor.ServiceType == typeof(IHostedService) &&
+                        descriptor.ImplementationType == typeof(OrderExpirationWorker))
+                    .ToList();
+                foreach (var descriptor in workerDescriptors)
+                    services.Remove(descriptor);
+            }
+
             services.RemoveAll<AppDbContext>();
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();

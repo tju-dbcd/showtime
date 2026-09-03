@@ -11,7 +11,7 @@ public sealed class OrderExpirationWorkerTests
     [Fact]
     public void ApplicationServices_RegisterOrderExpirationWorker()
     {
-        using var factory = new AuthTestFactory();
+        using var factory = new AuthTestFactory(enableOrderExpirationWorker: true);
         using var client = factory.CreateApiClient();
 
         Assert.Contains(
