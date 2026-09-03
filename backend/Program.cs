@@ -167,6 +167,14 @@ builder.Services
     .ValidateOnStart();
 
 builder.Services
+    .AddOptions<OrderExpirationOptions>()
+    .Bind(
+        builder.Configuration.GetSection(OrderExpirationOptions.SectionName),
+        binder => binder.ErrorOnUnknownConfiguration = true)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -236,6 +244,8 @@ builder.Services.AddSingleton<ITicketTokenService, HmacTicketTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IOrderExpirationService, OrderExpirationService>();
+builder.Services.AddHostedService<OrderExpirationWorker>();
 builder.Services.AddScoped<ITicketIssuanceService, TicketIssuanceService>();
 builder.Services.AddScoped<ITicketQueryService, TicketQueryService>();
 builder.Services.AddScoped<ITicketRedemptionService, TicketRedemptionService>();

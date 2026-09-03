@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Oracle.ManagedDataAccess.Client;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
@@ -16,7 +17,8 @@ namespace ShowtimeBackend.Services.OrderTicket;
 public sealed class OrderService(
     AppDbContext dbContext,
     TimeProvider timeProvider,
-    ISeatLockGuard? seatLockGuard = null) : IOrderService
+    ISeatLockGuard? seatLockGuard = null,
+    IOptions<OrderExpirationOptions>? expirationOptions = null) : IOrderService
 {
     // 与座位规则 NUMBER(3) 的取值范围保持一致，并避免生成过大的 Oracle IN 查询。
     private const int MaxSeatsPerOrder = 999;
@@ -303,7 +305,9 @@ public sealed class OrderService(
             DiscountAmount = 0m,
             TicketCount = orderItems.Count,
             OrderStatus = "PENDING_PAY",
-            ExpireTime = now.AddMinutes(15),
+            ExpireTime = now.AddMinutes(
+                expirationOptions?.Value.PendingPaymentExpireMinutes ??
+                new OrderExpirationOptions().PendingPaymentExpireMinutes),
             Source = "WEB",
             Remark = string.IsNullOrWhiteSpace(request.Remark) ? null : request.Remark.Trim(),
             CreateBy = actor,

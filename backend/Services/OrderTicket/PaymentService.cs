@@ -11,7 +11,8 @@ public sealed class PaymentService(
     TimeProvider timeProvider,
     ITicketIssuanceService ticketIssuanceService,
     ILogger<PaymentService> logger,
-    IOrderTicketAuditSink auditSink) : IPaymentService
+    IOrderTicketAuditSink auditSink,
+    IOrderExpirationService orderExpirationService) : IPaymentService
 {
     public async Task<OrderTicketResult<IReadOnlyList<PaymentResponse>>> ListAsync(
         long userId,
@@ -86,20 +87,11 @@ public sealed class PaymentService(
 
             if (order.ExpireTime <= now)
             {
-                order.OrderStatus = OrderStatus.CANCELLED.ToDbString();
-                order.CancelTime = now;
-                order.UpdateBy = actor;
-                try
-                {
-                    await dbContext.SaveChangesAsync(cancellationToken);
-                }
-                catch (DbUpdateConcurrencyException)
-                {
-                    dbContext.ChangeTracker.Clear();
-                    return Conflict(
-                        "ORDER_CANNOT_PAY",
-                        "The order status changed and it can no longer be paid.");
-                }
+                await orderExpirationService.ExpireOrderAsync(
+                    order.OrderId,
+                    OrderExpirationService.SystemActor,
+                    now,
+                    cancellationToken);
                 return Conflict(
                     "ORDER_EXPIRED",
                     "The order has expired and was cancelled.");
