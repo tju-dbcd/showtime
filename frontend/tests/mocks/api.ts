@@ -62,8 +62,17 @@ const MOCK_SESSIONS = [
     startTime: '2026-12-31T19:30:00',
     endTime: '2026-12-31T21:30:00',
     saleStartTime: '2026-01-01T00:00:00',
-    sessionStatus: 'PUBLISHED',
+    sessionStatus: 'ONSALE',
     seatMapId: 5001,
+  },
+  {
+    showId: 1,
+    sessionId: 9003,
+    startTime: '2027-01-02T19:30:00',
+    endTime: '2027-01-02T21:30:00',
+    saleStartTime: '2026-01-01T00:00:00',
+    sessionStatus: 'ONSALE',
+    seatMapId: 5003,
   },
   {
     showId: 2,
@@ -71,11 +80,10 @@ const MOCK_SESSIONS = [
     startTime: '2026-12-30T19:30:00',
     endTime: '2026-12-30T21:30:00',
     saleStartTime: '2026-01-01T00:00:00',
-    sessionStatus: 'PUBLISHED',
+    sessionStatus: 'ONSALE',
     seatMapId: 5002,
   },
 ];
-
 const PRICING_STRATEGIES = [
   {
     priceStrategyId: 1,
@@ -86,15 +94,16 @@ const PRICING_STRATEGIES = [
   },
 ];
 
-/** 构造一张 5 排 × 8 座 的座位表，初始全部 AVAILABLE */
+/** 构造一张 5 排 × 8 座 的座位表，初始全部 AVAILABLE；sessionId 决定场次归属 */
 function buildSeatMap(sessionId: number) {
   const rows = ['A', 'B', 'C', 'D', 'E'];
   const cols = 8;
   let seatId = 0;
+  const session = MOCK_SESSIONS.find((s) => s.sessionId === sessionId) ?? MOCK_SESSIONS[0];
   const sections = [
     {
       seatSectionId: 1001,
-      seatMapId: 5001,
+      seatMapId: session.seatMapId,
       sectionCode: 'A1',
       sectionName: 'A区',
       sectionType: 'STANDARD',
@@ -123,17 +132,17 @@ function buildSeatMap(sessionId: number) {
   ];
   return {
     sessionId,
-    showId: 1,
-    seatMapId: 5001,
-    startTime: MOCK_SESSIONS[0].startTime,
-    endTime: MOCK_SESSIONS[0].endTime,
-    saleStartTime: MOCK_SESSIONS[0].saleStartTime,
+    showId: session.showId,
+    seatMapId: session.seatMapId,
+    startTime: session.startTime,
+    endTime: session.endTime,
+    saleStartTime: session.saleStartTime,
     saleEndTime: '2026-12-31T20:00:00',
-    sessionStatus: 'PUBLISHED',
+    sessionStatus: session.sessionStatus,
     seatMap: {
-      seatMapId: 5001,
+      seatMapId: session.seatMapId,
       venueId: 1,
-      mapCode: 'MAP-01',
+      mapCode: `MAP-${session.seatMapId}`,
       mapName: '主会场座位图',
       mapVersion: 'v1',
       isDefault: true,
@@ -144,6 +153,11 @@ function buildSeatMap(sessionId: number) {
     },
   };
 }
+
+const SEAT_MAPS: Record<number, ReturnType<typeof buildSeatMap>> = {
+  9001: buildSeatMap(9001),
+  9003: buildSeatMap(9003),
+};
 
 // ========== Mock 数据库（每个用例独立） ==========
 interface MockOrder {
@@ -172,6 +186,9 @@ interface MockDb {
   nextOrderId: number;
   orders: MockOrder[];
   seatStatus: Map<number, string>; // seatId -> AVAILABLE | LOCKED | SOLD
+  nextExchangeId: number;
+  exchanges: unknown[]; // 改签申请（ExchangeSummaryResponse 形态）
+  refunds: unknown[];
 }
 
 function createDb(): MockDb {
@@ -181,13 +198,35 @@ function createDb(): MockDb {
     nextOrderId: 1,
     orders: [],
     seatStatus: new Map(),
+    nextExchangeId: 1,
+    exchanges: [],
+    refunds: [],
   };
 }
 
-const SEAT_MAP = buildSeatMap(9001);
-
 function getOrderOrNull(db: MockDb, orderId: number): MockOrder | null {
   return db.orders.find((o) => o.orderId === orderId) ?? null;
+}
+
+/** 校验改签 targetItems 是否符合后端 1:1 契约：数量与原票一致、ID 唯一且属于该订单 */
+function validateExchangeTargetItems(db: MockDb, order: MockOrder, targetItems: unknown): string | null {
+  const items = (targetItems as Array<{ originalOrderItemId: number }>) ?? [];
+  const orderItemIds = (order.items as Array<{ orderItemId: number }>).map((it) => it.orderItemId);
+  if (items.length !== order.items.length) {
+    return '改签必须选择与原票数量一致的目标座位（1:1 映射）';
+  }
+  const seen = new Set<number>();
+  for (const item of items) {
+    const id = Number(item.originalOrderItemId);
+    if (!id || !orderItemIds.includes(id)) {
+      return '目标座位缺少有效的原票明细映射（originalOrderItemId 非法）';
+    }
+    if (seen.has(id)) {
+      return '同一原票明细被映射到多个目标座位（重复 originalOrderItemId）';
+    }
+    seen.add(id);
+  }
+  return null;
 }
 
 // ========== 路由处理 ==========
@@ -317,14 +356,15 @@ export async function mockApi(page: Page): Promise<void> {
     // ---------- 座位图 / 锁座 ----------
     const seatMap = path.match(/^sessions\/(\d+)\/seat-map$/);
     if (method === 'GET' && seatMap) {
-      if (SEAT_MAP.sessionId !== Number(seatMap[1])) {
+      const seatMapData = SEAT_MAPS[Number(seatMap[1])];
+      if (!seatMapData) {
         return fulfill(404, fail('场次不存在'));
       }
       return fulfill(200, ok({
-        ...SEAT_MAP,
+        ...seatMapData,
         seatMap: {
-          ...SEAT_MAP.seatMap,
-          sections: SEAT_MAP.seatMap.sections.map((section) => ({
+          ...seatMapData.seatMap,
+          sections: seatMapData.seatMap.sections.map((section) => ({
             ...section,
             seats: section.seats.map((seat) => ({
               ...seat,
@@ -400,13 +440,13 @@ export async function mockApi(page: Page): Promise<void> {
         source: 'WEB',
         remark: null,
         createTime: now.toISOString(),
-        items: items.map((it) => ({
-          orderItemId: orderId * 100 + 1,
+        items: items.map((it, idx) => ({
+          orderItemId: orderId * 100 + idx + 1,
           seatId: it.seatId,
           priceStrategyId: 1,
           realNameId: null,
           unitPrice: it.unitPrice ?? 100,
-          itemStatus: 'PENDING_PAY',
+          itemStatus: 'NORMAL',
         })),
         payments: [],
         tickets: [],
@@ -483,6 +523,178 @@ export async function mockApi(page: Page): Promise<void> {
     if (method === 'GET' && tickets) {
       const order = getOrderOrNull(db, Number(tickets[1]));
       return fulfill(200, ok(order ? order.tickets : []));
+    }
+
+    // ---------- 退票 ----------
+    const refundQuote = path.match(/^orders\/(\d+)\/refunds\/quote$/);
+    if (method === 'POST' && refundQuote) {
+      const order = getOrderOrNull(db, Number(refundQuote[1]));
+      if (!order) return fulfill(404, fail('订单不存在'));
+      const items = (order.items as Array<{ orderItemId: number; unitPrice: number }>);
+      const totalBase = items.reduce((sum, it) => sum + it.unitPrice, 0);
+      return fulfill(200, ok({
+        quotedAt: new Date().toISOString(),
+        orderId: order.orderId,
+        orderItemBaseAmounts: items.map((it) => ({
+          orderItemId: it.orderItemId,
+          baseAmount: it.unitPrice,
+          refundAmount: Math.round(it.unitPrice * 0.7 * 100) / 100,
+          feeAmount: 0,
+        })),
+        totalBaseAmount: totalBase,
+        feeRate: 0.3,
+        appliedServiceFee: 0,
+        actualRefund: Math.round(totalBase * 0.7 * 100) / 100,
+        refundMode: 'FULL',
+      }));
+    }
+
+    const applyRefund = path.match(/^orders\/(\d+)\/refunds$/);
+    if (method === 'POST' && applyRefund) {
+      const order = getOrderOrNull(db, Number(applyRefund[1]));
+      if (!order) return fulfill(404, fail('订单不存在'));
+      const reason = String(body.reason ?? '');
+      if (!reason.trim()) return fulfill(400, fail('请填写退票原因'));
+      const orderItemIds = ((body.orderItemIds as number[]) ?? []).map(Number);
+      const valid = orderItemIds.every((id) =>
+        (order.items as Array<{ orderItemId: number }>).some((it) => it.orderItemId === id));
+      if (!valid) return fulfill(400, fail('退票明细不合法', 'REFUND_ITEM_NOT_ELIGIBLE'));
+      const refund = {
+        refundId: order.orderId * 1000 + 1,
+        refundNo: `RF${Date.now()}`,
+        orderId: order.orderId,
+        orderItemIds,
+        reason,
+        refundType: order.items.length === orderItemIds.length ? 'FULL' : 'PART',
+        approveStatus: 'PENDING',
+        refundStatus: 'PENDING',
+        estimatedRefund: order.totalAmount * 0.7,
+        createTime: new Date().toISOString(),
+      };
+      db.refunds.push(refund);
+      return fulfill(201, ok(refund));
+    }
+
+    // ---------- 改签 ----------
+    const exchangeQuote = path.match(/^orders\/(\d+)\/exchanges\/quote$/);
+    if (method === 'POST' && exchangeQuote) {
+      const order = getOrderOrNull(db, Number(exchangeQuote[1]));
+      if (!order) return fulfill(404, fail('订单不存在'));
+      const targetItems = (body.targetItems as Array<{
+        originalOrderItemId: number; seatId: number; priceStrategyId: number; lockToken: string;
+      }>) ?? [];
+      const invalid = validateExchangeTargetItems(db, order, targetItems);
+      if (invalid) return fulfill(400, fail(invalid, 'EXCHANGE_ITEM_NOT_ELIGIBLE'));
+      const origItems = order.items as Array<{ orderItemId: number; unitPrice: number }>;
+      const origDeduction = targetItems.reduce((sum, item) => {
+        const orig = origItems.find((it) => it.orderItemId === Number(item.originalOrderItemId));
+        return sum + (orig?.unitPrice ?? 0);
+      }, 0);
+      const targetAmount = targetItems.length * 100;
+      const exchangeFee = 20;
+      return fulfill(200, ok({
+        quotedAt: new Date().toISOString(),
+        orderId: order.orderId,
+        origSessionId: order.sessionId,
+        targetSessionId: Number(body.targetSessionId ?? 0),
+        origDeduction,
+        targetAmount,
+        priceDiff: targetAmount - origDeduction,
+        exchangeFee,
+        amountDue: targetAmount - origDeduction + exchangeFee,
+        appliedPolicyId: 1,
+        policyName: '默认政策',
+        items: targetItems.map((item) => ({
+          originalOrderItemId: Number(item.originalOrderItemId),
+          targetSeatId: Number(item.seatId),
+          targetPriceStrategyId: Number(item.priceStrategyId),
+          realNameId: null,
+          originalUnitPrice: origItems.find((it) => it.orderItemId === Number(item.originalOrderItemId))?.unitPrice ?? 0,
+          newUnitPrice: 100,
+        })),
+      }));
+    }
+
+    const applyExchange = path.match(/^orders\/(\d+)\/exchanges$/);
+    if (method === 'POST' && applyExchange) {
+      const order = getOrderOrNull(db, Number(applyExchange[1]));
+      if (!order) return fulfill(404, fail('订单不存在'));
+      const targetItems = (body.targetItems as Array<{ originalOrderItemId: number }>) ?? [];
+      const invalid = validateExchangeTargetItems(db, order, targetItems);
+      if (invalid) return fulfill(400, fail(invalid, 'EXCHANGE_ITEM_NOT_ELIGIBLE'));
+      const exchangeId = db.nextExchangeId++;
+      const now = new Date();
+      const summary = {
+        exchangeId,
+        exchangeNo: `EX${now.getTime()}${exchangeId}`,
+        originalOrderId: order.orderId,
+        childOrderId: order.orderId * 1000 + exchangeId,
+        amountDue: targetItems.length * 100 - order.totalAmount + 20,
+        approveStatus: 'PENDING',
+        exchangeStatus: 'PENDING',
+        expireTime: new Date(now.getTime() + 24 * 3600 * 1000).toISOString(),
+        createTime: now.toISOString(),
+        completeTime: null,
+      };
+      db.exchanges.push(summary);
+      return fulfill(201, ok({
+        exchangeId,
+        exchangeNo: summary.exchangeNo,
+        originalOrderId: order.orderId,
+        childOrderId: summary.childOrderId,
+        userId: 1,
+        origSessionId: order.sessionId,
+        targetSessionId: Number(body.targetSessionId ?? 0),
+        reason: (body.reason as string | null) ?? null,
+        origDeduction: order.totalAmount,
+        targetAmount: targetItems.length * 100,
+        priceDiff: targetItems.length * 100 - order.totalAmount,
+        exchangeFee: 20,
+        amountDue: summary.amountDue,
+        appliedPolicyId: 1,
+        policyName: '默认政策',
+        approveStatus: 'PENDING',
+        exchangeStatus: 'PENDING',
+        reviewBy: null,
+        reviewTime: null,
+        reviewRemark: null,
+        completeTime: null,
+        expireTime: summary.expireTime,
+        createTime: summary.createTime,
+        items: [],
+      }));
+    }
+
+    const exchangeList = path.match(/^orders\/(\d+)\/exchanges$/);
+    if (method === 'GET' && exchangeList) {
+      const orderId = Number(exchangeList[1]);
+      const items = db.exchanges.filter((e) => (e as { originalOrderId: number }).originalOrderId === orderId);
+      return fulfill(200, ok({ items, page: 1, pageSize: 20, totalCount: items.length }));
+    }
+
+    const payExchange = path.match(/^exchanges\/(\d+)\/pay$/);
+    if (method === 'POST' && payExchange) {
+      const exchangeId = Number(payExchange[1]);
+      const exchange = db.exchanges.find((e) => (e as { exchangeId: number }).exchangeId === exchangeId);
+      if (!exchange) return fulfill(404, fail('改签申请不存在'));
+      (exchange as { approveStatus: string }).approveStatus = 'APPROVED';
+      (exchange as { exchangeStatus: string }).exchangeStatus = 'COMPLETED';
+      (exchange as { completeTime: string | null }).completeTime = new Date().toISOString();
+      const now = new Date().toISOString();
+      return fulfill(200, ok({
+        payment: {
+          paymentId: exchangeId * 10 + 7,
+          paymentNo: `PAYEX${now.replace(/\D/g, '').slice(0, 14)}`,
+          orderId: (exchange as { childOrderId: number }).childOrderId,
+          payAmount: (exchange as { amountDue: number }).amountDue,
+          payChannel: String(body.payChannel ?? 'WECHAT'),
+          payStatus: 'SUCCESS',
+          tradeNo: 'MOCK-EX-TRADE-001',
+          callbackTime: now,
+          payTime: now,
+        },
+        exchange,
+      }));
     }
 
     // ---------- 兜底：未匹配端点返回空成功，避免页面报错 ----------

@@ -294,3 +294,21 @@
     height: 20px;
   }
 }
+
+/* ========== 票区区块 ========== */
+.seat-section {
+  margin-bottom: 24px;
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 12px;
+  border: 1px solid #f0f0f0;
+}
+
+.seat-section:last-child {
+  margin-bottom: 0;
+}
+
+.seat-section .seat-grid {
+  display: inline-block;
+  min-width: 100%;
+}
