@@ -8,11 +8,6 @@ import './Home.css';
 
 const { Title, Text } = Typography;
 
-// 热门演出数量
-const HOT_COUNT = 3;
-// 近期演出数量
-const UPCOMING_COUNT = 6;
-
 const Home = () => {
   const navigate = useNavigate();
   const [shows, setShows] = useState<ShowDto[]>([]);
@@ -24,28 +19,33 @@ const Home = () => {
   const fetchShows = async () => {
     setLoading(true);
     try {
-      const response: any = await showAPI.getShows({
+      const { data, error } = await showAPI.getShows({
         PageIndex: 1,
         PageSize: 20,
         Status: 'PUBLISHED',
       });
 
-      const result = response.data ? response.data : response;
+      if (error) {
+        message.error('获取演出列表失败');
+        return;
+      }
 
-      if (result.success && result.data) {
-        const list = result.data.items || [];
+      if (data?.success && data?.data) {
+        const list = (data.data.items || []).map((item: any) => ({
+          ...item,
+          showId: Number(item.showId),
+          categoryId: Number(item.categoryId),
+          durationMinutes: item.durationMinutes !== null ? Number(item.durationMinutes) : null,
+        }));
         setShows(list);
-
-        // 取前3个作为热门
-        setHotShows(list.slice(0, HOT_COUNT));
-        // 取接下来6个作为近期
-        setUpcomingShows(list.slice(HOT_COUNT, HOT_COUNT + UPCOMING_COUNT));
+        setHotShows(list.slice(0, 3));
+        setUpcomingShows(list.slice(3, 9));
       } else {
-        message.error(result.message || '获取演出列表失败');
+        message.error(data?.message || '获取演出列表失败');
       }
     } catch (error: any) {
       console.error('获取演出列表失败:', error);
-      message.error(error.response?.data?.message || '获取演出列表失败');
+      message.error(error.message || '获取演出列表失败');
     } finally {
       setLoading(false);
     }
@@ -73,7 +73,7 @@ const Home = () => {
   if (loading) {
     return (
       <div className="home-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-        <Spin size="large" tip="加载演出列表..." />
+        <Spin size="large" description="加载演出列表..." />
       </div>
     );
   }

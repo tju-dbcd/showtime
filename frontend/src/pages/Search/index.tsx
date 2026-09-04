@@ -45,30 +45,37 @@ const Search = () => {
         Status: 'PUBLISHED',
       };
 
-      // 关键词
       if (keyword || searchText) {
         params.Keyword = keyword || searchText;
       }
-
-      // 分类（选中的分类ID，0表示全部）
       if (selectedCategory !== 0) {
         params.CategoryId = selectedCategory;
       }
 
-      // 城市和价格目前无法筛选（后端接口暂无这些参数，可后续补充）
-      // 暂时忽略 city 和 priceRange
+      const { data, error } = await showAPI.getShows(params);
 
-      const response: any = await showAPI.getShows(params);
-      const result = response.data ? response.data : response;
-      if (result.success && result.data) {
-        setShows(result.data.items || []);
-        setTotal(result.data.totalCount || 0);
+      if (error) {
+        message.error('搜索失败');
+        setLoading(false);
+        return;
+      }
+
+      if (data?.success && data?.data) {
+        const items = (data.data.items || []).map((item: any) => ({
+          ...item,
+          showId: Number(item.showId),
+          categoryId: Number(item.categoryId),
+          durationMinutes: item.durationMinutes !== null ? Number(item.durationMinutes) : null,
+        }));
+        setShows(items);
+        setTotal(Number(data.data.totalCount || 0));
+        setPage(Number(data.data.page || 1));
       } else {
-        message.error(result.message || '搜索失败');
+        message.error(data?.message || '搜索失败');
       }
     } catch (error: any) {
       console.error('搜索失败:', error);
-      message.error(error.response?.data?.message || '搜索失败');
+      message.error(error.message || '搜索失败');
     } finally {
       setLoading(false);
     }

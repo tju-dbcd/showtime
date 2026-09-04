@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
@@ -12,6 +13,34 @@ namespace ShowtimeBackend.Tests.OrderTicket;
 
 public sealed class OrderServiceTests
 {
+    [Fact]
+    public async Task CreateAsync_UsesConfiguredPendingPaymentExpiration()
+    {
+        await using var db = CreateDbContext();
+        await SeedCatalogAsync(db);
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
+        await AddActiveLockAsync(db, 50, "lock-50", now.UtcDateTime);
+        var service = new OrderService(
+            db,
+            new FixedTimeProvider(now),
+            expirationOptions: Options.Create(new OrderExpirationOptions
+            {
+                PendingPaymentExpireMinutes = 20,
+            }));
+
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            new CreateOrderRequest(
+                10,
+                [new CreateOrderItemRequest(50, 60, null, "lock-50")],
+                null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(now.UtcDateTime.AddMinutes(20), result.Value!.ExpireTime);
+    }
+
     [Fact]
     public async Task CreateAsync_ComputesAmountsFromEnabledPriceStrategies()
     {

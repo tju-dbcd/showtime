@@ -8,6 +8,7 @@ import AdminLayout from '../pages/admin/Layout';
 import Performance from '../pages/admin/Performance';
 import Session from '../pages/admin/Session';
 import AdminOrder from '../pages/admin/Order';
+import OrderDetail from '../pages/OrderDetail';
 import Publish from '../pages/admin/Publish';
 import SeatMapEditor from '../pages/admin/SeatMap';
 
@@ -49,6 +50,7 @@ const router = createBrowserRouter([
       { index: true, element: withSuspense(Home) },
       { path: 'search', element: withSuspense(Search) },
       { path: 'order', element: withSuspense(Order) },
+      { path: 'order/:orderId', element: <OrderDetail /> },
       { path: 'performance/:id', element: withSuspense(PerformanceDetail) },
       { path: 'seat-selection/:eventId', element: withSuspense(SeatSelection) },
     ],
