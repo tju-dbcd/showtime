@@ -13,6 +13,49 @@ namespace ShowtimeBackend.Tests.OrderTicket;
 
 public sealed class OrdersControllerTests
 {
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Create_WithMissingOrBlankIdempotencyKey_ReturnsInvalidKey(string? key)
+    {
+        await using var db = CreateDbContext();
+        var identity = new ClaimsIdentity(
+            [new Claim("sub", "7"), new Claim(ClaimTypes.Name, "alice")],
+            "test");
+        var controller = CreateController(db, new ClaimsPrincipal(identity));
+
+        var result = await controller.Create(
+            key,
+            ValidCreateRequest(),
+            CancellationToken.None);
+
+        var response = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        var body = Assert.IsType<ApiResponse<OrderResponse>>(response.Value);
+        Assert.Equal("ORDER_INVALID_IDEMPOTENCY_KEY", body.Code);
+    }
+
+    [Fact]
+    public async Task Create_WithOverlongTrimmedIdempotencyKey_ReturnsInvalidKey()
+    {
+        await using var db = CreateDbContext();
+        var identity = new ClaimsIdentity(
+            [new Claim("sub", "7"), new Claim(ClaimTypes.Name, "alice")],
+            "test");
+        var controller = CreateController(db, new ClaimsPrincipal(identity));
+
+        var result = await controller.Create(
+            $" {new string('k', 65)} ",
+            ValidCreateRequest(),
+            CancellationToken.None);
+
+        var response = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        var body = Assert.IsType<ApiResponse<OrderResponse>>(response.Value);
+        Assert.Equal("ORDER_INVALID_IDEMPOTENCY_KEY", body.Code);
+    }
+
     [Fact]
     public async Task List_WithoutSubjectClaim_ReturnsUnauthorized()
     {
@@ -75,4 +118,9 @@ public sealed class OrdersControllerTests
         ExpireTime = DateTime.UtcNow.AddMinutes(15),
         Source = "WEB"
     };
+
+    private static CreateOrderRequest ValidCreateRequest() => new(
+        10,
+        [new CreateOrderItemRequest(50, 60, null, "lock-50")],
+        null);
 }

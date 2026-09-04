@@ -39,6 +39,10 @@ public class Order : AuditableEntity
 
     public string? Remark { get; set; }
 
+    public string? IdempotencyKey { get; set; }
+
+    public string? IdempotencyRequestHash { get; set; }
+
     public SysUser? User { get; set; }
 
     public Order? ParentOrder { get; set; }

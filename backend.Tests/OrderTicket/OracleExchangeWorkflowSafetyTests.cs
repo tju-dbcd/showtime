@@ -464,6 +464,7 @@ public sealed class OracleExchangeWorkflowSafetyTests
             return (await order.CreateAsync(
                 fixture.UserId,
                 "oracle-order-racer",
+                "oracle-order-race-key",
                 new CreateOrderRequest(
                     OracleWorkflowFixture.TargetSessionId,
                     [new CreateOrderItemRequest(

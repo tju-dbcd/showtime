@@ -20,6 +20,10 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             table.HasCheckConstraint("CHK_T_ORDER_TOTAL", "TOTAL_AMOUNT >= 0");
             table.HasCheckConstraint("CHK_T_ORDER_DISCOUNT", "DISCOUNT_AMOUNT >= 0");
             table.HasCheckConstraint("CHK_T_ORDER_COUNT", "TICKET_COUNT > 0");
+            table.HasCheckConstraint(
+                "CHK_T_ORDER_IDEMPOTENCY_PAIR",
+                "(IDEMPOTENCY_KEY IS NULL AND IDEMPOTENCY_REQUEST_HASH IS NULL) OR " +
+                "(IDEMPOTENCY_KEY IS NOT NULL AND IDEMPOTENCY_REQUEST_HASH IS NOT NULL)");
         });
 
         builder.HasKey(entity => entity.OrderId)
@@ -124,6 +128,19 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             .HasMaxLength(500)
             .IsUnicode(false);
 
+        builder.Property(entity => entity.IdempotencyKey)
+            .HasColumnName("IDEMPOTENCY_KEY")
+            .HasColumnType("VARCHAR2(64 CHAR)")
+            .HasMaxLength(64)
+            .IsUnicode(false);
+
+        builder.Property(entity => entity.IdempotencyRequestHash)
+            .HasColumnName("IDEMPOTENCY_REQUEST_HASH")
+            .HasColumnType("CHAR(64 CHAR)")
+            .HasMaxLength(64)
+            .IsFixedLength()
+            .IsUnicode(false);
+
         builder.ConfigureAuditableEntity();
 
         builder.HasIndex(entity => entity.OrderNo)
@@ -144,6 +161,10 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         builder.HasIndex(entity => new { entity.UserId, entity.OrderStatus })
             .HasDatabaseName("IDX_T_ORDER_USER_STATUS");
+
+        builder.HasIndex(entity => new { entity.UserId, entity.IdempotencyKey })
+            .IsUnique()
+            .HasDatabaseName("UK_T_ORDER_USER_IDEMPOTENCY");
 
         builder.HasOne(entity => entity.User)
             .WithMany()

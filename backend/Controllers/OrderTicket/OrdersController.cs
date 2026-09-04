@@ -49,6 +49,7 @@ public sealed class OrdersController(IOrderService orderService) : OrderTicketCo
     [HttpPost]
     [ProducesResponseType(typeof(ApiResponse<OrderResponse>), StatusCodes.Status201Created)]
     public async Task<ActionResult<ApiResponse<OrderResponse>>> Create(
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         [FromBody] CreateOrderRequest request,
         CancellationToken cancellationToken)
     {
@@ -57,7 +58,12 @@ public sealed class OrdersController(IOrderService orderService) : OrderTicketCo
             return UnauthorizedResponse<OrderResponse>();
         }
 
-        var result = await orderService.CreateAsync(userId, actor, request, cancellationToken);
+        var result = await orderService.CreateAsync(
+            userId,
+            actor,
+            idempotencyKey,
+            request,
+            cancellationToken);
         return result.IsSuccess
             ? CreatedAtAction(
                 nameof(Get),
