@@ -284,6 +284,7 @@ builder.Services.AddExceptionHandler<ApiResponseExceptionHandler>();
 builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+    options.AddOperationTransformer<OrderIdempotencyOperationTransformer>();
     options.AddSchemaTransformer<EnumStringSchemaTransformer>();
     options.AddSchemaTransformer<TicketRedemptionSchemaTransformer>();
 });

@@ -7168,7 +7168,9 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
+            "required": true,
             "schema": {
+              "maxLength": 64,
               "type": "string"
             }
           }

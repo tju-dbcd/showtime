@@ -176,11 +176,11 @@ public sealed class OrderService(
             item.SeatId,
             item.PriceStrategyId,
             item.RealNameId,
-            (item.LockToken ?? string.Empty).Trim())).ToArray();
+            item.LockToken ?? string.Empty)).ToArray();
         if (request.SessionId <= 0 || request.Items.Count is 0 or > MaxSeatsPerOrder ||
             normalizedItems.Any(item => item.SeatId <= 0 ||
                                         item.PriceStrategyId <= 0 ||
-                                        string.IsNullOrEmpty(item.LockToken) ||
+                                        string.IsNullOrWhiteSpace(item.LockToken) ||
                                         item.LockToken.Length > 64) ||
             normalizedItems.Select(item => item.SeatId).Distinct().Count() != request.Items.Count ||
             normalizedItems.Select(item => item.LockToken)

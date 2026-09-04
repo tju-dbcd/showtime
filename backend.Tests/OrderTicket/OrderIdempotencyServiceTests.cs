@@ -23,7 +23,7 @@ public sealed class OrderIdempotencyServiceTests
             7,
             "alice",
             "  Case-Sensitive-Key  ",
-            Request([new(50, 60, null, " lock-50 ")], "  remark  "),
+            Request([new(50, 60, null, "lock-50")], "  remark  "),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Message);
@@ -31,6 +31,26 @@ public sealed class OrderIdempotencyServiceTests
         Assert.Equal("Case-Sensitive-Key", order.IdempotencyKey);
         Assert.Matches("^[0-9A-F]{64}$", order.IdempotencyRequestHash!);
         Assert.Equal("remark", order.Remark);
+    }
+
+    [Fact]
+    public async Task CreateAsync_LockTokenWithSurroundingWhitespaceDoesNotMatchOpaqueToken()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddLockAsync(7, 50, "lock-50");
+
+        var result = await fixture.Service.CreateAsync(
+            7,
+            "alice",
+            "opaque-token",
+            Request([new(50, 60, null, " lock-50 ")], null),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ORDER_SEAT_LOCK_INVALID", result.ErrorCode);
+        Assert.Empty(await fixture.Db.Set<Order>().ToListAsync());
+        Assert.Equal("ACTIVE", (await fixture.Db.SeatLocks.SingleAsync()).LockStatus);
+        Assert.Empty(fixture.Guard.ReleaseCalls);
     }
 
     [Fact]

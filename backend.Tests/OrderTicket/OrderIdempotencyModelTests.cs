@@ -110,9 +110,14 @@ public sealed class OrderIdempotencyModelTests
             10,
             [new(50, 60, 70, "lock-50"), new(51, 62, null, "lock-51")],
             "remark");
+        var whitespaceToken = OrderIdempotencyRequestHasher.Compute(
+            10,
+            [new(50, 60, 70, " lock-50 "), new(51, 61, null, "lock-51")],
+            "remark");
 
         Assert.Equal(first, reordered);
         Assert.NotEqual(first, changed);
+        Assert.NotEqual(first, whitespaceToken);
         Assert.Matches("^[0-9A-F]{64}$", first);
     }
 
