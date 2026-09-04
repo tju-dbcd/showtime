@@ -45,6 +45,9 @@ public class ShowSessionService : IClientShowSessionService
         return sessions.Select(ToDto);
     }
 
+    /// <summary>
+    /// 获取场次票价策略（前端展示价计算）
+    /// </summary>
     public async Task<IEnumerable<PricingStrategyDto>> GetPricingStrategiesAsync(
         long sessionId,
         CancellationToken cancellationToken = default)
@@ -65,12 +68,13 @@ public class ShowSessionService : IClientShowSessionService
             .Where(r => r.SessionId == sessionId && r.Status == "ENABLED")
             .ToListAsync(cancellationToken);
 
-        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        // 展示价算力取当前 UTC 时间
+        var evaluationTime = _timeProvider.GetUtcNow().UtcDateTime;
 
         return strategies.Select(p =>
         {
             decimal finalPrice = session != null
-                ? PricingChange.CalculateRealtimePrice(p.Price, session.StartTime, nowUtc, p.SeatSectionId, dynamicRules)
+                ? PricingChange.CalculateRealtimePrice(p.Price, session.StartTime, evaluationTime, p.SeatSectionId, dynamicRules)
                 : p.Price;
 
             return new PricingStrategyDto(
@@ -142,9 +146,9 @@ public class AdminShowSessionService : IAdminShowSessionService
     }
 
     public async Task ConfigurePriceStrategiesAsync(
-     long sessionId,
-     IEnumerable<CreatePriceStrategyRequest> requests,
-     CancellationToken cancellationToken = default)
+        long sessionId,
+        IEnumerable<CreatePriceStrategyRequest> requests,
+        CancellationToken cancellationToken = default)
     {
         if (requests == null)
         {
@@ -175,7 +179,7 @@ public class AdminShowSessionService : IAdminShowSessionService
                 _context.PriceStrategy.RemoveRange(oldStrategies);
             }
 
-            // [] 则仅清空
+            // [] 则仅清空（符合全量清空语义）
             if (requestList.Count > 0)
             {
                 var now = DateTime.UtcNow;
@@ -230,6 +234,16 @@ public class AdminShowSessionService : IAdminShowSessionService
         if (!sessionExists)
             throw new KeyNotFoundException("演出场次不存在");
 
+        // 业务校验：确保窗口偏置逻辑正常 (StartOffsetMinutes 必须大于等于 EndOffsetMinutes)
+        foreach (var req in requestList)
+        {
+            if (req.StartOffsetMinutes.HasValue && req.EndOffsetMinutes.HasValue &&
+                req.StartOffsetMinutes.Value < req.EndOffsetMinutes.Value)
+            {
+                throw new ArgumentException($"调价时间窗口配置无效：StartOffsetMinutes ({req.StartOffsetMinutes}) 必须大于等于 EndOffsetMinutes ({req.EndOffsetMinutes})");
+            }
+        }
+
         using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -243,7 +257,7 @@ public class AdminShowSessionService : IAdminShowSessionService
                 _context.DynamicPricingRules.RemoveRange(oldRules);
             }
 
-            //  [] 仅清空，不插入
+            // [] 仅清空
             if (requestList.Count > 0)
             {
                 var now = DateTime.UtcNow;

@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using ShowtimeBackend.Common;
@@ -392,7 +393,17 @@ public sealed class ShowSessionAdminControllersTests
     [Fact]
     public async Task ConfigureDynamicPricingRules_WhenExceptionOccurs_RollsBackTransaction()
     {
-        await using var db = CreateDbContext();
+        // 使用 SQLite In-Memory 数据库支持真实 DB 事务回滚校验
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        await using var db = new AppDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
         var session = SeedShowSession(db, 1, 10);
 
         db.DynamicPricingRules.Add(new DynamicPricingRule
@@ -402,14 +413,44 @@ public sealed class ShowSessionAdminControllersTests
             TriggerType = "TIME_WINDOW",
             AdjustmentType = "AMOUNT_OFF",
             AdjustmentValue = 20m,
-            Status = "ENABLED"
+            Status = "ENABLED",
+            CreateBy = "admin",
+            UpdateBy = "admin",
+            CreateTime = DateTime.UtcNow,
+            UpdateTime = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
 
-        var mockAdminService = new AdminShowSessionService(db);
+        var controller = CreateAdminController(db);
 
-        var count = await db.DynamicPricingRules.CountAsync(r => r.SessionId == session.SessionId);
-        Assert.Equal(1, count);
+        // 构造非法调价时间窗口（StartOffset 10 < EndOffset 30），在 Service 校验层抛出 ArgumentException 并触发展示回滚
+        var invalidRequests = new[]
+        {
+            new CreateDynamicPricingRuleRequest(
+                SeatSectionId: 1,
+                RuleName: "非法规则",
+                TriggerType: "TIME_WINDOW",
+                StartOffsetMinutes: 10,
+                EndOffsetMinutes: 30,
+                AdjustmentType: "DISCOUNT_RATE",
+                AdjustmentValue: 0.8m,
+                Priority: 1)
+        };
+
+        var actionResult = await controller.ConfigureDynamicPricingRules(session.SessionId, invalidRequests, CancellationToken.None);
+
+        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
+
+        // 断言数据库已完全回滚：初始规则未被 Remove，亦未插入新规则
+        var rulesInDb = await db.DynamicPricingRules
+            .Where(r => r.SessionId == session.SessionId)
+            .ToListAsync();
+
+        Assert.Single(rulesInDb);
+        Assert.Equal("初始规则", rulesInDb[0].RuleName);
     }
 
     // ==========================================
