@@ -34,12 +34,12 @@ public interface IAdminShowSessionService
     /// <summary>
     /// 为场次批量配置区域票价策略
     /// </summary>
-    Task ConfigurePriceStrategiesAsync(long sessionId, IEnumerable<CreatePriceStrategyRequest> requests, CancellationToken cancellationToken = default);
+    Task ConfigurePriceStrategiesAsync(long sessionId, IEnumerable<CreatePriceStrategyRequest> requests, string operatorName = "admin", CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 为场次配置动态调价规则
     /// </summary>
-    Task ConfigureDynamicPricingRulesAsync(long sessionId, IEnumerable<CreateDynamicPricingRuleRequest> requests, CancellationToken cancellationToken = default);
+    Task ConfigureDynamicPricingRulesAsync(long sessionId, IEnumerable<CreateDynamicPricingRuleRequest> requests, string operatorName = "admin", CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 手动变更场次状态

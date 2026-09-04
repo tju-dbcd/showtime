@@ -9,6 +9,10 @@ public record CreateDynamicPricingRuleRequest(
     [StringLength(100, ErrorMessage = "规则名称不能超过100字符")]
     string RuleName,
 
+    /// <summary>
+    /// 触发类型：TIME_WINDOW 或 INVENTORY_RATE
+    /// </summary>
+    /// <remarks> INVENTORY_RATE 当前评估计算逻辑恒定返回 false。</remarks>
     [Required]
     [RegularExpression("^(TIME_WINDOW|INVENTORY_RATE)$", ErrorMessage = "TriggerType 必须为 TIME_WINDOW 或 INVENTORY_RATE")]
     string TriggerType,

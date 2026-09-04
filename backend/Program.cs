@@ -20,6 +20,7 @@ using ShowtimeBackend.Services.OrderTicket;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
 using ShowtimeBackend.Services.SeatZone;
+using ShowtimeBackend.Services.MarketingContent;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
@@ -28,6 +29,7 @@ using Scalar.AspNetCore;
 using StackExchange.Redis;
 using Serilog;
 using ShowtimeBackend.Common.LocalStorage;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -266,6 +268,8 @@ builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();
 builder.Services.AddScoped<IOrderTicketAuditSink, DbOperationTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
+builder.Services.AddScoped<IAdminMarketingContentService, AdminMarketingContentService>();
+builder.Services.AddScoped<IClientMarketingContentService, ClientMarketingContentService>();
 builder.Services.AddScoped<ISeatLockService>(serviceProvider =>
     new SeatLockService(
         serviceProvider.GetRequiredService<AppDbContext>(),
@@ -283,6 +287,15 @@ builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiResponseExceptionHandler>();
 builder.Services.AddOpenApi(options =>
 {
+    options.AddDocumentTransformer((document, context, cancellationToken) =>
+    {
+        document.Servers = new List<OpenApiServer>
+        {
+            new OpenApiServer { Url = "http://127.0.0.1:5002" }
+        };
+        return Task.CompletedTask;
+    });
+
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
     options.AddSchemaTransformer<EnumStringSchemaTransformer>();
     options.AddSchemaTransformer<TicketRedemptionSchemaTransformer>();
