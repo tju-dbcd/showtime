@@ -10,6 +10,7 @@ using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.SeatZone;
 using ShowtimeBackend.Services.ShowSession;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 
 namespace ShowtimeBackend.Services.OrderTicket;
 
@@ -407,6 +408,23 @@ public sealed class OrderService(
 
             dbContext.Add(order);
             await dbContext.SaveChangesAsync(cancellationToken);
+
+            var orderCreated = OrderCreatedEvent.Create(order, now);
+            dbContext.OrderEventOutbox.Add(new OrderEventOutbox
+            {
+                EventId = orderCreated.EventId,
+                EventType = OrderCreatedEvent.TypeName,
+                RoutingKey = OrderCreatedEvent.RoutingKeyName,
+                AggregateId = order.OrderId,
+                UserId = userId,
+                Payload = orderCreated.Serialize(),
+                OccurredAt = now,
+                Status = "PENDING",
+                AttemptCount = 0,
+                NextAttemptAt = now,
+                CreateBy = actor,
+                UpdateBy = actor,
+            });
 
             for (var index = 0; index < orderItems.Count; index++)
             {

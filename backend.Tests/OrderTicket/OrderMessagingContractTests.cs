@@ -1,0 +1,160 @@
+using System.ComponentModel.DataAnnotations;
+using System.Text;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using ShowtimeBackend.Entities.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
+
+namespace ShowtimeBackend.Tests.OrderTicket;
+
+public sealed class OrderMessagingContractTests
+{
+    [Fact]
+    public void RabbitMqOptions_DefaultsAreStableAndValid()
+    {
+        var options = new RabbitMqOptions();
+        var results = new List<ValidationResult>();
+
+        Assert.True(Validator.TryValidateObject(options, new ValidationContext(options), results, true));
+        Assert.False(options.Enabled);
+        Assert.Equal("showtime.order-ticket.events", options.ExchangeName);
+        Assert.Equal("showtime.order.notifications.v1", options.OrderNotificationQueueName);
+        Assert.Equal((ushort)16, options.PrefetchCount);
+        Assert.Equal(8, options.MaxPublishAttempts);
+    }
+
+    [Fact]
+    public void RabbitMqOptions_InvalidRangesFailDataAnnotationValidation()
+    {
+        var options = new RabbitMqOptions
+        {
+            PublishBatchSize = 0,
+            PrefetchCount = 0,
+            MaxPublishAttempts = 0,
+        };
+        var results = new List<ValidationResult>();
+
+        Assert.False(Validator.TryValidateObject(options, new ValidationContext(options), results, true));
+        Assert.Equal(3, results.Count);
+    }
+
+    [Fact]
+    public void RabbitMqOptions_EnabledWithoutConnectionFailsValidation()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection()
+            .Build();
+        var result = new RabbitMqOptionsValidator(configuration)
+            .Validate(null, new RabbitMqOptions { Enabled = true });
+
+        Assert.True(result.Failed);
+        Assert.Contains("ConnectionStrings:RabbitMq", result.FailureMessage);
+    }
+
+    [Fact]
+    public void OrderCreatedEvent_SerializesStableCamelCaseContract()
+    {
+        var notification = new OrderCreatedEvent(
+            "42ef4e11-af25-4ca8-9e0b-184b45bb8c65",
+            OrderCreatedEvent.TypeName,
+            new DateTime(2026, 9, 5, 2, 3, 4, DateTimeKind.Utc),
+            101,
+            "ORD101",
+            7,
+            10,
+            376m,
+            2,
+            "PENDING_PAY");
+
+        var json = notification.Serialize();
+
+        Assert.Equal(
+            "{\"eventId\":\"42ef4e11-af25-4ca8-9e0b-184b45bb8c65\",\"eventType\":\"OrderCreated.v1\",\"occurredAt\":\"2026-09-05T02:03:04Z\",\"orderId\":101,\"orderNo\":\"ORD101\",\"userId\":7,\"sessionId\":10,\"totalAmount\":376,\"ticketCount\":2,\"orderStatus\":\"PENDING_PAY\"}",
+            json);
+    }
+
+    [Fact]
+    public async Task MessageHandler_AcknowledgesOnlyAfterSuccessfulDispatch()
+    {
+        var dispatcher = new RecordingDispatcher();
+        var handler = new OrderNotificationMessageHandler(
+            dispatcher,
+            NullLogger<OrderNotificationMessageHandler>.Instance);
+        var notification = CreateNotification();
+
+        var result = await handler.HandleAsync(
+            OrderCreatedEvent.TypeName,
+            Encoding.UTF8.GetBytes(notification.Serialize()),
+            CancellationToken.None);
+
+        Assert.Equal(OrderNotificationHandlingResult.Acknowledge, result);
+        Assert.Equal(notification.EventId, dispatcher.Notification!.EventId);
+    }
+
+    [Theory]
+    [InlineData("Unknown.v1", "{}")]
+    [InlineData("OrderCreated.v1", "not-json")]
+    [InlineData("OrderCreated.v1", "{}")]
+    public async Task MessageHandler_DeadLettersUnknownOrMalformedMessages(string type, string json)
+    {
+        var handler = new OrderNotificationMessageHandler(
+            new RecordingDispatcher(),
+            NullLogger<OrderNotificationMessageHandler>.Instance);
+
+        var result = await handler.HandleAsync(type, Encoding.UTF8.GetBytes(json), CancellationToken.None);
+
+        Assert.Equal(OrderNotificationHandlingResult.DeadLetter, result);
+    }
+
+    [Fact]
+    public async Task MessageHandler_ReturnsRetryForTransientDispatcherFailure()
+    {
+        var handler = new OrderNotificationMessageHandler(
+            new RecordingDispatcher { Failure = new IOException("transient") },
+            NullLogger<OrderNotificationMessageHandler>.Instance);
+
+        var result = await handler.HandleAsync(
+            OrderCreatedEvent.TypeName,
+            Encoding.UTF8.GetBytes(CreateNotification().Serialize()),
+            CancellationToken.None);
+
+        Assert.Equal(OrderNotificationHandlingResult.Retry, result);
+    }
+
+    [Fact]
+    public void ConsumerRetryHeaderIsDurableAndBoundedInput()
+    {
+        Assert.Equal(0, RabbitMqOrderNotificationWorker.ReadRetryCount(null));
+        Assert.Equal(3, RabbitMqOrderNotificationWorker.ReadRetryCount(
+            new Dictionary<string, object?>
+            {
+                [RabbitMqOrderNotificationWorker.RetryHeader] = 3,
+            }));
+        Assert.True(RabbitMqOrderNotificationWorker.ShouldRetry(2, 3));
+        Assert.False(RabbitMqOrderNotificationWorker.ShouldRetry(3, 3));
+    }
+
+    private static OrderCreatedEvent CreateNotification() => new(
+        Guid.NewGuid().ToString("D"),
+        OrderCreatedEvent.TypeName,
+        DateTime.UtcNow,
+        101,
+        "ORD101",
+        7,
+        10,
+        100m,
+        1,
+        "PENDING_PAY");
+
+    private sealed class RecordingDispatcher : IOrderNotificationDispatcher
+    {
+        public OrderCreatedEvent? Notification { get; private set; }
+        public Exception? Failure { get; init; }
+
+        public Task DispatchOrderCreatedAsync(OrderCreatedEvent notification, CancellationToken cancellationToken)
+        {
+            Notification = notification;
+            return Failure is null ? Task.CompletedTask : Task.FromException(Failure);
+        }
+    }
+}

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Entities.UserPermission;
@@ -22,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<SeatRuleScope> SeatRuleScopes => Set<SeatRuleScope>();
     public DbSet<SeatLock> SeatLocks => Set<SeatLock>();
     public DbSet<SeatReservation> SeatReservations => Set<SeatReservation>();
+    public DbSet<OrderEventOutbox> OrderEventOutbox => Set<OrderEventOutbox>();
     public DbSet<ShowSession> ShowSessions => Set<ShowSession>();
     public DbSet<Venue> Venues => Set<Venue>();
     public DbSet<PriceStrategy> PriceStrategy => Set<PriceStrategy>();
