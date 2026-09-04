@@ -22,6 +22,12 @@ namespace ShowtimeBackend.Tests.OrderTicket;
 
 public sealed class RefundConcurrencyTests
 {
+    private const long OracleRefundOrderId = 998_830_001;
+    private const long OracleRefundPaymentId = 998_830_001;
+    private const long OracleRefundUserId = 998_830_001;
+    private const long OracleRefundSessionId = 998_830_001;
+    private const string OracleRefundMarker = "oracle-refund-gate";
+
     [Fact]
     public async Task ApproveAndReject_FromSameOriginalState_OnlyOneSaveSucceeds()
     {
@@ -286,9 +292,11 @@ public sealed class RefundConcurrencyTests
         var connectionBuilder = new OracleConnectionStringBuilder(connectionString);
         var configuredUser = ValidatePersonalOracleIdentifier(
             connectionBuilder.UserID?.Trim());
+        connectionBuilder.Pooling = true;
+        connectionBuilder.ConnectionTimeout = 20;
 
-        await using var firstConnection = new OracleConnection(connectionString);
-        await using var secondConnection = new OracleConnection(connectionString);
+        await using var firstConnection = new OracleConnection(connectionBuilder.ConnectionString);
+        await using var secondConnection = new OracleConnection(connectionBuilder.ConnectionString);
         await firstConnection.OpenAsync();
         await secondConnection.OpenAsync();
         var firstSchema = await ValidatePersonalOracleConnectionAsync(
@@ -305,95 +313,133 @@ public sealed class RefundConcurrencyTests
 
         await EnsureOwnedOracleBaseTablesAsync(firstConnection);
         await EnsureOwnedOracleBaseTablesAsync(secondConnection);
-
-        await using var firstTransaction = await firstConnection.BeginTransactionAsync();
+        await SeedOracleRefundFixtureAsync(firstConnection, firstSchema);
         try
         {
-            var orderId = await ReadOracleScalarAsync<decimal?>(
-                firstConnection,
-                firstTransaction,
-                $"SELECT ORDER_ID FROM {firstSchema}.T_ORDER " +
-                "WHERE ROWNUM = 1 FOR UPDATE");
-            if (!orderId.HasValue)
-            {
-                throw new InvalidOperationException(
-                    "The configured personal Oracle test schema has no T_ORDER row to lock.");
-            }
-
-            await using var secondTransaction = await secondConnection.BeginTransactionAsync();
+            await using var firstTransaction = await firstConnection.BeginTransactionAsync();
             try
             {
-                await using var competingLock = secondConnection.CreateCommand();
-                competingLock.BindByName = true;
-                competingLock.Transaction = (OracleTransaction)secondTransaction;
-                competingLock.CommandText =
-                    $"SELECT ORDER_ID FROM {secondSchema}.T_ORDER " +
-                    "WHERE ORDER_ID = :id FOR UPDATE NOWAIT";
-                competingLock.Parameters.Add(
+                var orderId = await ReadOracleScalarAsync<decimal?>(
+                    firstConnection,
+                    firstTransaction,
+                    $"SELECT ORDER_ID FROM {firstSchema}.T_ORDER " +
+                    "WHERE ORDER_ID = :id AND CREATE_BY = :marker FOR UPDATE",
                     new OracleParameter(
                         "id",
                         OracleDbType.Int64,
-                        Convert.ToInt64(orderId.Value),
-                        System.Data.ParameterDirection.Input));
-                var exception = await Assert.ThrowsAsync<OracleException>(
-                    () => competingLock.ExecuteScalarAsync());
-                Assert.Equal(54, exception.Number);
+                        OracleRefundOrderId,
+                        ParameterDirection.Input),
+                    new OracleParameter(
+                        "marker",
+                        OracleDbType.Varchar2,
+                        OracleRefundMarker,
+                        ParameterDirection.Input));
+                Assert.Equal(OracleRefundOrderId, Convert.ToInt64(orderId));
+
+                await using var secondTransaction = await secondConnection.BeginTransactionAsync();
+                try
+                {
+                    await using var competingLock = secondConnection.CreateCommand();
+                    competingLock.BindByName = true;
+                    competingLock.Transaction = (OracleTransaction)secondTransaction;
+                    competingLock.CommandText =
+                        $"SELECT ORDER_ID FROM {secondSchema}.T_ORDER " +
+                        "WHERE ORDER_ID = :id FOR UPDATE NOWAIT";
+                    competingLock.Parameters.Add(
+                        new OracleParameter(
+                            "id",
+                            OracleDbType.Int64,
+                            OracleRefundOrderId,
+                            ParameterDirection.Input));
+                    var exception = await Assert.ThrowsAsync<OracleException>(
+                        () => competingLock.ExecuteScalarAsync());
+                    Assert.Equal(54, exception.Number);
+                }
+                finally
+                {
+                    await secondTransaction.RollbackAsync();
+                }
             }
             finally
             {
-                await secondTransaction.RollbackAsync();
+                await firstTransaction.RollbackAsync();
             }
-        }
-        finally
-        {
-            await firstTransaction.RollbackAsync();
-        }
 
-        await using var paymentTransaction = await firstConnection.BeginTransactionAsync();
-        try
-        {
-            await using var paymentQuery = firstConnection.CreateCommand();
-            paymentQuery.Transaction = (OracleTransaction)paymentTransaction;
-            paymentQuery.CommandText =
-                $"SELECT PAYMENT_ID, REFUND_AMOUNT FROM {firstSchema}.PAYMENT " +
-                "WHERE PAY_STATUS = 'SUCCESS' " +
-                "AND REFUND_AMOUNT + 0.01 <= PAY_AMOUNT AND ROWNUM = 1 FOR UPDATE";
-            await using var paymentReader = await paymentQuery.ExecuteReaderAsync();
-            if (!await paymentReader.ReadAsync())
+            await using var paymentTransaction = await firstConnection.BeginTransactionAsync();
+            try
             {
-                throw new InvalidOperationException(
-                    "The configured personal Oracle test schema has no refundable SUCCESS payment.");
-            }
+                await using var paymentQuery = firstConnection.CreateCommand();
+                paymentQuery.BindByName = true;
+                paymentQuery.Transaction = (OracleTransaction)paymentTransaction;
+                paymentQuery.CommandText =
+                    $"SELECT PAYMENT_ID, REFUND_AMOUNT FROM {firstSchema}.PAYMENT " +
+                    "WHERE PAYMENT_ID = :paymentId AND ORDER_ID = :orderId " +
+                    "AND CREATE_BY = :marker AND PAY_STATUS = 'SUCCESS' " +
+                    "AND REFUND_AMOUNT + 0.01 <= PAY_AMOUNT FOR UPDATE";
+                paymentQuery.Parameters.Add(
+                    new OracleParameter(
+                        "paymentId",
+                        OracleDbType.Int64,
+                        OracleRefundPaymentId,
+                        ParameterDirection.Input));
+                paymentQuery.Parameters.Add(
+                    new OracleParameter(
+                        "orderId",
+                        OracleDbType.Int64,
+                        OracleRefundOrderId,
+                        ParameterDirection.Input));
+                paymentQuery.Parameters.Add(
+                    new OracleParameter(
+                        "marker",
+                        OracleDbType.Varchar2,
+                        OracleRefundMarker,
+                        ParameterDirection.Input));
+                await using var paymentReader = await paymentQuery.ExecuteReaderAsync();
+                Assert.True(await paymentReader.ReadAsync());
 
-            var paymentId = Convert.ToInt64(paymentReader.GetValue(0));
-            var before = Convert.ToDecimal(paymentReader.GetValue(1));
-            await paymentReader.DisposeAsync();
-            await using var accumulate = firstConnection.CreateCommand();
-            accumulate.BindByName = true;
-            accumulate.Transaction = (OracleTransaction)paymentTransaction;
-            accumulate.CommandText =
-                $"UPDATE {firstSchema}.PAYMENT " +
-                "SET REFUND_AMOUNT = REFUND_AMOUNT + :amount " +
-                "WHERE PAYMENT_ID = :paymentId";
-            accumulate.Parameters.Add(
-                new OracleParameter("amount", OracleDbType.Decimal, 0.01m,
-                    System.Data.ParameterDirection.Input));
-            accumulate.Parameters.Add(
-                new OracleParameter("paymentId", OracleDbType.Int64, paymentId,
-                    System.Data.ParameterDirection.Input));
-            Assert.Equal(1, await accumulate.ExecuteNonQueryAsync());
-            var after = await ReadOracleScalarAsync<decimal>(
-                firstConnection,
-                paymentTransaction,
-                $"SELECT REFUND_AMOUNT FROM {firstSchema}.PAYMENT " +
-                "WHERE PAYMENT_ID = :paymentId",
-                new OracleParameter("paymentId", OracleDbType.Int64, paymentId,
-                    System.Data.ParameterDirection.Input));
-            Assert.Equal(before + 0.01m, after);
+                var paymentId = Convert.ToInt64(paymentReader.GetValue(0));
+                var before = Convert.ToDecimal(paymentReader.GetValue(1));
+                await paymentReader.DisposeAsync();
+                await using var accumulate = firstConnection.CreateCommand();
+                accumulate.BindByName = true;
+                accumulate.Transaction = (OracleTransaction)paymentTransaction;
+                accumulate.CommandText =
+                    $"UPDATE {firstSchema}.PAYMENT " +
+                    "SET REFUND_AMOUNT = REFUND_AMOUNT + :amount " +
+                    "WHERE PAYMENT_ID = :paymentId";
+                accumulate.Parameters.Add(
+                    new OracleParameter(
+                        "amount",
+                        OracleDbType.Decimal,
+                        0.01m,
+                        ParameterDirection.Input));
+                accumulate.Parameters.Add(
+                    new OracleParameter(
+                        "paymentId",
+                        OracleDbType.Int64,
+                        paymentId,
+                        ParameterDirection.Input));
+                Assert.Equal(1, await accumulate.ExecuteNonQueryAsync());
+                var after = await ReadOracleScalarAsync<decimal>(
+                    firstConnection,
+                    paymentTransaction,
+                    $"SELECT REFUND_AMOUNT FROM {firstSchema}.PAYMENT " +
+                    "WHERE PAYMENT_ID = :paymentId",
+                    new OracleParameter(
+                        "paymentId",
+                        OracleDbType.Int64,
+                        paymentId,
+                        ParameterDirection.Input));
+                Assert.Equal(before + 0.01m, after);
+            }
+            finally
+            {
+                await paymentTransaction.RollbackAsync();
+            }
         }
         finally
         {
-            await paymentTransaction.RollbackAsync();
+            await CleanupOracleRefundFixtureAsync(firstConnection, firstSchema);
         }
     }
 
@@ -1196,6 +1242,166 @@ public sealed class RefundConcurrencyTests
     private static bool IsAsciiLetter(char character) =>
         character is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
 
+    private static async Task SeedOracleRefundFixtureAsync(
+        OracleConnection connection,
+        string schema)
+    {
+        await CleanupOracleRefundFixtureAsync(connection, schema);
+        var showId = await ReadOracleScalarAsync<decimal?>(
+            connection,
+            null,
+            $"SELECT MIN(SHOW_ID) FROM {schema}.SHOW");
+        var seatMapId = await ReadOracleScalarAsync<decimal?>(
+            connection,
+            null,
+            $"SELECT MIN(SEAT_MAP_ID) FROM {schema}.SEAT_MAP");
+        if (!showId.HasValue || !seatMapId.HasValue)
+        {
+            throw new InvalidOperationException(
+                "Oracle refund concurrency tests require at least one owned SHOW " +
+                "and SEAT_MAP row for read-only foreign-key anchors.");
+        }
+
+        try
+        {
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.SYS_USER (" +
+                "USER_ID, USER_NAME, PASSWORD_HASH, PHONE, USER_TYPE, STATUS, " +
+                "CREATE_BY, UPDATE_BY) VALUES (:userId, :userName, :passwordHash, " +
+                ":phone, 'NORMAL', 1, :marker, :marker)",
+                new OracleParameter("userId", OracleDbType.Int64, OracleRefundUserId,
+                    ParameterDirection.Input),
+                new OracleParameter("userName", OracleDbType.Varchar2,
+                    "oracle_refund_gate_998830001", ParameterDirection.Input),
+                new OracleParameter("passwordHash", OracleDbType.Varchar2,
+                    "oracle-refund-gate-not-a-real-password", ParameterDirection.Input),
+                new OracleParameter("phone", OracleDbType.Varchar2,
+                    "998830001", ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.SHOW_SESSION (" +
+                "SESSION_ID, SHOW_ID, SEAT_MAP_ID, START_TIME, END_TIME, " +
+                "SALE_START_TIME, SALE_END_TIME, SESSION_STATUS, CREATE_BY, UPDATE_BY) " +
+                "VALUES (:sessionId, :showId, :seatMapId, " +
+                "SYSTIMESTAMP + INTERVAL '7' DAY, " +
+                "SYSTIMESTAMP + INTERVAL '7' DAY + INTERVAL '2' HOUR, " +
+                "SYSTIMESTAMP - INTERVAL '1' DAY, " +
+                "SYSTIMESTAMP + INTERVAL '6' DAY, 'ONSALE', :marker, :marker)",
+                new OracleParameter("sessionId", OracleDbType.Int64,
+                    OracleRefundSessionId, ParameterDirection.Input),
+                new OracleParameter("showId", OracleDbType.Int64,
+                    Convert.ToInt64(showId.Value), ParameterDirection.Input),
+                new OracleParameter("seatMapId", OracleDbType.Int64,
+                    Convert.ToInt64(seatMapId.Value), ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.T_ORDER (" +
+                "ORDER_ID, ORDER_NO, USER_ID, SESSION_ID, ORDER_TYPE, TOTAL_AMOUNT, " +
+                "DISCOUNT_AMOUNT, TICKET_COUNT, ORDER_STATUS, " +
+                "EXPIRE_TIME, PAY_TIME, ISSUE_TIME, SOURCE, IDEMPOTENCY_KEY, " +
+                "IDEMPOTENCY_REQUEST_HASH, CREATE_BY, UPDATE_BY) " +
+                "VALUES (:orderId, :orderNo, :userId, :sessionId, 'NORMAL', 100, " +
+                "0, 1, 'ISSUED', SYSTIMESTAMP + INTERVAL '1' DAY, " +
+                "SYSTIMESTAMP, SYSTIMESTAMP, 'WEB', :idempotencyKey, " +
+                ":requestHash, :marker, :marker)",
+                new OracleParameter("orderId", OracleDbType.Int64, OracleRefundOrderId,
+                    ParameterDirection.Input),
+                new OracleParameter("orderNo", OracleDbType.Varchar2,
+                    "ORAREFUNDGATE998830001", ParameterDirection.Input),
+                new OracleParameter("userId", OracleDbType.Int64,
+                    OracleRefundUserId, ParameterDirection.Input),
+                new OracleParameter("sessionId", OracleDbType.Int64,
+                    OracleRefundSessionId, ParameterDirection.Input),
+                new OracleParameter("idempotencyKey", OracleDbType.Varchar2,
+                    "oracle-refund-lock-gate", ParameterDirection.Input),
+                new OracleParameter("requestHash", OracleDbType.Char,
+                    new string('A', 64), ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.PAYMENT (" +
+                "PAYMENT_ID, PAYMENT_NO, ORDER_ID, USER_ID, PAY_AMOUNT, PAY_CHANNEL, " +
+                "PAY_STATUS, PAY_TIME, REFUND_AMOUNT, CREATE_BY, UPDATE_BY) VALUES (" +
+                ":paymentId, :paymentNo, :orderId, :userId, 100, 'ALIPAY', " +
+                "'SUCCESS', SYSTIMESTAMP, 0, :marker, :marker)",
+                new OracleParameter("paymentId", OracleDbType.Int64,
+                    OracleRefundPaymentId, ParameterDirection.Input),
+                new OracleParameter("paymentNo", OracleDbType.Varchar2,
+                    "ORAREFUNDGATEPAY998830001", ParameterDirection.Input),
+                new OracleParameter("orderId", OracleDbType.Int64, OracleRefundOrderId,
+                    ParameterDirection.Input),
+                new OracleParameter("userId", OracleDbType.Int64,
+                    OracleRefundUserId, ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(connection, "COMMIT");
+        }
+        catch
+        {
+            await ExecuteOracleNonQueryAsync(connection, "ROLLBACK");
+            await CleanupOracleRefundFixtureAsync(connection, schema);
+            throw;
+        }
+    }
+
+    private static async Task CleanupOracleRefundFixtureAsync(
+        OracleConnection connection,
+        string schema)
+    {
+        await ExecuteOracleNonQueryAsync(connection, "ROLLBACK");
+        await ExecuteOracleNonQueryAsync(
+            connection,
+            $"DELETE FROM {schema}.PAYMENT WHERE PAYMENT_ID = :id " +
+            "AND CREATE_BY = :marker",
+            new OracleParameter("id", OracleDbType.Int64, OracleRefundPaymentId,
+                ParameterDirection.Input),
+            new OracleParameter("marker", OracleDbType.Varchar2, OracleRefundMarker,
+                ParameterDirection.Input));
+        await ExecuteOracleNonQueryAsync(
+            connection,
+            $"DELETE FROM {schema}.T_ORDER WHERE ORDER_ID = :id " +
+            "AND CREATE_BY = :marker",
+            new OracleParameter("id", OracleDbType.Int64, OracleRefundOrderId,
+                ParameterDirection.Input),
+            new OracleParameter("marker", OracleDbType.Varchar2, OracleRefundMarker,
+                ParameterDirection.Input));
+        await ExecuteOracleNonQueryAsync(
+            connection,
+            $"DELETE FROM {schema}.SHOW_SESSION WHERE SESSION_ID = :id " +
+            "AND CREATE_BY = :marker",
+            new OracleParameter("id", OracleDbType.Int64, OracleRefundSessionId,
+                ParameterDirection.Input),
+            new OracleParameter("marker", OracleDbType.Varchar2, OracleRefundMarker,
+                ParameterDirection.Input));
+        await ExecuteOracleNonQueryAsync(
+            connection,
+            $"DELETE FROM {schema}.SYS_USER WHERE USER_ID = :id " +
+            "AND CREATE_BY = :marker",
+            new OracleParameter("id", OracleDbType.Int64, OracleRefundUserId,
+                ParameterDirection.Input),
+            new OracleParameter("marker", OracleDbType.Varchar2, OracleRefundMarker,
+                ParameterDirection.Input));
+        await ExecuteOracleNonQueryAsync(connection, "COMMIT");
+    }
+
+    private static async Task ExecuteOracleNonQueryAsync(
+        OracleConnection connection,
+        string commandText,
+        params OracleParameter[] parameters)
+    {
+        await using var command = connection.CreateCommand();
+        command.BindByName = true;
+        command.CommandText = commandText;
+        command.Parameters.AddRange(parameters);
+        await command.ExecuteNonQueryAsync();
+    }
+
     private static async Task<string> ValidatePersonalOracleConnectionAsync(
         OracleConnection connection,
         string configuredUser)
@@ -1229,7 +1435,8 @@ public sealed class RefundConcurrencyTests
             connection,
             null,
             "SELECT COUNT(*) FROM USER_TABLES " +
-            "WHERE TABLE_NAME IN (:orderTable, :paymentTable)",
+            "WHERE TABLE_NAME IN (:orderTable, :paymentTable, :userTable, " +
+            ":sessionTable, :showTable, :seatMapTable)",
             new OracleParameter(
                 "orderTable",
                 OracleDbType.Varchar2,
@@ -1239,11 +1446,34 @@ public sealed class RefundConcurrencyTests
                 "paymentTable",
                 OracleDbType.Varchar2,
                 "PAYMENT",
+                ParameterDirection.Input),
+            new OracleParameter(
+                "userTable",
+                OracleDbType.Varchar2,
+                "SYS_USER",
+                ParameterDirection.Input),
+            new OracleParameter(
+                "sessionTable",
+                OracleDbType.Varchar2,
+                "SHOW_SESSION",
+                ParameterDirection.Input),
+            new OracleParameter(
+                "showTable",
+                OracleDbType.Varchar2,
+                "SHOW",
+                ParameterDirection.Input),
+            new OracleParameter(
+                "seatMapTable",
+                OracleDbType.Varchar2,
+                "SEAT_MAP",
                 System.Data.ParameterDirection.Input));
-        if (ownedTableCount != 2m)
+        if (ownedTableCount != 6m)
         {
             throw new InvalidOperationException(
-                "Both T_ORDER and PAYMENT must be base tables owned by the personal Oracle test user; synonyms and shared-owner tables are refused.");
+                "T_ORDER, PAYMENT, SYS_USER, SHOW_SESSION, SHOW, and SEAT_MAP " +
+                "must be base tables " +
+                "owned by the personal Oracle test user; synonyms and shared-owner " +
+                "tables are refused.");
         }
     }
 
