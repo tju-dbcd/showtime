@@ -13,14 +13,14 @@ public static class PricingChange
     public static decimal CalculateRealtimePrice(
         decimal basePrice,
         DateTime sessionStartTime,
-        DateTime nowUtc,
+        DateTime evaluationTime,
         long seatSectionId,
         IEnumerable<DynamicPricingRule> rules)
     {
         var matchedRule = rules
             .Where(r => r.Status == "ENABLED")
             .Where(r => r.SeatSectionId == null || r.SeatSectionId == seatSectionId)
-            .Where(r => IsRuleTriggered(r, sessionStartTime, nowUtc))
+            .Where(r => IsRuleTriggered(r, sessionStartTime, evaluationTime))
             .OrderByDescending(r => r.Priority)
             .FirstOrDefault();
 
@@ -35,14 +35,14 @@ public static class PricingChange
         };
     }
 
-    public static bool IsRuleTriggered(DynamicPricingRule rule, DateTime sessionStartTime, DateTime nowUtc)
+    public static bool IsRuleTriggered(DynamicPricingRule rule, DateTime sessionStartTime, DateTime evaluationTime)
     {
         if (rule.Status != "ENABLED") return false;
 
         return rule.TriggerType switch
         {
-            "TIME_WINDOW" => MatchesTimeWindow(rule, (int)(sessionStartTime - nowUtc).TotalMinutes),
-            "INVENTORY_RATE" => false, // 暂未接入实时库存计算，安全返回 false，绝不误触发
+            "TIME_WINDOW" => MatchesTimeWindow(rule, (int)(sessionStartTime - evaluationTime).TotalMinutes),
+            "INVENTORY_RATE" => false, // [NotImplemented] 暂未接入实时库存计算，安全返回 false，绝不误触发
             _ => false
         };
     }
