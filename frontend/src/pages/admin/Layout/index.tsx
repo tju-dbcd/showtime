@@ -6,6 +6,8 @@ import {
   ShoppingCartOutlined,
   PlusCircleOutlined,
   AppstoreOutlined,
+  DashboardOutlined,
+  NotificationOutlined,
 } from '@ant-design/icons'
 
 const { Sider, Content } = Layout
@@ -14,8 +16,12 @@ const AdminLayout = () => {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // 侧边栏4个菜单项
   const menuItems = [
+    {
+      key: '/admin/dashboard',
+      icon: <DashboardOutlined />,
+      label: '数据看板',
+    },
     {
       key: '/admin/performance',
       icon: <UnorderedListOutlined />,
@@ -41,10 +47,15 @@ const AdminLayout = () => {
       icon: <AppstoreOutlined />,
       label: '座位图管理',
     },
+    {
+      key: '/admin/marketing',
+      icon: <NotificationOutlined />,
+      label: '营销配置',
+    },
   ]
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh', minWidth: 1280 }}>
       {/* 左侧深色侧边栏 */}
       <Sider width={200} theme="dark">
         <div style={{

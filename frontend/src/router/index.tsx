@@ -11,6 +11,8 @@ import AdminOrder from '../pages/admin/Order';
 import OrderDetail from '../pages/OrderDetail';
 import Publish from '../pages/admin/Publish';
 import SeatMapEditor from '../pages/admin/SeatMap';
+import Dashboard from '../pages/admin/Dashboard';
+import Marketing from '../pages/admin/Marketing';
 
 // ========== 客户端页面懒加载 ==========
 const Home = lazy(() => import('../pages/Home'));
@@ -75,12 +77,14 @@ const router = createBrowserRouter([
     path: '/admin',
     element: <AdminLayout />,
     children: [
-      { index: true, element: <Performance /> },
+      { index: true, element: <Dashboard /> },
+      { path: 'dashboard', element: <Dashboard /> },
       { path: 'performance', element: <Performance /> },
       { path: 'session', element: <Session /> },
       { path: 'order', element: <AdminOrder /> },
       { path: 'publish', element: <Publish /> },
       { path: 'seat-map', element: <SeatMapEditor /> },
+      { path: 'marketing', element: <Marketing /> },
     ],
   },
 ]);
