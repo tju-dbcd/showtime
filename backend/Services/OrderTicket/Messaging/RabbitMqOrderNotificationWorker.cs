@@ -10,8 +10,6 @@ public sealed class RabbitMqOrderNotificationWorker(
     IOptions<RabbitMqOptions> options,
     ILogger<RabbitMqOrderNotificationWorker> logger) : BackgroundService
 {
-    internal const string RetryHeader = "x-showtime-retry-count";
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var settings = options.Value;
@@ -27,76 +25,70 @@ public sealed class RabbitMqOrderNotificationWorker(
                 await RabbitMqTopology.DeclareAsync(channel, settings, stoppingToken);
                 await channel.BasicQosAsync(0, settings.PrefetchCount, false, stoppingToken);
 
+                var lifetime = new RabbitMqConsumerLifetime();
                 var consumer = new AsyncEventingBasicConsumer(channel);
-                consumer.ReceivedAsync += async (sender, delivery) =>
+                var activeChannel = channel;
+                consumer.ReceivedAsync += async (_, eventArgs) =>
                 {
-                    using var scope = scopeFactory.CreateScope();
-                    var handler = scope.ServiceProvider.GetRequiredService<OrderNotificationMessageHandler>();
-                    var result = await handler.HandleAsync(
-                        delivery.BasicProperties.Type,
-                        delivery.Body,
-                        delivery.CancellationToken);
-                    if (result == OrderNotificationHandlingResult.Acknowledge)
+                    var delivery = new RabbitMqOrderNotificationDelivery(
+                        activeChannel,
+                        settings,
+                        eventArgs);
+                    OrderNotificationDeliveryOutcome outcome;
+                    try
                     {
-                        await channel.BasicAckAsync(delivery.DeliveryTag, false, delivery.CancellationToken);
+                        using var scope = scopeFactory.CreateScope();
+                        var processor = scope.ServiceProvider
+                            .GetRequiredService<OrderNotificationDeliveryProcessor>();
+                        outcome = await processor.ProcessAsync(delivery, stoppingToken);
                     }
-                    else if (result == OrderNotificationHandlingResult.DeadLetter)
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                     {
-                        await channel.BasicNackAsync(delivery.DeliveryTag, false, false, delivery.CancellationToken);
+                        return;
                     }
-                    else
+                    catch (Exception exception)
                     {
-                        var retryCount = ReadRetryCount(delivery.BasicProperties.Headers);
-                        if (ShouldRetry(retryCount, settings.ConsumerMaxRetries))
-                        {
-                            await Task.Delay(
-                                TimeSpan.FromMilliseconds(Math.Min(100 * Math.Pow(2, retryCount), 5000)),
-                                delivery.CancellationToken);
-                            var headers = delivery.BasicProperties.Headers is null
-                                ? new Dictionary<string, object?>()
-                                : new Dictionary<string, object?>(delivery.BasicProperties.Headers);
-                            headers[RetryHeader] = retryCount + 1;
-                            var properties = new BasicProperties
-                            {
-                                Persistent = true,
-                                ContentType = delivery.BasicProperties.ContentType,
-                                MessageId = delivery.BasicProperties.MessageId,
-                                Type = delivery.BasicProperties.Type,
-                                Headers = headers,
-                            };
-                            try
-                            {
-                                await channel.BasicPublishAsync(
-                                    settings.ExchangeName,
-                                    delivery.RoutingKey,
-                                    mandatory: true,
-                                    properties,
-                                    delivery.Body,
-                                    delivery.CancellationToken);
-                                await channel.BasicAckAsync(
-                                    delivery.DeliveryTag, false, delivery.CancellationToken);
-                            }
-                            catch
-                            {
-                                await channel.BasicNackAsync(
-                                    delivery.DeliveryTag, false, true, delivery.CancellationToken);
-                                throw;
-                            }
-                        }
-                        else
-                        {
-                            await channel.BasicNackAsync(
-                                delivery.DeliveryTag, false, false, delivery.CancellationToken);
-                        }
+                        // RabbitMQ.Client reports callback exceptions through CallbackExceptionAsync
+                        // instead of propagating them to ExecuteAsync. Contain every application
+                        // failure here and give the delivery a terminal disposition when possible.
+                        logger.LogError(exception, "Unhandled order notification callback failure.");
+                        outcome = await TryDeadLetterUnexpectedAsync(delivery, stoppingToken);
+                    }
+
+                    if (outcome == OrderNotificationDeliveryOutcome.ChannelUnavailable)
+                    {
+                        lifetime.SignalEnded();
                     }
                 };
+                consumer.ShutdownAsync += (_, _) =>
+                {
+                    lifetime.SignalEnded();
+                    return Task.CompletedTask;
+                };
+                consumer.UnregisteredAsync += (_, _) =>
+                {
+                    lifetime.SignalEnded();
+                    return Task.CompletedTask;
+                };
+                activeChannel.ChannelShutdownAsync += (_, eventArgs) =>
+                {
+                    logger.LogWarning("RabbitMQ notification channel shut down: {ReplyText}", eventArgs.ReplyText);
+                    lifetime.SignalEnded();
+                    return Task.CompletedTask;
+                };
+                activeChannel.CallbackExceptionAsync += (_, eventArgs) =>
+                {
+                    logger.LogError(eventArgs.Exception, "RabbitMQ notification channel callback failed; the consumer will be rebuilt.");
+                    lifetime.SignalEnded();
+                    return Task.CompletedTask;
+                };
 
-                await channel.BasicConsumeAsync(
+                await activeChannel.BasicConsumeAsync(
                     settings.OrderNotificationQueueName,
                     autoAck: false,
                     consumer,
                     stoppingToken);
-                await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+                await lifetime.WaitAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -105,35 +97,93 @@ public sealed class RabbitMqOrderNotificationWorker(
             catch (Exception exception)
             {
                 logger.LogError(exception, "RabbitMQ order notification consumer failed; connection will be retried.");
-                await Task.Delay(TimeSpan.FromSeconds(settings.OutboxPollIntervalSeconds), stoppingToken);
             }
             finally
             {
                 if (channel is not null)
                 {
-                    await channel.DisposeAsync();
+                    try
+                    {
+                        await channel.DisposeAsync();
+                    }
+                    catch (Exception exception)
+                    {
+                        logger.LogWarning(exception, "Disposing a RabbitMQ notification channel failed; a fresh channel will still be created.");
+                    }
                 }
+            }
+
+            if (!stoppingToken.IsCancellationRequested)
+            {
+                await Task.Delay(
+                    TimeSpan.FromSeconds(settings.OutboxPollIntervalSeconds),
+                    stoppingToken);
             }
         }
     }
 
-    internal static int ReadRetryCount(IDictionary<string, object?>? headers)
+    private async Task<OrderNotificationDeliveryOutcome> TryDeadLetterUnexpectedAsync(
+        IOrderNotificationDelivery delivery,
+        CancellationToken cancellationToken)
     {
-        if (headers is null || !headers.TryGetValue(RetryHeader, out var value))
+        if (!delivery.IsChannelOpen)
         {
-            return 0;
+            return OrderNotificationDeliveryOutcome.ChannelUnavailable;
         }
 
-        return value switch
+        try
         {
-            byte number => number,
-            short number => number,
-            int number => number,
-            long number when number <= int.MaxValue => (int)number,
-            _ => 0,
-        };
+            await delivery.DeadLetterAsync(cancellationToken);
+            return OrderNotificationDeliveryOutcome.Completed;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Unable to dead-letter the delivery after an unexpected callback failure.");
+            return OrderNotificationDeliveryOutcome.ChannelUnavailable;
+        }
     }
 
-    internal static bool ShouldRetry(int retryCount, int maximumRetries) =>
-        retryCount < maximumRetries;
+    private sealed class RabbitMqOrderNotificationDelivery(
+        IChannel channel,
+        RabbitMqOptions settings,
+        BasicDeliverEventArgs eventArgs) : IOrderNotificationDelivery
+    {
+        public string? MessageType => eventArgs.BasicProperties.Type;
+        public ReadOnlyMemory<byte> Body => eventArgs.Body;
+        public IDictionary<string, object?>? Headers => eventArgs.BasicProperties.Headers;
+        public bool IsChannelOpen => channel.IsOpen;
+
+        public Task AcknowledgeAsync(CancellationToken cancellationToken) =>
+            channel.BasicAckAsync(eventArgs.DeliveryTag, false, cancellationToken).AsTask();
+
+        public Task DeadLetterAsync(CancellationToken cancellationToken) =>
+            channel.BasicNackAsync(eventArgs.DeliveryTag, false, false, cancellationToken).AsTask();
+
+        public async Task PublishRetryAsync(int retryCount, CancellationToken cancellationToken)
+        {
+            var headers = eventArgs.BasicProperties.Headers is null
+                ? new Dictionary<string, object?>()
+                : new Dictionary<string, object?>(eventArgs.BasicProperties.Headers);
+            headers[OrderNotificationDeliveryProcessor.RetryHeader] = retryCount;
+            var properties = new BasicProperties
+            {
+                Persistent = true,
+                ContentType = eventArgs.BasicProperties.ContentType,
+                MessageId = eventArgs.BasicProperties.MessageId,
+                Type = eventArgs.BasicProperties.Type,
+                Headers = headers,
+            };
+            await channel.BasicPublishAsync(
+                settings.ExchangeName,
+                eventArgs.RoutingKey,
+                mandatory: true,
+                properties,
+                eventArgs.Body,
+                cancellationToken);
+        }
+    }
 }

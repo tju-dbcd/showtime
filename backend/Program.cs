@@ -230,7 +230,8 @@ builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, SubjectUserIdProvider>();
 builder.Services.AddSingleton<IOrderNotificationDispatcher, SignalROrderNotificationDispatcher>();
-builder.Services.AddScoped<OrderNotificationMessageHandler>();
+builder.Services.AddScoped<IOrderNotificationMessageHandler, OrderNotificationMessageHandler>();
+builder.Services.AddScoped<OrderNotificationDeliveryProcessor>();
 
 if (builder.Configuration.GetValue<bool>("RabbitMq:Enabled"))
 {

@@ -124,14 +124,33 @@ public sealed class OrderMessagingContractTests
     [Fact]
     public void ConsumerRetryHeaderIsDurableAndBoundedInput()
     {
-        Assert.Equal(0, RabbitMqOrderNotificationWorker.ReadRetryCount(null));
-        Assert.Equal(3, RabbitMqOrderNotificationWorker.ReadRetryCount(
+        Assert.True(OrderNotificationDeliveryProcessor.TryReadRetryCount(null, out var missing));
+        Assert.Equal(0, missing);
+        Assert.True(OrderNotificationDeliveryProcessor.TryReadRetryCount(
             new Dictionary<string, object?>
             {
-                [RabbitMqOrderNotificationWorker.RetryHeader] = 3,
-            }));
-        Assert.True(RabbitMqOrderNotificationWorker.ShouldRetry(2, 3));
-        Assert.False(RabbitMqOrderNotificationWorker.ShouldRetry(3, 3));
+                [OrderNotificationDeliveryProcessor.RetryHeader] = 3,
+            },
+            out var valid));
+        Assert.Equal(3, valid);
+        Assert.False(OrderNotificationDeliveryProcessor.TryReadRetryCount(
+            new Dictionary<string, object?>
+            {
+                [OrderNotificationDeliveryProcessor.RetryHeader] = -1,
+            },
+            out _));
+        Assert.False(OrderNotificationDeliveryProcessor.TryReadRetryCount(
+            new Dictionary<string, object?>
+            {
+                [OrderNotificationDeliveryProcessor.RetryHeader] = (long)int.MaxValue + 1,
+            },
+            out _));
+        Assert.False(OrderNotificationDeliveryProcessor.TryReadRetryCount(
+            new Dictionary<string, object?>
+            {
+                [OrderNotificationDeliveryProcessor.RetryHeader] = "0",
+            },
+            out _));
     }
 
     private static OrderCreatedEvent CreateNotification() => new(

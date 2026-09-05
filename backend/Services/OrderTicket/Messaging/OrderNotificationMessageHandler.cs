@@ -9,9 +9,17 @@ public enum OrderNotificationHandlingResult
     Retry,
 }
 
+public interface IOrderNotificationMessageHandler
+{
+    Task<OrderNotificationHandlingResult> HandleAsync(
+        string? messageType,
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken);
+}
+
 public sealed class OrderNotificationMessageHandler(
     IOrderNotificationDispatcher dispatcher,
-    ILogger<OrderNotificationMessageHandler> logger)
+    ILogger<OrderNotificationMessageHandler> logger) : IOrderNotificationMessageHandler
 {
     public async Task<OrderNotificationHandlingResult> HandleAsync(
         string? messageType,
