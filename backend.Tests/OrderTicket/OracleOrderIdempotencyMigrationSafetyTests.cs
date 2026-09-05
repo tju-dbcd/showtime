@@ -6,10 +6,10 @@ namespace ShowtimeBackend.Tests.OrderTicket;
 public sealed class OracleOrderIdempotencyMigrationSafetyTests
 {
     private const string CheckConstraint = "CHK_T_ORDER_IDEMPOTENCY_PAIR";
-    private const string UniqueConstraint = "UK_T_ORDER_USER_IDEMPOTENCY";
+    private const string UniqueIndex = "UK_T_ORDER_USER_IDEMPOTENCY";
 
     [OracleOrderIdempotencyFact]
-    public async Task OracleMigration_IsRepeatableAndRepairsDroppedConstraints()
+    public async Task OracleMigration_IsRepeatableAndRepairsDroppedObjects()
     {
         using var oracleGate = await OracleOrderTicketGate.EnterAsync();
         await using var connection = await OpenValidatedConnectionAsync();
@@ -25,14 +25,20 @@ public sealed class OracleOrderIdempotencyMigrationSafetyTests
                 $"ALTER TABLE T_ORDER DROP CONSTRAINT {CheckConstraint}");
             await ExecuteAsync(
                 connection,
-                $"ALTER TABLE T_ORDER DROP CONSTRAINT {UniqueConstraint}");
+                $"DROP INDEX {UniqueIndex}");
             Assert.Equal(
                 0m,
                 await ScalarAsync<decimal>(
                     connection,
                     "SELECT COUNT(*) FROM USER_CONSTRAINTS " +
                     "WHERE TABLE_NAME = 'T_ORDER' AND CONSTRAINT_NAME IN " +
-                    $"('{CheckConstraint}', '{UniqueConstraint}')"));
+                    $"('{CheckConstraint}', '{UniqueIndex}')"));
+            Assert.Equal(
+                0m,
+                await ScalarAsync<decimal>(
+                    connection,
+                    "SELECT COUNT(*) FROM USER_INDEXES " +
+                    $"WHERE TABLE_NAME = 'T_ORDER' AND INDEX_NAME = '{UniqueIndex}'"));
 
             await ExecuteMigrationAsync(connection);
             await AssertTerminalStateAsync(connection);
@@ -188,23 +194,30 @@ public sealed class OracleOrderIdempotencyMigrationSafetyTests
             checkDefinition);
 
         Assert.Equal(
-            1m,
+            0m,
             await ScalarAsync<decimal>(
                 connection,
                 "SELECT COUNT(*) FROM USER_CONSTRAINTS " +
-                $"WHERE TABLE_NAME = 'T_ORDER' AND CONSTRAINT_NAME = '{UniqueConstraint}' " +
+                $"WHERE TABLE_NAME = 'T_ORDER' AND CONSTRAINT_NAME = '{UniqueIndex}' " +
                 "AND CONSTRAINT_TYPE = 'U'"));
 
-        await using var uniqueColumnsCommand = connection.CreateCommand();
-        uniqueColumnsCommand.CommandText =
-            "SELECT COLUMN_NAME FROM USER_CONS_COLUMNS " +
-            $"WHERE TABLE_NAME = 'T_ORDER' AND CONSTRAINT_NAME = '{UniqueConstraint}' " +
-            "ORDER BY POSITION";
-        await using var uniqueColumnsReader = await uniqueColumnsCommand.ExecuteReaderAsync();
-        var uniqueColumns = new List<string>();
-        while (await uniqueColumnsReader.ReadAsync())
-            uniqueColumns.Add(uniqueColumnsReader.GetString(0));
-        Assert.Equal(["USER_ID", "IDEMPOTENCY_KEY"], uniqueColumns);
+        Assert.Equal(
+            1m,
+            await ScalarAsync<decimal>(
+                connection,
+                "SELECT COUNT(*) FROM USER_INDEXES " +
+                $"WHERE TABLE_NAME = 'T_ORDER' AND INDEX_NAME = '{UniqueIndex}' " +
+                "AND INDEX_TYPE = 'FUNCTION-BASED NORMAL' " +
+                "AND UNIQUENESS = 'UNIQUE' AND STATUS = 'VALID'"));
+
+        // 函数唯一索引包含两个表达式列（USER_ID、IDEMPOTENCY_KEY 的 CASE 表达式）。
+        // 只做计数断言，避免用 ODP.NET 读取 LONG 类型的 COLUMN_EXPRESSION。
+        Assert.Equal(
+            2m,
+            await ScalarAsync<decimal>(
+                connection,
+                "SELECT COUNT(*) FROM USER_IND_EXPRESSIONS " +
+                $"WHERE INDEX_NAME = '{UniqueIndex}'"));
     }
 
     private static async Task ExecuteAsync(
