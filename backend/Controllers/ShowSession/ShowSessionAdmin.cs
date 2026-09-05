@@ -69,12 +69,13 @@ public class AdminShowSessionController : ControllerBase
     /// <summary>
     /// 配置或覆盖更新场次基础票价策略
     /// </summary>
+    /// <remarks>
+    /// 当请求体传入空数组 <c>[]</c> 时，将静默清空该场次下的所有现有票价策略。
+    /// </remarks>
     [HttpPost("sessions/{sessionId:long}/pricing-strategies")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<object>>> ConfigurePriceStrategies(
         [FromRoute] long sessionId,
         [FromBody] IEnumerable<CreatePriceStrategyRequest> requests,
@@ -88,12 +89,13 @@ public class AdminShowSessionController : ControllerBase
 
         if (requests == null)
         {
-            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "请求体不能为空"));
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "请求体不能为 null"));
         }
 
         try
         {
-            await _adminService.ConfigurePriceStrategiesAsync(sessionId, requests, cancellationToken);
+            var operatorName = User.Identity?.Name ?? "admin";
+            await _adminService.ConfigurePriceStrategiesAsync(sessionId, requests, operatorName, cancellationToken);
             return Ok(ApiResponse<object>.Ok(null!, "票价策略配置成功"));
         }
         catch (KeyNotFoundException ex)
@@ -109,12 +111,14 @@ public class AdminShowSessionController : ControllerBase
     /// <summary>
     /// 配置或覆盖更新场次动态调价规则
     /// </summary>
+    /// <remarks>
+    /// 1. 当请求体传入空数组 <c>[]</c> 时，将静默清空该场次下的所有现有动态调价规则。<br/>
+    /// 2. <c>TriggerType</c> 支持 <c>TIME_WINDOW</c> 与 <c>INVENTORY_RATE</c>。注意：<c>INVENTORY_RATE</c> 当前版本规则评估计算恒为 <c>false</c>。
+    /// </remarks>
     [HttpPost("sessions/{sessionId:long}/dynamic-pricing-rules")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<object>>> ConfigureDynamicPricingRules(
         [FromRoute] long sessionId,
         [FromBody] IEnumerable<CreateDynamicPricingRuleRequest> requests,
@@ -128,15 +132,15 @@ public class AdminShowSessionController : ControllerBase
             return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", errorMessage));
         }
 
-        // 拦截空列表请求
-        if (requests == null) //不在阻挡空列表
+        if (requests == null)
         {
-            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "动态调价规则列表不能为空"));
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "动态调价规则列表不能为 null"));
         }
 
         try
         {
-            await _adminService.ConfigureDynamicPricingRulesAsync(sessionId, requests, cancellationToken);
+            var operatorName = User.Identity?.Name ?? "admin";
+            await _adminService.ConfigureDynamicPricingRulesAsync(sessionId, requests, operatorName, cancellationToken);
             return Ok(ApiResponse<object>.Ok(null!, "动态调价规则配置成功"));
         }
         catch (KeyNotFoundException ex)

@@ -148,6 +148,7 @@ public class AdminShowSessionService : IAdminShowSessionService
     public async Task ConfigurePriceStrategiesAsync(
         long sessionId,
         IEnumerable<CreatePriceStrategyRequest> requests,
+        string operatorName = "admin",
         CancellationToken cancellationToken = default)
     {
         if (requests == null)
@@ -179,10 +180,12 @@ public class AdminShowSessionService : IAdminShowSessionService
                 _context.PriceStrategy.RemoveRange(oldStrategies);
             }
 
-            // [] 则仅清空（符合全量清空语义）
+            // [] 空数组时静默清空并直接提交
             if (requestList.Count > 0)
             {
                 var now = DateTime.UtcNow;
+                var currentOperator = string.IsNullOrWhiteSpace(operatorName) ? "admin" : operatorName;
+
                 var newStrategies = requestList.Select(req => new PriceStrategy
                 {
                     SessionId = sessionId,
@@ -197,8 +200,8 @@ public class AdminShowSessionService : IAdminShowSessionService
                     Priority = req.Priority,
                     Quota = req.Quota,
                     Status = PriceStrategyStatus.ENABLED.ToDbString(),
-                    CreateBy = "admin",
-                    UpdateBy = "admin",
+                    CreateBy = currentOperator,
+                    UpdateBy = currentOperator,
                     CreateTime = now,
                     UpdateTime = now
                 }).ToList();
@@ -219,6 +222,7 @@ public class AdminShowSessionService : IAdminShowSessionService
     public async Task ConfigureDynamicPricingRulesAsync(
         long sessionId,
         IEnumerable<CreateDynamicPricingRuleRequest> requests,
+        string operatorName = "admin",
         CancellationToken cancellationToken = default)
     {
         if (requests == null)
@@ -234,7 +238,7 @@ public class AdminShowSessionService : IAdminShowSessionService
         if (!sessionExists)
             throw new KeyNotFoundException("演出场次不存在");
 
-        // 业务校验：确保窗口偏置逻辑正常 (StartOffsetMinutes 必须大于等于 EndOffsetMinutes)
+        // 校验调价时间窗口偏置 (StartOffsetMinutes 必须大于等于 EndOffsetMinutes)
         foreach (var req in requestList)
         {
             if (req.StartOffsetMinutes.HasValue && req.EndOffsetMinutes.HasValue &&
@@ -257,10 +261,12 @@ public class AdminShowSessionService : IAdminShowSessionService
                 _context.DynamicPricingRules.RemoveRange(oldRules);
             }
 
-            // [] 仅清空
+            // [] 空数组时仅进行静默清空
             if (requestList.Count > 0)
             {
                 var now = DateTime.UtcNow;
+                var currentOperator = string.IsNullOrWhiteSpace(operatorName) ? "admin" : operatorName;
+
                 var newRules = requestList.Select(req => new DynamicPricingRule
                 {
                     SessionId = sessionId,
@@ -273,8 +279,8 @@ public class AdminShowSessionService : IAdminShowSessionService
                     AdjustmentValue = req.AdjustmentValue,
                     Priority = req.Priority,
                     Status = "ENABLED",
-                    CreateBy = "admin",
-                    UpdateBy = "admin",
+                    CreateBy = currentOperator,
+                    UpdateBy = currentOperator,
                     CreateTime = now,
                     UpdateTime = now
                 }).ToList();

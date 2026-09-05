@@ -394,12 +394,13 @@ public sealed class ShowSessionAdminControllersTests
     public async Task ConfigureDynamicPricingRules_WhenExceptionOccurs_RollsBackTransaction()
     {
         // 使用 SQLite In-Memory 数据库支持真实 DB 事务回滚校验
-        using var connection = new SqliteConnection("DataSource=:memory:");
+        using var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=False;");
         await connection.OpenAsync();
 
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        .UseSqlite(connection)
+        .ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCustomizer, SqliteTestModelCustomizer>() // ✅ 关键新增
+        .Options;
 
         await using var db = new AppDbContext(options);
         await db.Database.EnsureCreatedAsync();
@@ -546,5 +547,24 @@ public sealed class ShowSessionAdminControllersTests
             SessionStatus = status,
             CreateTime = DateTime.UtcNow
         };
+    }
+}
+
+// 主键类型在 SQLite 中不能使用 AUTOINCREMENT，如果在模型中硬编码了主键类型（NUMBER(19,0)），可能会导致 SQLite 报错。
+internal sealed class SqliteTestModelCustomizer : Microsoft.EntityFrameworkCore.Infrastructure.ModelCustomizer
+{
+    public SqliteTestModelCustomizer(Microsoft.EntityFrameworkCore.Infrastructure.ModelCustomizerDependencies dependencies)
+        : base(dependencies) { }
+
+    public override void Customize(ModelBuilder modelBuilder, DbContext context)
+    {
+        base.Customize(modelBuilder, context);
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                property.SetColumnType(null); // 清空主键硬编码类型，避免 SQLite 报 AUTOINCREMENT 错误
+            }
+        }
     }
 }

@@ -28,6 +28,7 @@ public class AppDbContext : DbContext
     public DbSet<Show> Shows => Set<Show>();
     public DbSet<DynamicPricingRule> DynamicPricingRules => Set<DynamicPricingRule>();
     public DbSet<OperationLog> OperationLogs => Set<OperationLog>();
+    public DbSet<MarketingContent> MarketingContents => Set<MarketingContent>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("APP_OWNER");
