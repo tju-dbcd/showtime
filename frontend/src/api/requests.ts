@@ -59,17 +59,24 @@ export const orderAPI = {
   getOrder: (orderId: number) =>
     client.GET('/api/orders/{orderId}', { params: { path: { orderId } } }),
 
-  createOrder: (data: {
-    sessionId: number;
-    items: Array<{
-      seatId: number;
-      priceStrategyId: number;
-      realNameId: number | null;
-      lockToken: string;
-    }>;
-    remark: string | null;
-  }) =>
-    client.POST('/api/orders', { body: data }),
+  // idempotencyKey：后端 POST /api/orders 必填的幂等键（同一次下单尝试内保持相同，失败重试可安全重放）
+  createOrder: (
+    data: {
+      sessionId: number;
+      items: Array<{
+        seatId: number;
+        priceStrategyId: number;
+        realNameId: number | null;
+        lockToken: string;
+      }>;
+      remark: string | null;
+    },
+    idempotencyKey: string,
+  ) =>
+    client.POST('/api/orders', {
+      body: data,
+      params: { header: { 'Idempotency-Key': idempotencyKey } },
+    }),
 
   cancelOrder: (orderId: number) =>
     client.PATCH('/api/orders/{orderId}/cancel', { params: { path: { orderId } } }),
