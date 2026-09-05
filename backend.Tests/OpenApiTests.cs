@@ -52,6 +52,31 @@ public sealed class OpenApiTests
     }
 
     [Fact]
+    public async Task OpenApiDocument_DeclaresRequiredOrderIdempotencyHeader()
+    {
+        using var factory = new AuthTestFactory();
+        using var client = factory.CreateApiClient();
+
+        var response = await client.GetAsync("/openapi/v1.json");
+
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+        var parameters = document.RootElement
+            .GetProperty("paths")
+            .GetProperty("/api/orders")
+            .GetProperty("post")
+            .GetProperty("parameters");
+        var parameter = Assert.Single(parameters.EnumerateArray());
+        Assert.Equal("Idempotency-Key", parameter.GetProperty("name").GetString());
+        Assert.Equal("header", parameter.GetProperty("in").GetString());
+        Assert.True(parameter.GetProperty("required").GetBoolean());
+        var schema = parameter.GetProperty("schema");
+        Assert.Equal("string", schema.GetProperty("type").GetString());
+        Assert.Equal(64, schema.GetProperty("maxLength").GetInt32());
+    }
+
+    [Fact]
     public async Task OpenApiDocument_DeclaresSeatBatchUpdateContract()
     {
         using var factory = new AuthTestFactory();

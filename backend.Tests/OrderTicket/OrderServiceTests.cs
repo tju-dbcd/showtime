@@ -31,6 +31,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-expiration",
             new CreateOrderRequest(
                 10,
                 [new CreateOrderItemRequest(50, 60, null, "lock-50")],
@@ -64,7 +65,12 @@ public sealed class OrderServiceTests
             ],
             "靠近过道");
 
-        var result = await service.CreateAsync(7, "alice", request, CancellationToken.None);
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            "test-key-pricing",
+            request,
+            CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(376m, result.Value!.TotalAmount);
@@ -99,6 +105,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-missing-lock",
             new CreateOrderRequest(
                 10,
                 [new CreateOrderItemRequest(50, 60, null, "missing-lock")],
@@ -122,6 +129,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-long-token",
             new CreateOrderRequest(
                 10,
                 [new CreateOrderItemRequest(50, 60, null, new string('a', 65))],
@@ -149,6 +157,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-too-many-seats",
             new CreateOrderRequest(10, items, null),
             CancellationToken.None);
 
@@ -169,6 +178,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-wrong-token",
             new CreateOrderRequest(
                 10,
                 [new CreateOrderItemRequest(50, 60, null, "wrong-token")],
@@ -204,6 +214,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-expired-lock",
             new CreateOrderRequest(
                 10,
                 [new CreateOrderItemRequest(50, 60, null, "expired-token")],
@@ -231,7 +242,12 @@ public sealed class OrderServiceTests
             ],
             null);
 
-        var result = await service.CreateAsync(7, "alice", request, CancellationToken.None);
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            "test-key-duplicate-seats",
+            request,
+            CancellationToken.None);
 
         Assert.False(result.IsSuccess);
         Assert.Equal("ORDER_INVALID_ITEMS", result.ErrorCode);
@@ -247,6 +263,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-unavailable-seat",
             new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null, "test-lock")], null),
             CancellationToken.None);
 
@@ -264,6 +281,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-price-session",
             new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null, "test-lock")], null),
             CancellationToken.None);
 
@@ -290,6 +308,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-real-name",
             new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, 70, "test-lock")], null),
             CancellationToken.None);
 
@@ -311,6 +330,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-missing-session",
             new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null, "test-lock")], null),
             CancellationToken.None);
 

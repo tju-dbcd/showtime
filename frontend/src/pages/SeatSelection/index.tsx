@@ -358,11 +358,20 @@ const SeatSelection = () => {
         });
       }
 
-      const { data: orderData, error: orderError } = await orderAPI.createOrder({
-        sessionId: selectedSessionId,
-        items: orderItems,
-        remark: null,
-      });
+      // 每次下单尝试生成唯一幂等键：服务端按 (用户, 幂等键, 请求摘要) 做安全重放与并发去重。
+      // 优先 crypto.randomUUID()；非安全上下文（http 非 localhost）不支持时退化为时间戳+随机串。
+      const idempotencyKey =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `ik-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
+      const { data: orderData, error: orderError } = await orderAPI.createOrder(
+        {
+          sessionId: selectedSessionId,
+          items: orderItems,
+          remark: null,
+        },
+        idempotencyKey,
+      );
 
       if (orderError) {
         const tokens = lockData.data.locks.map((item: any) => item.lockToken);
