@@ -59,10 +59,27 @@ public sealed class OrderIdempotencyModelTests
         Assert.Contains("IDEMPOTENCY_REQUEST_HASH CHAR(64 CHAR)", script, StringComparison.Ordinal);
         Assert.Contains("CHK_T_ORDER_IDEMPOTENCY_PAIR", script, StringComparison.Ordinal);
         Assert.Contains("UK_T_ORDER_USER_IDEMPOTENCY", script, StringComparison.Ordinal);
-        Assert.Contains("UNIQUE (USER_ID, IDEMPOTENCY_KEY)", script, StringComparison.Ordinal);
+        Assert.Contains(
+            "CREATE UNIQUE INDEX UK_T_ORDER_USER_IDEMPOTENCY",
+            script,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CASE WHEN IDEMPOTENCY_KEY IS NOT NULL THEN USER_ID END",
+            script,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CASE WHEN IDEMPOTENCY_KEY IS NOT NULL THEN IDEMPOTENCY_KEY END",
+            script,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "UNIQUE (USER_ID, IDEMPOTENCY_KEY)",
+            script,
+            StringComparison.Ordinal);
         Assert.Contains("IF v_count = 0 THEN", script, StringComparison.Ordinal);
         Assert.Contains("ALL_TAB_COLUMNS", script, StringComparison.Ordinal);
         Assert.Contains("ALL_CONSTRAINTS", script, StringComparison.Ordinal);
+        Assert.Contains("ALL_INDEXES", script, StringComparison.Ordinal);
+        Assert.Contains("ALL_IND_EXPRESSIONS", script, StringComparison.Ordinal);
     }
 
     [Theory]
