@@ -24,6 +24,8 @@ public class AdminMarketingContentController : ControllerBase
     [HttpPost]
     [ProducesResponseType(typeof(ApiResponse<MarketingContentDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<MarketingContentDto>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<MarketingContentDto>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<MarketingContentDto>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<MarketingContentDto>>> CreateContent(
         [FromBody] CreateMarketingContentRequest request,
         CancellationToken cancellationToken)
@@ -46,6 +48,8 @@ public class AdminMarketingContentController : ControllerBase
     [HttpPut("{contentId:long}")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<object>>> UpdateContent(
         [FromRoute] long contentId,
@@ -73,6 +77,8 @@ public class AdminMarketingContentController : ControllerBase
     /// </summary>
     [HttpDelete("{contentId:long}")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<object>>> DeleteContent(
         [FromRoute] long contentId,
@@ -94,6 +100,8 @@ public class AdminMarketingContentController : ControllerBase
     /// </summary>
     [HttpGet("{contentId:long}")]
     [ProducesResponseType(typeof(ApiResponse<MarketingContentDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<MarketingContentDto>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<MarketingContentDto>), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse<MarketingContentDto>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<MarketingContentDto>>> GetContentById(
         [FromRoute] long contentId,
@@ -115,6 +123,8 @@ public class AdminMarketingContentController : ControllerBase
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<PagedResponse<MarketingContentDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResponse<MarketingContentDto>>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResponse<MarketingContentDto>>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<PagedResponse<MarketingContentDto>>>> GetContents(
         [FromQuery] MarketingContentQueryRequest query,
         CancellationToken cancellationToken)

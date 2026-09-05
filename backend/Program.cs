@@ -285,14 +285,22 @@ builder.Services.AddScoped<IClientShowService, ClientShowService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiResponseExceptionHandler>();
+
+// OpenAPI 服务器地址：由配置 OpenApi:ServerUrl 提供（不要硬编码端口）。
+// 未配置时不写入 document.Servers，避免把错误的固定 URL 固化进 OpenAPI 快照（如前端 openapi.json）。
+var openApiServerUrl = builder.Configuration["OpenApi:ServerUrl"];
+
 builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer((document, context, cancellationToken) =>
     {
-        document.Servers = new List<OpenApiServer>
+        if (!string.IsNullOrWhiteSpace(openApiServerUrl))
         {
-            new OpenApiServer { Url = "http://127.0.0.1:5002" }
-        };
+            document.Servers = new List<OpenApiServer>
+            {
+                new OpenApiServer { Url = openApiServerUrl }
+            };
+        }
         return Task.CompletedTask;
     });
 

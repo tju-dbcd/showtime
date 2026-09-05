@@ -29,6 +29,7 @@ public record CreateMarketingContentRequest(
     string? ContentText,
 
     [StringLength(500, ErrorMessage = "图片 URL 不能超过 500 个字符")]
+    [RegularExpression(@"^(https?://\S+|/\S*)$", ErrorMessage = "图片 URL 必须是 http(s) 绝对地址或以 / 开头的相对路径，且不能包含空白字符")]
     string? ImageUrl,
 
     int SortOrder = 0,
@@ -49,6 +50,7 @@ public record UpdateMarketingContentRequest(
     string? ContentText,
 
     [StringLength(500, ErrorMessage = "图片 URL 不能超过 500 个字符")]
+    [RegularExpression(@"^(https?://\S+|/\S*)$", ErrorMessage = "图片 URL 必须是 http(s) 绝对地址或以 / 开头的相对路径，且不能包含空白字符")]
     string? ImageUrl,
 
     int SortOrder,

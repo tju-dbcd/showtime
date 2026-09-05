@@ -391,16 +391,75 @@ public sealed class ShowSessionAdminControllersTests
     }
 
     [Fact]
-    public async Task ConfigureDynamicPricingRules_WhenExceptionOccurs_RollsBackTransaction()
+    public async Task ConfigureDynamicPricingRules_WhenPreTransactionValidationFails_LeavesExistingRulesUntouched()
     {
-        // 使用 SQLite In-Memory 数据库支持真实 DB 事务回滚校验
+        // 请求在 Service 校验层（StartOffset/EndOffset 时间窗口校验）即抛 ArgumentException，
+        // 该校验发生在 BeginTransactionAsync 之前，属“事务前参数校验失败”，并不会真正触发
+        // catch { RollbackAsync } 分支。本用例只断言：失败不会对存量规则造成任何改动；
+        // 真正覆盖回滚分支的用例见 ConfigureDynamicPricingRules_WhenInTransactionWriteFails_RollsBack。
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+
+        db.DynamicPricingRules.Add(new DynamicPricingRule
+        {
+            SessionId = session.SessionId,
+            RuleName = "初始规则",
+            TriggerType = "TIME_WINDOW",
+            AdjustmentType = "AMOUNT_OFF",
+            AdjustmentValue = 20m,
+            Status = "ENABLED",
+            CreateBy = "admin",
+            UpdateBy = "admin",
+            CreateTime = DateTime.UtcNow,
+            UpdateTime = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+
+        // 构造非法调价时间窗口（StartOffset 10 < EndOffset 30），在 Service 校验层抛出 ArgumentException
+        var invalidRequests = new[]
+        {
+            new CreateDynamicPricingRuleRequest(
+                SeatSectionId: 1,
+                RuleName: "非法规则",
+                TriggerType: "TIME_WINDOW",
+                StartOffsetMinutes: 10,
+                EndOffsetMinutes: 30,
+                AdjustmentType: "DISCOUNT_RATE",
+                AdjustmentValue: 0.8m,
+                Priority: 1)
+        };
+
+        var actionResult = await controller.ConfigureDynamicPricingRules(session.SessionId, invalidRequests, CancellationToken.None);
+
+        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
+
+        // 存量规则保持不变（既未删除也未新增）
+        var rulesInDb = await db.DynamicPricingRules
+            .Where(r => r.SessionId == session.SessionId)
+            .ToListAsync();
+
+        Assert.Single(rulesInDb);
+        Assert.Equal("初始规则", rulesInDb[0].RuleName);
+    }
+
+    [Fact]
+    public async Task ConfigureDynamicPricingRules_WhenInTransactionWriteFails_RollsBack()
+    {
+        // 真实事务回滚覆盖：用 SQLite 内存库让 SaveChanges 在事务内抛 DbUpdateException
+        // （写入一条 RULE_NAME 为 NULL、违反 NOT NULL 约束的规则），从而真正执行
+        // catch { RollbackAsync } 分支，并断言旧规则被完整保留。
         using var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=False;");
         await connection.OpenAsync();
 
         var options = new DbContextOptionsBuilder<AppDbContext>()
-        .UseSqlite(connection)
-        .ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCustomizer, SqliteTestModelCustomizer>() // ✅ 关键新增
-        .Options;
+            .UseSqlite(connection)
+            .ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCustomizer, SqliteTestModelCustomizer>()
+            .Options;
 
         await using var db = new AppDbContext(options);
         await db.Database.EnsureCreatedAsync();
@@ -422,30 +481,28 @@ public sealed class ShowSessionAdminControllersTests
         });
         await db.SaveChangesAsync();
 
-        var controller = CreateAdminController(db);
+        var service = new AdminShowSessionService(db);
 
-        // 构造非法调价时间窗口（StartOffset 10 < EndOffset 30），在 Service 校验层抛出 ArgumentException 并触发展示回滚
+        // 触发"事务内写入失败"：RULE_NAME 在表中为 NOT NULL（IsRequired），这里把 RuleName 置为 null，
+        // 令 SaveChanges 在事务内抛出 DbUpdateException（NOT NULL 约束冲突，跨提供程序稳定，
+        // 不依赖 SQLite 是否复刻 CHECK 约束）。
         var invalidRequests = new[]
         {
             new CreateDynamicPricingRuleRequest(
                 SeatSectionId: 1,
-                RuleName: "非法规则",
+                RuleName: null!,
                 TriggerType: "TIME_WINDOW",
-                StartOffsetMinutes: 10,
+                StartOffsetMinutes: 120,
                 EndOffsetMinutes: 30,
                 AdjustmentType: "DISCOUNT_RATE",
                 AdjustmentValue: 0.8m,
                 Priority: 1)
         };
 
-        var actionResult = await controller.ConfigureDynamicPricingRules(session.SessionId, invalidRequests, CancellationToken.None);
+        await Assert.ThrowsAsync<DbUpdateException>(
+            () => service.ConfigureDynamicPricingRulesAsync(session.SessionId, invalidRequests));
 
-        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
-        var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
-        Assert.False(apiResponse.Success);
-        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
-
-        // 断言数据库已完全回滚：初始规则未被 Remove，亦未插入新规则
+        // 事务已回滚：初始规则仍在、坏规则未插入
         var rulesInDb = await db.DynamicPricingRules
             .Where(r => r.SessionId == session.SessionId)
             .ToListAsync();
