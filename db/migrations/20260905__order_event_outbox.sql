@@ -20,10 +20,20 @@ DECLARE
     v_table_count NUMBER;
     v_valid_count NUMBER;
     v_definition  VARCHAR2(4000);
+    v_same_name   NUMBER;
 BEGIN
     SELECT COUNT(*) INTO v_table_count
       FROM ALL_TABLES
      WHERE OWNER = v_owner AND TABLE_NAME = 'T_ORDER_EVENT_OUTBOX';
+
+    -- 防止 ORA-00955：目标 Schema 存在同名对象（任意类型/任意大小写）但不是
+    -- 规范大写表时，fail-closed 报明确错误，禁止在未知对象上继续修改或盲建。
+    SELECT COUNT(*) INTO v_same_name
+      FROM ALL_OBJECTS
+     WHERE OWNER = v_owner AND UPPER(OBJECT_NAME) = 'T_ORDER_EVENT_OUTBOX';
+    IF v_table_count = 0 AND v_same_name > 0 THEN
+        RAISE_APPLICATION_ERROR(-20416, 'T_ORDER_EVENT_OUTBOX exists as a non-canonical object (wrong case or non-table type); resolve it before rerunning');
+    END IF;
 
     IF v_table_count = 1 THEN
         SELECT COUNT(*) INTO v_valid_count
