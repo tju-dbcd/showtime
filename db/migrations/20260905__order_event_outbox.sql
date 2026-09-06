@@ -162,8 +162,39 @@ BEGIN
 
     SELECT COUNT(*) INTO v_count FROM ALL_CONSTRAINTS
      WHERE OWNER = v_owner AND TABLE_NAME = 'T_ORDER_EVENT_OUTBOX'
-       AND CONSTRAINT_NAME = 'PK_ORDER_EVENT_OUTBOX';
+       AND CONSTRAINT_NAME = 'PK_ORDER_EVENT_OUTBOX' AND CONSTRAINT_TYPE = 'P';
     IF v_count = 0 THEN
+        -- 主键按规范名收敛：表上可能已存在其他名字的单列 EVENT_ID 主键
+        -- （如历史建表产生的 PK_T_ORDER_EVENT_OUTBOX / SYS_C 系统名），
+        -- 先校验其定义为单列 EVENT_ID 主键，再删除并重建为规范名，
+        -- 避免直接 ADD PRIMARY KEY 触发 ORA-02260；定义异常则 fail-closed。
+        SELECT COUNT(*) INTO v_count FROM ALL_CONSTRAINTS
+         WHERE OWNER = v_owner AND TABLE_NAME = 'T_ORDER_EVENT_OUTBOX'
+           AND CONSTRAINT_TYPE = 'P';
+        IF v_count > 0 THEN
+            SELECT COUNT(*) INTO v_count
+              FROM ALL_CONSTRAINTS c
+              JOIN ALL_CONS_COLUMNS cc
+                ON cc.OWNER = c.OWNER AND cc.CONSTRAINT_NAME = c.CONSTRAINT_NAME
+             WHERE c.OWNER = v_owner AND c.TABLE_NAME = 'T_ORDER_EVENT_OUTBOX'
+               AND c.CONSTRAINT_TYPE = 'P' AND c.STATUS = 'ENABLED'
+               AND cc.COLUMN_NAME = 'EVENT_ID' AND cc.POSITION = 1;
+            IF v_count <> 1 THEN
+                RAISE_APPLICATION_ERROR(-20415, 'T_ORDER_EVENT_OUTBOX has an unexpected primary key definition');
+            END IF;
+
+            SELECT COUNT(*) INTO v_count
+              FROM ALL_CONS_COLUMNS cc
+              JOIN ALL_CONSTRAINTS c
+                ON c.OWNER = cc.OWNER AND c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+             WHERE c.OWNER = v_owner AND c.TABLE_NAME = 'T_ORDER_EVENT_OUTBOX'
+               AND c.CONSTRAINT_TYPE = 'P';
+            IF v_count <> 1 THEN
+                RAISE_APPLICATION_ERROR(-20415, 'T_ORDER_EVENT_OUTBOX has an unexpected primary key definition');
+            END IF;
+
+            EXECUTE IMMEDIATE 'ALTER TABLE T_ORDER_EVENT_OUTBOX DROP PRIMARY KEY';
+        END IF;
         EXECUTE IMMEDIATE 'ALTER TABLE T_ORDER_EVENT_OUTBOX ADD CONSTRAINT PK_ORDER_EVENT_OUTBOX PRIMARY KEY (EVENT_ID)';
     END IF;
 
