@@ -28,10 +28,24 @@ public class AppDbContext : DbContext
     public DbSet<Show> Shows => Set<Show>();
     public DbSet<DynamicPricingRule> DynamicPricingRules => Set<DynamicPricingRule>();
     public DbSet<OperationLog> OperationLogs => Set<OperationLog>();
+    public DbSet<MarketingContent> MarketingContents => Set<MarketingContent>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("APP_OWNER");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
 
+        if (Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+            {
+                foreach (var property in entityType.GetProperties())
+                {
+                    if (property.IsPrimaryKey() && property.ValueGenerated == Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.OnAdd)
+                    {
+                        property.SetColumnType(null);
+                    }
+                }
+            }
+        }
     }
 }

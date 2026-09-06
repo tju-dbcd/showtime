@@ -20,6 +20,7 @@ using ShowtimeBackend.Services.OrderTicket;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
 using ShowtimeBackend.Services.SeatZone;
+using ShowtimeBackend.Services.MarketingContent;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
@@ -28,6 +29,7 @@ using Scalar.AspNetCore;
 using StackExchange.Redis;
 using Serilog;
 using ShowtimeBackend.Common.LocalStorage;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -266,6 +268,8 @@ builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();
 builder.Services.AddScoped<IOrderTicketAuditSink, DbOperationTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
+builder.Services.AddScoped<IAdminMarketingContentService, AdminMarketingContentService>();
+builder.Services.AddScoped<IClientMarketingContentService, ClientMarketingContentService>();
 builder.Services.AddScoped<ISeatLockService>(serviceProvider =>
     new SeatLockService(
         serviceProvider.GetRequiredService<AppDbContext>(),
@@ -281,8 +285,25 @@ builder.Services.AddScoped<IClientShowService, ClientShowService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiResponseExceptionHandler>();
+
+// OpenAPI 服务器地址：由配置 OpenApi:ServerUrl 提供（不要硬编码端口）。
+// 未配置时不写入 document.Servers，避免把错误的固定 URL 固化进 OpenAPI 快照（如前端 openapi.json）。
+var openApiServerUrl = builder.Configuration["OpenApi:ServerUrl"];
+
 builder.Services.AddOpenApi(options =>
 {
+    options.AddDocumentTransformer((document, context, cancellationToken) =>
+    {
+        if (!string.IsNullOrWhiteSpace(openApiServerUrl))
+        {
+            document.Servers = new List<OpenApiServer>
+            {
+                new OpenApiServer { Url = openApiServerUrl }
+            };
+        }
+        return Task.CompletedTask;
+    });
+
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
     options.AddOperationTransformer<OrderIdempotencyOperationTransformer>();
     options.AddSchemaTransformer<EnumStringSchemaTransformer>();
