@@ -1,0 +1,104 @@
+@startuml 下单全流程时序图
+' ============================================================
+' SHOWTIME 下单全流程时序图
+' 链路：用户 -> 前端 -> 后端 -> Redis -> DB -> MQ -> 前端
+' 依据代码：
+'   - SeatLockService.LockAsync / RedisSeatLockGuard.TryAcquireAsync
+'   - OrderService.CreateAsync（事务性 Outbox）
+'   - PaymentService.PayAsync / TicketIssuanceService.Issue
+'   - OrderEventOutboxWorker / RabbitMqOrderEventPublisher
+'     / OrderNotificationMessageHandler / SignalROrderNotificationDispatcher
+' ============================================================
+
+skinparam sequenceMessageAlign center
+skinparam ParticipantPadding 20
+skinparam BoxPadding 10
+skinparam defaultFontSize 12
+
+actor "用户" as U
+participant "前端\nReact SPA" as FE
+participant "后端\nASP.NET Core" as BE
+database "Redis\n(选座锁)" as R
+database "Oracle\n(DB)" as DB
+queue "MQ\n(RabbitMQ)" as MQ
+participant "SignalR\nHub" as SR
+
+== 阶段一：选座锁座（防超卖） ==
+U -> FE : 选择座位，点击确认
+FE -> BE : POST /api/seat-locks\n{sessionId, seatIds[]}
+activate BE
+
+BE -> DB : 校验场次在售(ONSALE)、座位可售\n(只读)
+DB --> BE : 场次/座位信息
+
+alt Redis 可用（Redis:SeatLockGuardEnabled=true）
+    BE -> R : SET NX PX\nshowtime:seatlock:{sessionId}:{seatId}\nvalue=LockToken, TTL=锁期
+    alt 获取冲突
+        R --> BE : 部分 key 已被占
+        BE --> FE : 409 SEAT_LOCK_CONFLICT
+        return
+    end
+else Redis 不可用
+    note over BE, R : 自动降级为纯 Oracle 流程，不阻断购票
+end
+
+BE -> DB : BEGIN；过期锁置 EXPIRED；\nINSERT SEAT_LOCK(ACTIVE)\n(唯一索引 UK_SEAT_LOCK_ACTIVE 最终兜底)
+alt 唯一索引冲突（并发抢同一座位）
+    DB --> BE : ORA-00001
+    BE -> R : 回滚已获取的 Redis key
+    BE --> FE : 409 SEAT_LOCK_CONFLICT
+    return
+end
+BE -> DB : COMMIT
+DB --> BE : LockToken + ExpireTime
+BE --> FE : 200 {lockToken[], expireTime}
+deactivate BE
+FE --> U : 展示已锁座位，进入确认页
+
+== 阶段二：提交订单（锁转正式占座 + 事务性 Outbox） ==
+U -> FE : 确认下单
+FE -> BE : POST /api/orders\nHeader: Idempotency-Key\n{seatIds+lockToken[]}
+activate BE
+
+BE -> DB : 幂等校验 + 场次/座位/价格策略/实名校验
+BE -> DB : BEGIN TRANSACTION
+BE -> DB : UPDATE SEAT_LOCK ACTIVE→CONVERTED
+BE -> DB : INSERT T_ORDER(PENDING_PAY) + ORDER_ITEM
+BE -> DB : INSERT SEAT_RESERVATION(ACTIVE)
+BE -> DB : INSERT ORDER_EVENT_OUTBOX\n(OrderCreatedEvent, PENDING)
+BE -> DB : COMMIT
+BE -> R : 释放 Redis 座位锁（token 比对防误删）
+BE --> FE : 200 订单(ORDER_STATUS=PENDING_PAY, expireTime)
+deactivate BE
+FE --> U : 展示待支付订单 + 倒计时
+
+== 阶段三：支付 + 出票（Mock 支付） ==
+U -> FE : 发起支付
+FE -> BE : POST /api/orders/{orderId}/payments/mock\n{payChannel, result=SUCCESS}
+activate BE
+BE -> DB : 校验订单状态、是否过期
+alt 订单已过期
+    BE -> DB : 过期取消(PENDING_PAY→CANCELLED)
+    BE --> FE : 409 ORDER_EXPIRED
+    return
+end
+BE -> DB : INSERT PAYMENT(SUCCESS)
+BE -> DB : 生成 E_TICKET(QRCode/AntiFakeCode)\nUPDATE T_ORDER→ISSUED
+BE -> DB : COMMIT
+BE --> FE : 200 支付结果 + 出票信息
+deactivate BE
+FE --> U : 展示电子票（二维码 + 防伪码）
+
+== 阶段四：订单通知（Outbox → MQ → SignalR → 前端） ==
+note over BE, DB : 后台 OrderEventOutboxWorker 轮询\n（租约防多实例重复 + 指数退避重试）
+BE -> DB : SELECT PENDING 事件并 CLAIM(PROCESSING)
+DB --> BE : 待发布事件
+BE -> MQ : 发布 OrderCreatedEvent\n(Exchange + RoutingKey, 持久化)
+MQ --> BE : 消费者接收(RabbitMqOrderNotificationWorker)
+BE -> SR : Clients.User(userId).Send("OrderCreated")
+SR --> FE : SignalR 实时推送
+FE --> U : 收到「下单成功」通知，自动刷新
+
+note over BE, MQ : RabbitMQ 不可用(RabbitMq:Enabled=false)时\n降级为进程内 LocalOrderEventPublisher，\n仍走同一 MessageHandler → SignalR 链路
+
+@enduml
