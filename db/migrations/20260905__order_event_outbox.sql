@@ -35,6 +35,24 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20416, 'T_ORDER_EVENT_OUTBOX exists as a non-canonical object (wrong case or non-table type); resolve it before rerunning');
     END IF;
 
+    -- 正式部署（APP_OWNER）时用 DBA_OBJECTS 兜底：若对象由 APP_OWNER 直接创建而
+    -- 未授权给 DEPLOY_USER，ALL_* 视图不可见，但名字仍会占用，需先处理归属再重跑。
+    -- 无 DBA 字典权限时静默跳过，仍由上面的 ALL_OBJECTS 检查兜底。
+    IF v_owner = 'APP_OWNER' THEN
+        v_same_name := 0;
+        BEGIN
+            EXECUTE IMMEDIATE
+                'SELECT COUNT(*) FROM DBA_OBJECTS WHERE OWNER = ''APP_OWNER'' AND UPPER(OBJECT_NAME) = ''T_ORDER_EVENT_OUTBOX'''
+                INTO v_same_name;
+        EXCEPTION
+            WHEN OTHERS THEN
+                v_same_name := -1;
+        END;
+        IF v_same_name > 0 AND v_table_count = 0 THEN
+            RAISE_APPLICATION_ERROR(-20417, 'T_ORDER_EVENT_OUTBOX exists in APP_OWNER but is invisible here (likely owned by APP_OWNER without grants); reconcile ownership (drop or grant) before rerunning');
+        END IF;
+    END IF;
+
     IF v_table_count = 1 THEN
         SELECT COUNT(*) INTO v_valid_count
           FROM ALL_TAB_COLUMNS
