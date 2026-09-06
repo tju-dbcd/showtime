@@ -6,6 +6,7 @@ import {
   Spin,
   Button,
   message,
+  notification,
   Typography,
   Card,
   Divider,
@@ -17,6 +18,10 @@ import {
 import { orderAPI, refundAPI, exchangeAPI, showAPI, showSessionAPI, sessionAPI } from '@/api/requests';
 import type { components } from '@/api/types';
 import type { OrderResponse } from '@/types/api';
+import {
+  ensureRealtimeConnection,
+  subscribeRefundStatusChanged,
+} from '@/realtime/orderNotifications';
 import './OrderDetail.css';
 
 const { Title, Text } = Typography;
@@ -35,6 +40,14 @@ const STATUS_MAP: Record<string, { color: string; text: string }> = {
   PART_REFUND: { color: 'purple', text: '部分退款' },
   REFUNDED: { color: 'red', text: '已退款' },
   CANCELLED: { color: 'red', text: '已取消' },
+};
+
+const ITEM_STATUS_MAP: Record<string, { color: string; text: string }> = {
+  NORMAL: { color: 'green', text: '正常' },
+  REFUNDING: { color: 'orange', text: '退款中' },
+  REFUNDED: { color: 'default', text: '已退款' },
+  EXCHANGING: { color: 'warning', text: '换票中' },
+  EXCHANGED: { color: 'default', text: '已换票' },
 };
 
 const EXCHANGE_APPROVE_STATUS_MAP: Record<string, { color: string; text: string }> = {
@@ -209,6 +222,26 @@ const OrderDetail = () => {
 
   useEffect(() => {
     fetchOrder();
+  }, [orderId]);
+
+  // ========== 实时退款状态（审核通过/完成/拒绝） ==========
+  useEffect(() => {
+    void ensureRealtimeConnection();
+    const unsubscribe = subscribeRefundStatusChanged((event) => {
+      if (String(event.orderId) !== orderId) return;
+      const texts: Record<string, string> = {
+        PROCESSING: '退款处理中，请耐心等待',
+        COMPLETED: '退款已完成，款项将原路退回',
+        FAILED: '退款失败，请联系客服',
+      };
+      notification.info({
+        message: `退款单 ${event.refundNo} 状态更新`,
+        description: texts[event.refundStatus] || `退款状态：${event.refundStatus}`,
+      });
+      fetchOrder();
+    });
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
   // ========== 检测从选座页返回的改签数据 ==========
@@ -672,7 +705,9 @@ const OrderDetail = () => {
                     <td>{item.seatId}</td>
                     <td>¥{item.unitPrice}</td>
                     <td>
-                      <Tag color="default">{item.itemStatus}</Tag>
+                      <Tag color={ITEM_STATUS_MAP[item.itemStatus]?.color || 'default'}>
+                        {ITEM_STATUS_MAP[item.itemStatus]?.text || item.itemStatus}
+                      </Tag>
                     </td>
                   </tr>
                 ))}

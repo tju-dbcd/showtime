@@ -233,14 +233,24 @@ builder.Services.AddSingleton<IOrderNotificationDispatcher, SignalROrderNotifica
 builder.Services.AddScoped<IOrderNotificationMessageHandler, OrderNotificationMessageHandler>();
 builder.Services.AddScoped<OrderNotificationDeliveryProcessor>();
 
-if (builder.Configuration.GetValue<bool>("RabbitMq:Enabled"))
+var rabbitMqEnabled = builder.Configuration.GetValue<bool>("RabbitMq:Enabled");
+// 可靠事件 outbox 与进程内处理始终注册：RabbitMq:Enabled=false（默认）时由
+// LocalOrderEventPublisher 把 outbox 消息交给同一消息处理器在进程内完成退款与通知，
+// 避免批准退款后永远停在 PROCESSING；启用 RabbitMQ 时发布走 broker 并额外启动消费 Worker。
+builder.Services.AddSingleton<LocalOrderEventPublisher>();
+builder.Services.AddScoped<IOrderEventOutboxService, OrderEventOutboxService>();
+builder.Services.AddHostedService<OrderEventOutboxWorker>();
+if (rabbitMqEnabled)
 {
     builder.Services.AddSingleton<IRabbitMqConnectionProvider, RabbitMqConnectionProvider>();
-    builder.Services.AddSingleton<IOrderEventPublisher, RabbitMqOrderEventPublisher>();
-    builder.Services.AddScoped<IOrderEventOutboxService, OrderEventOutboxService>();
-    builder.Services.AddHostedService<OrderEventOutboxWorker>();
+    builder.Services.AddSingleton<RabbitMqOrderEventPublisher>();
     builder.Services.AddHostedService<RabbitMqOrderNotificationWorker>();
 }
+
+builder.Services.AddSingleton<IOrderEventPublisher>(serviceProvider =>
+    rabbitMqEnabled
+        ? serviceProvider.GetRequiredService<RabbitMqOrderEventPublisher>()
+        : serviceProvider.GetRequiredService<LocalOrderEventPublisher>());
 
 builder.Services
     .AddControllers()

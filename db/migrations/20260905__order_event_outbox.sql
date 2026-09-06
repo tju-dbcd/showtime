@@ -20,10 +20,38 @@ DECLARE
     v_table_count NUMBER;
     v_valid_count NUMBER;
     v_definition  VARCHAR2(4000);
+    v_same_name   NUMBER;
 BEGIN
     SELECT COUNT(*) INTO v_table_count
       FROM ALL_TABLES
      WHERE OWNER = v_owner AND TABLE_NAME = 'T_ORDER_EVENT_OUTBOX';
+
+    -- 防止 ORA-00955：目标 Schema 存在同名对象（任意类型/任意大小写）但不是
+    -- 规范大写表时，fail-closed 报明确错误，禁止在未知对象上继续修改或盲建。
+    SELECT COUNT(*) INTO v_same_name
+      FROM ALL_OBJECTS
+     WHERE OWNER = v_owner AND UPPER(OBJECT_NAME) = 'T_ORDER_EVENT_OUTBOX';
+    IF v_table_count = 0 AND v_same_name > 0 THEN
+        RAISE_APPLICATION_ERROR(-20416, 'T_ORDER_EVENT_OUTBOX exists as a non-canonical object (wrong case or non-table type); resolve it before rerunning');
+    END IF;
+
+    -- 正式部署（APP_OWNER）时用 DBA_OBJECTS 兜底：若对象由 APP_OWNER 直接创建而
+    -- 未授权给 DEPLOY_USER，ALL_* 视图不可见，但名字仍会占用，需先处理归属再重跑。
+    -- 无 DBA 字典权限时静默跳过，仍由上面的 ALL_OBJECTS 检查兜底。
+    IF v_owner = 'APP_OWNER' THEN
+        v_same_name := 0;
+        BEGIN
+            EXECUTE IMMEDIATE
+                'SELECT COUNT(*) FROM DBA_OBJECTS WHERE OWNER = ''APP_OWNER'' AND UPPER(OBJECT_NAME) = ''T_ORDER_EVENT_OUTBOX'''
+                INTO v_same_name;
+        EXCEPTION
+            WHEN OTHERS THEN
+                v_same_name := -1;
+        END;
+        IF v_same_name > 0 AND v_table_count = 0 THEN
+            RAISE_APPLICATION_ERROR(-20417, 'T_ORDER_EVENT_OUTBOX exists in APP_OWNER but is invisible here (likely owned by APP_OWNER without grants); reconcile ownership (drop or grant) before rerunning');
+        END IF;
+    END IF;
 
     IF v_table_count = 1 THEN
         SELECT COUNT(*) INTO v_valid_count
@@ -162,8 +190,39 @@ BEGIN
 
     SELECT COUNT(*) INTO v_count FROM ALL_CONSTRAINTS
      WHERE OWNER = v_owner AND TABLE_NAME = 'T_ORDER_EVENT_OUTBOX'
-       AND CONSTRAINT_NAME = 'PK_ORDER_EVENT_OUTBOX';
+       AND CONSTRAINT_NAME = 'PK_ORDER_EVENT_OUTBOX' AND CONSTRAINT_TYPE = 'P';
     IF v_count = 0 THEN
+        -- 主键按规范名收敛：表上可能已存在其他名字的单列 EVENT_ID 主键
+        -- （如历史建表产生的 PK_T_ORDER_EVENT_OUTBOX / SYS_C 系统名），
+        -- 先校验其定义为单列 EVENT_ID 主键，再删除并重建为规范名，
+        -- 避免直接 ADD PRIMARY KEY 触发 ORA-02260；定义异常则 fail-closed。
+        SELECT COUNT(*) INTO v_count FROM ALL_CONSTRAINTS
+         WHERE OWNER = v_owner AND TABLE_NAME = 'T_ORDER_EVENT_OUTBOX'
+           AND CONSTRAINT_TYPE = 'P';
+        IF v_count > 0 THEN
+            SELECT COUNT(*) INTO v_count
+              FROM ALL_CONSTRAINTS c
+              JOIN ALL_CONS_COLUMNS cc
+                ON cc.OWNER = c.OWNER AND cc.CONSTRAINT_NAME = c.CONSTRAINT_NAME
+             WHERE c.OWNER = v_owner AND c.TABLE_NAME = 'T_ORDER_EVENT_OUTBOX'
+               AND c.CONSTRAINT_TYPE = 'P' AND c.STATUS = 'ENABLED'
+               AND cc.COLUMN_NAME = 'EVENT_ID' AND cc.POSITION = 1;
+            IF v_count <> 1 THEN
+                RAISE_APPLICATION_ERROR(-20415, 'T_ORDER_EVENT_OUTBOX has an unexpected primary key definition');
+            END IF;
+
+            SELECT COUNT(*) INTO v_count
+              FROM ALL_CONS_COLUMNS cc
+              JOIN ALL_CONSTRAINTS c
+                ON c.OWNER = cc.OWNER AND c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+             WHERE c.OWNER = v_owner AND c.TABLE_NAME = 'T_ORDER_EVENT_OUTBOX'
+               AND c.CONSTRAINT_TYPE = 'P';
+            IF v_count <> 1 THEN
+                RAISE_APPLICATION_ERROR(-20415, 'T_ORDER_EVENT_OUTBOX has an unexpected primary key definition');
+            END IF;
+
+            EXECUTE IMMEDIATE 'ALTER TABLE T_ORDER_EVENT_OUTBOX DROP PRIMARY KEY';
+        END IF;
         EXECUTE IMMEDIATE 'ALTER TABLE T_ORDER_EVENT_OUTBOX ADD CONSTRAINT PK_ORDER_EVENT_OUTBOX PRIMARY KEY (EVENT_ID)';
     END IF;
 

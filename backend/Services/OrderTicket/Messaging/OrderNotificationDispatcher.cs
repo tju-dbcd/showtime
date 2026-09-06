@@ -7,6 +7,10 @@ public interface IOrderNotificationDispatcher
     Task DispatchOrderCreatedAsync(
         OrderCreatedEvent notification,
         CancellationToken cancellationToken);
+
+    Task DispatchRefundStatusChangedAsync(
+        RefundStatusChangedEvent statusEvent,
+        CancellationToken cancellationToken);
 }
 
 public sealed class SignalROrderNotificationDispatcher(
@@ -17,4 +21,10 @@ public sealed class SignalROrderNotificationDispatcher(
         CancellationToken cancellationToken) =>
         hubContext.Clients.User(notification.UserId.ToString())
             .SendAsync("OrderCreated", notification, cancellationToken);
+
+    public Task DispatchRefundStatusChangedAsync(
+        RefundStatusChangedEvent statusEvent,
+        CancellationToken cancellationToken) =>
+        hubContext.Clients.User(statusEvent.UserId.ToString())
+            .SendAsync("RefundStatusChanged", statusEvent, cancellationToken);
 }

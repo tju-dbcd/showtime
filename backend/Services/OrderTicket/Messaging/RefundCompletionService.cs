@@ -323,6 +323,35 @@ public sealed class RefundCompletionService(
         refundRequest.CompleteTime = now;
         refundRequest.UpdateBy = SystemActor;
 
+        // 与退款完成同一事务写入退款状态通知：经 outbox 异步推送给用户，
+        // 前端 SignalR 收到后自动刷新订单详情中的退款状态。
+        var statusChangedEvent = new RefundStatusChangedEvent(
+            Guid.NewGuid().ToString("D"),
+            RefundStatusChangedEvent.TypeName,
+            DateTime.SpecifyKind(now, DateTimeKind.Utc),
+            refundRequest.RefundId,
+            refundRequest.RefundNo,
+            refundRequest.OrderId,
+            refundRequest.UserId,
+            refundRequest.ApproveStatus,
+            refundRequest.RefundStatus,
+            refundRequest.ActualRefund);
+        dbContext.OrderEventOutbox.Add(new OrderEventOutbox
+        {
+            EventId = statusChangedEvent.EventId,
+            EventType = RefundStatusChangedEvent.TypeName,
+            RoutingKey = RefundStatusChangedEvent.RoutingKeyName,
+            AggregateId = refundRequest.RefundId,
+            UserId = refundRequest.UserId,
+            Payload = statusChangedEvent.Serialize(),
+            OccurredAt = now,
+            Status = "PENDING",
+            AttemptCount = 0,
+            NextAttemptAt = now,
+            CreateBy = SystemActor,
+            UpdateBy = SystemActor,
+        });
+
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return RefundCompletionResult.Completed();

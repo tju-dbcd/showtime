@@ -84,6 +84,38 @@ public sealed class OracleOrderOutboxMigrationSafetyTests
         return schema;
     }
 
+    [OracleOrderOutboxFact]
+    public async Task OracleMigration_NormalizesLegacyPrimaryKeyName()
+    {
+        using var oracleGate = await OracleOrderTicketGate.EnterAsync();
+        await using var connection = await OpenValidatedConnectionAsync();
+
+        try
+        {
+            await ExecuteMigrationAsync(connection);
+            await AssertTerminalStateAsync(connection);
+
+            // 模拟历史遗留：表已存在但主键叫其他名字（如早期 EF 建表产生的
+            // PK_T_ORDER_EVENT_OUTBOX 或系统名），旧脚本会因 ADD PRIMARY KEY 报
+            // ORA-02260；修复后应删除旧主键并按规范名 PK_ORDER_EVENT_OUTBOX 重建。
+            await ExecuteAsync(connection,
+                "ALTER TABLE T_ORDER_EVENT_OUTBOX DROP CONSTRAINT PK_ORDER_EVENT_OUTBOX");
+            await ExecuteAsync(connection,
+                "ALTER TABLE T_ORDER_EVENT_OUTBOX ADD CONSTRAINT PK_T_ORDER_EVENT_OUTBOX PRIMARY KEY (EVENT_ID)");
+            Assert.Equal(0m, await ScalarAsync<decimal>(connection,
+                "SELECT COUNT(*) FROM USER_CONSTRAINTS WHERE TABLE_NAME = 'T_ORDER_EVENT_OUTBOX' " +
+                "AND CONSTRAINT_NAME = 'PK_ORDER_EVENT_OUTBOX' AND CONSTRAINT_TYPE = 'P'"));
+
+            await ExecuteMigrationAsync(connection);
+            await AssertTerminalStateAsync(connection);
+        }
+        finally
+        {
+            await ExecuteMigrationAsync(connection);
+            await AssertTerminalStateAsync(connection);
+        }
+    }
+
     private static async Task ExecuteMigrationAsync(OracleConnection connection)
     {
         var path = Path.GetFullPath(Path.Combine(

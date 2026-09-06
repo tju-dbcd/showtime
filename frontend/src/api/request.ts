@@ -26,6 +26,8 @@ const authMiddleware: Middleware = {
       const isAuthApi = /\/api\/auth\/(login|register)(\/|$)/.test(response.url);
       if (!isAuthApi) {
         localStorage.removeItem('accessToken');
+        // 会话失效时断开 SignalR，避免用空 token 反复重连
+        void import('@/realtime/orderNotifications').then((m) => m.disconnectRealtimeConnection());
         message.error('登录已过期，请重新登录');
         if (!window.location.pathname.startsWith('/login')) {
           window.location.href = '/login';

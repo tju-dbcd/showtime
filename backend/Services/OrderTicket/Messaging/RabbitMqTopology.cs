@@ -38,5 +38,10 @@ internal static class RabbitMqTopology
             options.ExchangeName,
             RefundApprovedEvent.RoutingKeyName,
             cancellationToken: cancellationToken);
+        await channel.QueueBindAsync(
+            options.OrderNotificationQueueName,
+            options.ExchangeName,
+            RefundStatusChangedEvent.RoutingKeyName,
+            cancellationToken: cancellationToken);
     }
 }

@@ -12,14 +12,18 @@ namespace ShowtimeBackend.Tests.OrderTicket;
 public sealed class OrderSignalRTests
 {
     [Fact]
-    public void RabbitMqDisabledDoesNotRegisterPublisherOrConsumerWorkers()
+    public void RabbitMqDisabledRegistersLocalOutboxFallbackButNotBrokerComponents()
     {
-        using var factory = new AuthTestFactory();
+        using var factory = new AuthTestFactory(enableOrderEventOutboxWorker: true);
         var workers = factory.Services.GetServices<IHostedService>();
 
-        Assert.DoesNotContain(workers, worker => worker is OrderEventOutboxWorker);
+        // 默认配置（RabbitMq:Enabled=false）下 outbox worker 仍然运行，
+        // 由 LocalOrderEventPublisher 在进程内完成退款/通知；不注册 broker 组件。
+        Assert.Contains(workers, worker => worker is OrderEventOutboxWorker);
         Assert.DoesNotContain(workers, worker => worker is RabbitMqOrderNotificationWorker);
         Assert.Null(factory.Services.GetService<IRabbitMqConnectionProvider>());
+        Assert.IsType<LocalOrderEventPublisher>(
+            factory.Services.GetRequiredService<IOrderEventPublisher>());
     }
 
     [Fact]
@@ -87,6 +91,33 @@ public sealed class OrderSignalRTests
         Assert.Equal("7", clients.UserId);
         Assert.Equal("OrderCreated", clients.Proxy.Method);
         Assert.Same(notification, Assert.Single(clients.Proxy.Arguments!));
+    }
+
+    [Fact]
+    public async Task DispatcherTargetsOwningUserWithStableRefundStatusMethodName()
+    {
+        var clients = new RecordingHubClients();
+        var dispatcher = new SignalROrderNotificationDispatcher(
+            new TestHubContext(clients));
+        var statusEvent = new RefundStatusChangedEvent(
+            Guid.NewGuid().ToString("D"),
+            RefundStatusChangedEvent.TypeName,
+            DateTime.UtcNow,
+            401,
+            "REF000401",
+            101,
+            7,
+            "APPROVED",
+            "COMPLETED",
+            84m);
+
+        await dispatcher.DispatchRefundStatusChangedAsync(
+            statusEvent,
+            CancellationToken.None);
+
+        Assert.Equal("7", clients.UserId);
+        Assert.Equal("RefundStatusChanged", clients.Proxy.Method);
+        Assert.Same(statusEvent, Assert.Single(clients.Proxy.Arguments!));
     }
 
     private static string CreateToken(string userId)
