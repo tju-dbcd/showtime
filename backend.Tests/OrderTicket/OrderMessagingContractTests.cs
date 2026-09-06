@@ -79,6 +79,7 @@ public sealed class OrderMessagingContractTests
         var dispatcher = new RecordingDispatcher();
         var handler = new OrderNotificationMessageHandler(
             dispatcher,
+            new StubRefundCompletionService(),
             NullLogger<OrderNotificationMessageHandler>.Instance);
         var notification = CreateNotification();
 
@@ -99,6 +100,7 @@ public sealed class OrderMessagingContractTests
     {
         var handler = new OrderNotificationMessageHandler(
             new RecordingDispatcher(),
+            new StubRefundCompletionService(),
             NullLogger<OrderNotificationMessageHandler>.Instance);
 
         var result = await handler.HandleAsync(type, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -111,6 +113,7 @@ public sealed class OrderMessagingContractTests
     {
         var handler = new OrderNotificationMessageHandler(
             new RecordingDispatcher { Failure = new IOException("transient") },
+            new StubRefundCompletionService(),
             NullLogger<OrderNotificationMessageHandler>.Instance);
 
         var result = await handler.HandleAsync(
@@ -119,6 +122,50 @@ public sealed class OrderMessagingContractTests
             CancellationToken.None);
 
         Assert.Equal(OrderNotificationHandlingResult.Retry, result);
+    }
+
+    [Theory]
+    [InlineData(RefundCompletionOutcome.Completed, OrderNotificationHandlingResult.Acknowledge)]
+    [InlineData(RefundCompletionOutcome.AlreadyCompleted, OrderNotificationHandlingResult.Acknowledge)]
+    [InlineData(RefundCompletionOutcome.RetryableFailure, OrderNotificationHandlingResult.Retry)]
+    [InlineData(RefundCompletionOutcome.PermanentFailure, OrderNotificationHandlingResult.DeadLetter)]
+    public async Task MessageHandler_MapsRefundCompletionOutcome(
+        RefundCompletionOutcome completionOutcome,
+        OrderNotificationHandlingResult expected)
+    {
+        var completion = new StubRefundCompletionService(completionOutcome);
+        var handler = new OrderNotificationMessageHandler(
+            new RecordingDispatcher(),
+            completion,
+            NullLogger<OrderNotificationMessageHandler>.Instance);
+        var approvedEvent = CreateRefundApprovedEvent();
+
+        var result = await handler.HandleAsync(
+            RefundApprovedEvent.TypeName,
+            Encoding.UTF8.GetBytes(approvedEvent.Serialize()),
+            CancellationToken.None);
+
+        Assert.Equal(expected, result);
+        Assert.Equal(approvedEvent.EventId, completion.Received!.EventId);
+    }
+
+    [Theory]
+    [InlineData("not-json")]
+    [InlineData("{}")]
+    public async Task MessageHandler_DeadLettersMalformedOrInvalidRefundEvent(string json)
+    {
+        var completion = new StubRefundCompletionService(RefundCompletionOutcome.PermanentFailure);
+        var handler = new OrderNotificationMessageHandler(
+            new RecordingDispatcher(),
+            completion,
+            NullLogger<OrderNotificationMessageHandler>.Instance);
+
+        var result = await handler.HandleAsync(
+            RefundApprovedEvent.TypeName,
+            Encoding.UTF8.GetBytes(json),
+            CancellationToken.None);
+
+        Assert.Equal(OrderNotificationHandlingResult.DeadLetter, result);
     }
 
     [Fact]
@@ -165,6 +212,16 @@ public sealed class OrderMessagingContractTests
         1,
         "PENDING_PAY");
 
+    private static RefundApprovedEvent CreateRefundApprovedEvent() => new(
+        Guid.NewGuid().ToString("D"),
+        RefundApprovedEvent.TypeName,
+        DateTime.UtcNow,
+        401,
+        "REF000401",
+        101,
+        7,
+        84m);
+
     private sealed class RecordingDispatcher : IOrderNotificationDispatcher
     {
         public OrderCreatedEvent? Notification { get; private set; }
@@ -174,6 +231,28 @@ public sealed class OrderMessagingContractTests
         {
             Notification = notification;
             return Failure is null ? Task.CompletedTask : Task.FromException(Failure);
+        }
+    }
+
+    private sealed class StubRefundCompletionService(
+        RefundCompletionOutcome outcome = RefundCompletionOutcome.Completed)
+        : IRefundCompletionService
+    {
+        public RefundApprovedEvent? Received { get; private set; }
+
+        public Task<RefundCompletionResult> CompleteAsync(
+            RefundApprovedEvent approvedEvent,
+            CancellationToken cancellationToken)
+        {
+            Received = approvedEvent;
+            var result = outcome switch
+            {
+                RefundCompletionOutcome.Completed => RefundCompletionResult.Completed(),
+                RefundCompletionOutcome.AlreadyCompleted => RefundCompletionResult.AlreadyCompleted(),
+                RefundCompletionOutcome.PermanentFailure => RefundCompletionResult.Permanent("test", "test"),
+                _ => RefundCompletionResult.Retryable("test", "test"),
+            };
+            return Task.FromResult(result);
         }
     }
 }

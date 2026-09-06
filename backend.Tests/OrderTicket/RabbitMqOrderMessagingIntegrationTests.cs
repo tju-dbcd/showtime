@@ -44,14 +44,22 @@ public sealed class RabbitMqOrderMessagingIntegrationTests
     {
         await using var fixture = await Fixture.CreateAsync();
         var dispatcher = new TestDispatcher();
-        await using var consumer = await fixture.StartConsumerAsync(dispatcher);
+        var refundCompletion = new TestRefundCompletionService();
+        await using var consumer = await fixture.StartConsumerAsync(
+            dispatcher,
+            refundCompletion);
         await fixture.Publisher.PublishAsync(fixture.CreateMessage(), CancellationToken.None);
+        await fixture.Publisher.PublishAsync(
+            fixture.CreateRefundMessage(),
+            CancellationToken.None);
 
         await dispatcher.Called.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await refundCompletion.Called.Task.WaitAsync(TimeSpan.FromSeconds(10));
         await Task.Delay(200);
         await consumer.StopAsync();
 
         Assert.Equal(1, dispatcher.CallCount);
+        Assert.Equal(1, refundCompletion.CallCount);
         Assert.Null(await fixture.Channel.BasicGetAsync(
             fixture.Options.OrderNotificationQueueName,
             autoAck: true));
@@ -208,11 +216,39 @@ public sealed class RabbitMqOrderMessagingIntegrationTests
             };
         }
 
-        public async Task<ConsumerHandle> StartConsumerAsync(TestDispatcher dispatcher)
+        public OrderEventOutbox CreateRefundMessage()
         {
+            var approvedEvent = new RefundApprovedEvent(
+                Guid.NewGuid().ToString("D"),
+                RefundApprovedEvent.TypeName,
+                DateTime.UtcNow,
+                401,
+                "REF000401",
+                101,
+                7,
+                84m);
+            return new OrderEventOutbox
+            {
+                EventId = approvedEvent.EventId,
+                EventType = approvedEvent.EventType,
+                RoutingKey = RefundApprovedEvent.RoutingKeyName,
+                AggregateId = approvedEvent.RefundId,
+                UserId = approvedEvent.UserId,
+                Payload = approvedEvent.Serialize(),
+                OccurredAt = approvedEvent.OccurredAt,
+                NextAttemptAt = approvedEvent.OccurredAt,
+            };
+        }
+
+        public async Task<ConsumerHandle> StartConsumerAsync(
+            TestDispatcher dispatcher,
+            TestRefundCompletionService? refundCompletion = null)
+        {
+            refundCompletion ??= new TestRefundCompletionService();
             var services = new ServiceCollection()
                 .AddLogging()
                 .AddSingleton<IOrderNotificationDispatcher>(dispatcher)
+                .AddSingleton<IRefundCompletionService>(refundCompletion)
                 .AddScoped<IOrderNotificationMessageHandler, OrderNotificationMessageHandler>()
                 .AddScoped<OrderNotificationDeliveryProcessor>()
                 .AddSingleton<IOptions<RabbitMqOptions>>(
@@ -337,6 +373,23 @@ public sealed class RabbitMqOrderMessagingIntegrationTests
             return Failure is null
                 ? Task.CompletedTask
                 : Task.FromException(Failure);
+        }
+    }
+
+    private sealed class TestRefundCompletionService : IRefundCompletionService
+    {
+        private int callCount;
+        public int CallCount => Volatile.Read(ref callCount);
+        public TaskCompletionSource Called { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<RefundCompletionResult> CompleteAsync(
+            RefundApprovedEvent approvedEvent,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref callCount);
+            Called.TrySetResult();
+            return Task.FromResult(RefundCompletionResult.Completed());
         }
     }
 

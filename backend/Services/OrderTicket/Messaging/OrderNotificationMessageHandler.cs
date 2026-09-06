@@ -19,6 +19,7 @@ public interface IOrderNotificationMessageHandler
 
 public sealed class OrderNotificationMessageHandler(
     IOrderNotificationDispatcher dispatcher,
+    IRefundCompletionService refundCompletionService,
     ILogger<OrderNotificationMessageHandler> logger) : IOrderNotificationMessageHandler
 {
     public async Task<OrderNotificationHandlingResult> HandleAsync(
@@ -26,11 +27,18 @@ public sealed class OrderNotificationMessageHandler(
         ReadOnlyMemory<byte> body,
         CancellationToken cancellationToken)
     {
-        if (!string.Equals(messageType, OrderCreatedEvent.TypeName, StringComparison.Ordinal))
+        return messageType switch
         {
-            return OrderNotificationHandlingResult.DeadLetter;
-        }
+            OrderCreatedEvent.TypeName => await HandleOrderCreatedAsync(body, cancellationToken),
+            RefundApprovedEvent.TypeName => await HandleRefundApprovedAsync(body, cancellationToken),
+            _ => OrderNotificationHandlingResult.DeadLetter,
+        };
+    }
 
+    private async Task<OrderNotificationHandlingResult> HandleOrderCreatedAsync(
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken)
+    {
         OrderCreatedEvent? notification;
         try
         {
@@ -64,6 +72,56 @@ public sealed class OrderNotificationMessageHandler(
         catch (Exception exception)
         {
             logger.LogWarning(exception, "Dispatching order notification {EventId} failed.", notification.EventId);
+            return OrderNotificationHandlingResult.Retry;
+        }
+    }
+
+    private async Task<OrderNotificationHandlingResult> HandleRefundApprovedAsync(
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken)
+    {
+        RefundApprovedEvent? approvedEvent;
+        try
+        {
+            approvedEvent = JsonSerializer.Deserialize<RefundApprovedEvent>(
+                body.Span,
+                OrderCreatedEvent.SerializerOptions);
+        }
+        catch (JsonException exception)
+        {
+            logger.LogWarning(exception, "A malformed refund approval event was rejected.");
+            return OrderNotificationHandlingResult.DeadLetter;
+        }
+
+        if (approvedEvent is null)
+        {
+            return OrderNotificationHandlingResult.DeadLetter;
+        }
+
+        try
+        {
+            var result = await refundCompletionService.CompleteAsync(
+                approvedEvent,
+                cancellationToken);
+            return result.Outcome switch
+            {
+                RefundCompletionOutcome.Completed => OrderNotificationHandlingResult.Acknowledge,
+                RefundCompletionOutcome.AlreadyCompleted => OrderNotificationHandlingResult.Acknowledge,
+                RefundCompletionOutcome.RetryableFailure => OrderNotificationHandlingResult.Retry,
+                _ => OrderNotificationHandlingResult.DeadLetter,
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Completing refund {RefundId} from event {EventId} failed transiently.",
+                approvedEvent.RefundId,
+                approvedEvent.EventId);
             return OrderNotificationHandlingResult.Retry;
         }
     }
