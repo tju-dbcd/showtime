@@ -1,10 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Table, Tag, Typography, Empty, Modal, Button, message, Spin, Divider } from 'antd';
+import { Table, Tag, Typography, Empty, Modal, Button, message, Spin, Divider, notification } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import { orderAPI, paymentAPI } from '@/api/requests';
 import type { components } from '@/api/types';
 import type { OrderSummaryResponse, PaymentResponse } from '@/types/api';
+import {
+  ensureRealtimeConnection,
+  subscribeOrderCreated,
+  subscribeRefundStatusChanged,
+  type RefundStatusChangedEvent,
+} from '@/realtime/orderNotifications';
 import './Order.css';
 
 const { Title, Text } = Typography;
@@ -27,6 +33,15 @@ const PAYMENT_STATUS_MAP: Record<string, { color: string; text: string }> = {
   FAIL: { color: 'red', text: '支付失败' },
   CLOSED: { color: 'default', text: '已关闭' },
 };
+
+const REFUND_STATUS_TEXT: Record<string, string> = {
+  PROCESSING: '退款处理中，请耐心等待',
+  COMPLETED: '退款已完成，款项将原路退回',
+  FAILED: '退款失败，请联系客服',
+};
+
+const refundStatusText = (event: RefundStatusChangedEvent) =>
+  REFUND_STATUS_TEXT[event.refundStatus] || `退款状态：${event.refundStatus}`;
 
 const Order = () => {
   const navigate = useNavigate();
@@ -85,6 +100,30 @@ const Order = () => {
 
   useEffect(() => {
     fetchOrders();
+  }, []);
+
+  // ========== 实时通知（下单成功 / 退款状态变化） ==========
+  useEffect(() => {
+    void ensureRealtimeConnection();
+    const unsubscribeCreated = subscribeOrderCreated((event) => {
+      notification.success({
+        message: '新订单创建成功',
+        description: `订单号 ${event.orderNo}，共 ${event.ticketCount} 张票`,
+      });
+      fetchOrders();
+    });
+    const unsubscribeRefund = subscribeRefundStatusChanged((event) => {
+      notification.info({
+        message: `退款单 ${event.refundNo} 状态更新`,
+        description: refundStatusText(event),
+      });
+      fetchOrders();
+    });
+    return () => {
+      unsubscribeCreated();
+      unsubscribeRefund();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ========== 分页变化 ==========

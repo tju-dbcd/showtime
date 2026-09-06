@@ -27,6 +27,13 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      // SignalR 实时通知（WebSocket 走 ws 升级），与 /api 同源策略一致
+      '/hubs': {
+        target: devProxyTarget,
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+      },
     },
   },
 });
