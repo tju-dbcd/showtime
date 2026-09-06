@@ -300,6 +300,7 @@ builder.Services.AddHostedService<ExchangeExpirationWorker>();
 builder.Services.AddScoped<IRefundLockCoordinator, OracleRefundLockCoordinator>();
 builder.Services.AddScoped<IRefundApplicationService, RefundApplicationService>();
 builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();
+builder.Services.AddScoped<IRefundCompletionService, RefundCompletionService>();
 builder.Services.AddScoped<IOrderTicketAuditSink, DbOperationTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();

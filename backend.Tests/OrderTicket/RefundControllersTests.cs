@@ -620,7 +620,7 @@ public sealed class RefundControllersTests
     }
 
     [Fact]
-    public async Task AdminApprove_WithAdminJwt_ReturnsSuccessAndPersistsAtomicWorkflow()
+    public async Task AdminApprove_WithAdminJwt_ReturnsProcessingWithoutCompletingRefund()
     {
         using var factory = new AuthTestFactory();
         await SeedLegacyRefundAsync(factory, appliedPolicyId: null);
@@ -636,7 +636,7 @@ public sealed class RefundControllersTests
         var body = await ReadEnumResponseAsync<RefundResponse>(response);
         Assert.True(body.Success);
         Assert.Equal(RefundApproveStatus.APPROVED, body.Data!.ApproveStatus);
-        Assert.Equal(RefundStatus.COMPLETED, body.Data.RefundStatus);
+        Assert.Equal(RefundStatus.PROCESSING, body.Data.RefundStatus);
         Assert.Equal(84m, body.Data.ActualRefund);
         Assert.Equal("refund-admin", body.Data.ReviewBy);
         Assert.Equal("通过", body.Data.ReviewRemark);
@@ -664,12 +664,12 @@ public sealed class RefundControllersTests
                 .Select(item => item.OrderStatus)
                 .SingleAsync(),
         });
-        Assert.Equal(84m, state.PaymentRefundAmount);
-        Assert.Equal("RELEASED", state.Reservation.ReservationStatus);
-        Assert.Equal(factory.UtcNow.UtcDateTime, state.Reservation.CancelTime);
-        Assert.Equal("REFUNDED", state.ItemStatus);
-        Assert.Equal("REFUNDED", state.TicketStatus);
-        Assert.Equal("REFUNDED", state.OrderStatus);
+        Assert.Equal(0m, state.PaymentRefundAmount);
+        Assert.Equal("ACTIVE", state.Reservation.ReservationStatus);
+        Assert.Null(state.Reservation.CancelTime);
+        Assert.Equal("REFUNDING", state.ItemStatus);
+        Assert.Equal("REFUNDING", state.TicketStatus);
+        Assert.Equal("ISSUED", state.OrderStatus);
     }
 
     [Fact]

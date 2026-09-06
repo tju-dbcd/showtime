@@ -4,6 +4,7 @@ using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Entities.SeatZone;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 
 namespace ShowtimeBackend.Services.OrderTicket;
 
@@ -265,6 +266,7 @@ public sealed class RefundReviewService(
                 {
                     item.PaymentId,
                     item.PayAmount,
+                    item.RefundAmount,
                 })
                 .ToListAsync(cancellationToken);
             var orderItemTotal = allOrderItems.Sum(item => item.UnitPrice);
@@ -278,6 +280,15 @@ public sealed class RefundReviewService(
                 return Conflict<RefundResponse>(
                     "REFUND_PAYMENT_DATA_INCONSISTENT",
                     "The payment and order amounts are inconsistent.");
+            }
+
+            if (payments[0].RefundAmount + refundRequest.ActualRefund.Value >
+                payments[0].PayAmount)
+            {
+                await RollbackAndClearAsync(transaction, cancellationToken);
+                return Conflict<RefundResponse>(
+                    "REFUND_PAYMENT_AMOUNT_CONFLICT",
+                    "The refundable payment amount changed.");
             }
 
             var orderItemIds = refundItems
@@ -322,67 +333,38 @@ public sealed class RefundReviewService(
 
             var actualRefund = refundRequest.ActualRefund.Value;
             var now = timeProvider.GetUtcNow().UtcDateTime;
-            var payment = payments[0];
-            var paymentRows = await dbContext.Set<Payment>()
-                .Where(item => item.PaymentId == payment.PaymentId &&
-                    item.OrderId == order.OrderId &&
-                    item.PayStatus == "SUCCESS" &&
-                    item.RefundAmount + actualRefund <= item.PayAmount)
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(
-                        item => item.RefundAmount,
-                        item => item.RefundAmount + actualRefund)
-                    .SetProperty(item => item.UpdateBy, actor),
-                    cancellationToken);
-            if (paymentRows != 1)
-            {
-                return await RecoverReviewConflictAsync(
-                    transaction,
-                    refundId,
-                    "REFUND_PAYMENT_AMOUNT_CONFLICT",
-                    "Payment refund amount changed.",
-                    cancellationToken);
-            }
-
-            var releasedRows = await dbContext.Set<SeatReservation>()
-                .Where(item => item.OrderItemId.HasValue &&
-                    orderItemIds.Contains(item.OrderItemId.Value) &&
-                    item.ReservationType == "ORDER" &&
-                    item.ReservationStatus == "ACTIVE")
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(item => item.ReservationStatus, "RELEASED")
-                    .SetProperty(item => item.CancelTime, now)
-                    .SetProperty(item => item.UpdateBy, actor),
-                    cancellationToken);
-            if (releasedRows != orderItemIds.Length)
-            {
-                return await RecoverReviewConflictAsync(
-                    transaction,
-                    refundId,
-                    "REFUND_RESERVATION_DATA_INCONSISTENT",
-                    "Seat reservation release count changed.",
-                    cancellationToken);
-            }
-
-            foreach (var refundItem in refundItems)
-            {
-                refundItem.OrderItem!.ItemStatus = "REFUNDED";
-                refundItem.OrderItem.UpdateBy = actor;
-                refundItem.OrderItem.ETicket!.TicketStatus = "REFUNDED";
-                refundItem.OrderItem.ETicket.UpdateBy = actor;
-            }
-
-            order.OrderStatus = allOrderItems.All(item => item.ItemStatus == "REFUNDED")
-                ? "REFUNDED"
-                : "PART_REFUND";
-            order.UpdateBy = actor;
             refundRequest.ApproveStatus = "APPROVED";
-            refundRequest.RefundStatus = "COMPLETED";
+            refundRequest.RefundStatus = "PROCESSING";
             refundRequest.ReviewBy = actor;
             refundRequest.ReviewTime = now;
             refundRequest.ReviewRemark = remark;
-            refundRequest.CompleteTime = now;
+            refundRequest.CompleteTime = null;
             refundRequest.UpdateBy = actor;
+
+            var eventId = Guid.NewGuid().ToString("D");
+            var approvedEvent = new RefundApprovedEvent(
+                eventId,
+                RefundApprovedEvent.TypeName,
+                DateTime.SpecifyKind(now, DateTimeKind.Utc),
+                refundRequest.RefundId,
+                refundRequest.RefundNo,
+                refundRequest.OrderId,
+                refundRequest.UserId,
+                actualRefund);
+            dbContext.OrderEventOutbox.Add(new OrderEventOutbox
+            {
+                EventId = eventId,
+                EventType = RefundApprovedEvent.TypeName,
+                RoutingKey = RefundApprovedEvent.RoutingKeyName,
+                AggregateId = refundRequest.RefundId,
+                UserId = refundRequest.UserId,
+                Payload = approvedEvent.Serialize(),
+                OccurredAt = now,
+                Status = "PENDING",
+                NextAttemptAt = now,
+                CreateBy = actor,
+                UpdateBy = actor,
+            });
 
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
