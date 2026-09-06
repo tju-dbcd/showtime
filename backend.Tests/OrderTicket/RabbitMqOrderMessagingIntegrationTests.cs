@@ -55,10 +55,12 @@ public sealed class RabbitMqOrderMessagingIntegrationTests
 
         await dispatcher.Called.Task.WaitAsync(TimeSpan.FromSeconds(10));
         await refundCompletion.Called.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await dispatcher.RefundStatusCalled.Task.WaitAsync(TimeSpan.FromSeconds(10));
         await Task.Delay(200);
         await consumer.StopAsync();
 
-        Assert.Equal(1, dispatcher.CallCount);
+        Assert.Equal(1, dispatcher.OrderCreatedCallCount);
+        Assert.Equal(1, dispatcher.RefundStatusCallCount);
         Assert.Equal(1, refundCompletion.CallCount);
         Assert.Null(await fixture.Channel.BasicGetAsync(
             fixture.Options.OrderNotificationQueueName,
@@ -78,7 +80,7 @@ public sealed class RabbitMqOrderMessagingIntegrationTests
             deadLetter.BasicProperties.Headers,
             out var retryCount));
         Assert.Equal(2, retryCount);
-        Assert.Equal(3, dispatcher.CallCount);
+        Assert.Equal(3, dispatcher.OrderCreatedCallCount);
         await fixture.Channel.BasicAckAsync(deadLetter.DeliveryTag, false);
         await consumer.StopAsync();
 
@@ -104,7 +106,8 @@ public sealed class RabbitMqOrderMessagingIntegrationTests
         await fixture.Channel.BasicAckAsync(second.DeliveryTag, false);
         await consumer.StopAsync();
 
-        Assert.Equal(0, dispatcher.CallCount);
+        Assert.Equal(0, dispatcher.OrderCreatedCallCount);
+        Assert.Equal(0, dispatcher.RefundStatusCallCount);
         Assert.Null(await fixture.Channel.BasicGetAsync(
             fixture.Options.OrderNotificationQueueName,
             autoAck: true));
@@ -139,7 +142,7 @@ public sealed class RabbitMqOrderMessagingIntegrationTests
 
         await dispatcher.Called.Task.WaitAsync(TimeSpan.FromSeconds(10));
         await consumer.StopAsync();
-        Assert.Equal(1, dispatcher.CallCount);
+        Assert.Equal(1, dispatcher.OrderCreatedCallCount);
     }
 
     private sealed class Fixture(
@@ -358,18 +361,33 @@ public sealed class RabbitMqOrderMessagingIntegrationTests
 
     private sealed class TestDispatcher : IOrderNotificationDispatcher
     {
-        private int callCount;
-        public int CallCount => Volatile.Read(ref callCount);
+        private int orderCreatedCallCount;
+        private int refundStatusCallCount;
+        public int OrderCreatedCallCount => Volatile.Read(ref orderCreatedCallCount);
+        public int RefundStatusCallCount => Volatile.Read(ref refundStatusCallCount);
         public Exception? Failure { get; init; }
         public TaskCompletionSource Called { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource RefundStatusCalled { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task DispatchOrderCreatedAsync(
             OrderCreatedEvent notification,
             CancellationToken cancellationToken)
         {
-            Interlocked.Increment(ref callCount);
+            Interlocked.Increment(ref orderCreatedCallCount);
             Called.TrySetResult();
+            return Failure is null
+                ? Task.CompletedTask
+                : Task.FromException(Failure);
+        }
+
+        public Task DispatchRefundStatusChangedAsync(
+            RefundStatusChangedEvent statusEvent,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref refundStatusCallCount);
+            RefundStatusCalled.TrySetResult();
             return Failure is null
                 ? Task.CompletedTask
                 : Task.FromException(Failure);

@@ -15,6 +15,7 @@ using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.FileStorage;
 using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 
 namespace ShowtimeBackend.Tests;
 
@@ -34,6 +35,7 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
     private readonly bool _localStorageEnabled;
     private readonly string? _localStorageRoot;
     private readonly bool _enableOrderExpirationWorker;
+    private readonly bool _enableOrderEventOutboxWorker;
 
     public AuthTestFactory(
         string? jwtKey = TestKey,
@@ -41,7 +43,8 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
         bool replaceWithFakeStorage = false,
         IFileStorageService? customFileStorage = null,
         bool localStorageEnabled = false,
-        bool enableOrderExpirationWorker = false)
+        bool enableOrderExpirationWorker = false,
+        bool enableOrderEventOutboxWorker = false)
     {
         _jwtKey = jwtKey;
         _ossEnabled = ossEnabled;
@@ -49,6 +52,7 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
         _customFileStorage = customFileStorage;
         _localStorageEnabled = localStorageEnabled;
         _enableOrderExpirationWorker = enableOrderExpirationWorker;
+        _enableOrderEventOutboxWorker = enableOrderEventOutboxWorker;
         // 本地磁盘存储用例指向独立临时目录，测试结束整目录清理
         _localStorageRoot = localStorageEnabled
             ? Path.Combine(
@@ -166,6 +170,20 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
                         descriptor.ImplementationType == typeof(OrderExpirationWorker))
                     .ToList();
                 foreach (var descriptor in workerDescriptors)
+                    services.Remove(descriptor);
+            }
+
+            // PR65 后 outbox worker 默认始终注册（RabbitMQ 关闭时进程内完成退款/通知）；
+            // 绝大多数用例并不需要后台轮询，默认移除以免后台 worker 变更库状态造成竞态，
+            // 需要验证兜底链路/注册的用例显式开启。
+            if (!_enableOrderEventOutboxWorker)
+            {
+                var outboxWorkerDescriptors = services
+                    .Where(descriptor =>
+                        descriptor.ServiceType == typeof(IHostedService) &&
+                        descriptor.ImplementationType == typeof(OrderEventOutboxWorker))
+                    .ToList();
+                foreach (var descriptor in outboxWorkerDescriptors)
                     services.Remove(descriptor);
             }
 

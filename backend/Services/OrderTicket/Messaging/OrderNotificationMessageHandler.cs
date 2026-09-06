@@ -31,6 +31,7 @@ public sealed class OrderNotificationMessageHandler(
         {
             OrderCreatedEvent.TypeName => await HandleOrderCreatedAsync(body, cancellationToken),
             RefundApprovedEvent.TypeName => await HandleRefundApprovedAsync(body, cancellationToken),
+            RefundStatusChangedEvent.TypeName => await HandleRefundStatusChangedAsync(body, cancellationToken),
             _ => OrderNotificationHandlingResult.DeadLetter,
         };
     }
@@ -100,6 +101,9 @@ public sealed class OrderNotificationMessageHandler(
 
         try
         {
+            // 先推送“审核通过（处理中）”，再执行退款完成；若推送失败仅记录，
+            // 不阻断退款完成（完成后另有 RefundStatusChanged(COMPLETED) 通知）。
+            await TryDispatchApprovedStatusAsync(approvedEvent, cancellationToken);
             var result = await refundCompletionService.CompleteAsync(
                 approvedEvent,
                 cancellationToken);
@@ -123,6 +127,88 @@ public sealed class OrderNotificationMessageHandler(
                 approvedEvent.RefundId,
                 approvedEvent.EventId);
             return OrderNotificationHandlingResult.Retry;
+        }
+    }
+
+    private async Task<OrderNotificationHandlingResult> HandleRefundStatusChangedAsync(
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken)
+    {
+        RefundStatusChangedEvent? statusEvent;
+        try
+        {
+            statusEvent = JsonSerializer.Deserialize<RefundStatusChangedEvent>(
+                body.Span,
+                OrderCreatedEvent.SerializerOptions);
+        }
+        catch (JsonException exception)
+        {
+            logger.LogWarning(exception, "A malformed refund status notification was rejected.");
+            return OrderNotificationHandlingResult.DeadLetter;
+        }
+
+        if (statusEvent is null ||
+            statusEvent.EventType != RefundStatusChangedEvent.TypeName ||
+            string.IsNullOrWhiteSpace(statusEvent.EventId) ||
+            statusEvent.RefundId <= 0 || statusEvent.OrderId <= 0 || statusEvent.UserId <= 0 ||
+            string.IsNullOrWhiteSpace(statusEvent.ApproveStatus) ||
+            string.IsNullOrWhiteSpace(statusEvent.RefundStatus))
+        {
+            return OrderNotificationHandlingResult.DeadLetter;
+        }
+
+        try
+        {
+            await dispatcher.DispatchRefundStatusChangedAsync(
+                statusEvent,
+                cancellationToken);
+            return OrderNotificationHandlingResult.Acknowledge;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Dispatching refund status notification {EventId} failed.",
+                statusEvent.EventId);
+            return OrderNotificationHandlingResult.Retry;
+        }
+    }
+
+    private async Task TryDispatchApprovedStatusAsync(
+        RefundApprovedEvent approvedEvent,
+        CancellationToken cancellationToken)
+    {
+        var processingStatus = new RefundStatusChangedEvent(
+            Guid.NewGuid().ToString("D"),
+            RefundStatusChangedEvent.TypeName,
+            approvedEvent.OccurredAt,
+            approvedEvent.RefundId,
+            approvedEvent.RefundNo,
+            approvedEvent.OrderId,
+            approvedEvent.UserId,
+            "APPROVED",
+            "PROCESSING",
+            approvedEvent.ActualRefund);
+        try
+        {
+            await dispatcher.DispatchRefundStatusChangedAsync(
+                processingStatus,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Dispatching refund approved status for refund {RefundId} failed; completion continues.",
+                approvedEvent.RefundId);
         }
     }
 }

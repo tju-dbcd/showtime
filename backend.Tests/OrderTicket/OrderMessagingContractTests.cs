@@ -169,6 +169,104 @@ public sealed class OrderMessagingContractTests
     }
 
     [Fact]
+    public void RefundStatusChangedEvent_SerializesStableCamelCaseContract()
+    {
+        var statusEvent = new RefundStatusChangedEvent(
+            "42ef4e11-af25-4ca8-9e0b-184b45bb8c65",
+            RefundStatusChangedEvent.TypeName,
+            new DateTime(2026, 9, 5, 2, 3, 4, DateTimeKind.Utc),
+            401,
+            "REF000401",
+            101,
+            7,
+            "APPROVED",
+            "COMPLETED",
+            84m);
+
+        var json = statusEvent.Serialize();
+
+        Assert.Equal(
+            "{\"eventId\":\"42ef4e11-af25-4ca8-9e0b-184b45bb8c65\",\"eventType\":\"RefundStatusChanged.v1\",\"occurredAt\":\"2026-09-05T02:03:04Z\",\"refundId\":401,\"refundNo\":\"REF000401\",\"orderId\":101,\"userId\":7,\"approveStatus\":\"APPROVED\",\"refundStatus\":\"COMPLETED\",\"actualRefund\":84}",
+            json);
+    }
+
+    [Fact]
+    public async Task MessageHandler_RefundApprovalDispatchesProcessingStatusBeforeCompletion()
+    {
+        var dispatcher = new RecordingDispatcher();
+        var handler = new OrderNotificationMessageHandler(
+            dispatcher,
+            new StubRefundCompletionService(),
+            NullLogger<OrderNotificationMessageHandler>.Instance);
+        var approvedEvent = CreateRefundApprovedEvent();
+
+        var result = await handler.HandleAsync(
+            RefundApprovedEvent.TypeName,
+            Encoding.UTF8.GetBytes(approvedEvent.Serialize()),
+            CancellationToken.None);
+
+        Assert.Equal(OrderNotificationHandlingResult.Acknowledge, result);
+        Assert.NotNull(dispatcher.RefundStatus);
+        Assert.Equal("APPROVED", dispatcher.RefundStatus!.ApproveStatus);
+        Assert.Equal("PROCESSING", dispatcher.RefundStatus.RefundStatus);
+    }
+
+    [Fact]
+    public async Task MessageHandler_DispatchesRefundStatusChangedAndAcknowledges()
+    {
+        var dispatcher = new RecordingDispatcher();
+        var handler = new OrderNotificationMessageHandler(
+            dispatcher,
+            new StubRefundCompletionService(),
+            NullLogger<OrderNotificationMessageHandler>.Instance);
+        var statusEvent = CreateRefundStatusChangedEvent();
+
+        var result = await handler.HandleAsync(
+            RefundStatusChangedEvent.TypeName,
+            Encoding.UTF8.GetBytes(statusEvent.Serialize()),
+            CancellationToken.None);
+
+        Assert.Equal(OrderNotificationHandlingResult.Acknowledge, result);
+        Assert.Equal(statusEvent.EventId, dispatcher.RefundStatus!.EventId);
+        Assert.Equal("COMPLETED", dispatcher.RefundStatus!.RefundStatus);
+    }
+
+    [Theory]
+    [InlineData("not-json")]
+    [InlineData("{}")]
+    public async Task MessageHandler_DeadLettersMalformedOrInvalidRefundStatusEvent(string json)
+    {
+        var handler = new OrderNotificationMessageHandler(
+            new RecordingDispatcher(),
+            new StubRefundCompletionService(),
+            NullLogger<OrderNotificationMessageHandler>.Instance);
+
+        var result = await handler.HandleAsync(
+            RefundStatusChangedEvent.TypeName,
+            Encoding.UTF8.GetBytes(json),
+            CancellationToken.None);
+
+        Assert.Equal(OrderNotificationHandlingResult.DeadLetter, result);
+    }
+
+    [Fact]
+    public async Task MessageHandler_ReturnsRetryForTransientRefundStatusDispatchFailure()
+    {
+        var handler = new OrderNotificationMessageHandler(
+            new RecordingDispatcher { Failure = new IOException("transient") },
+            new StubRefundCompletionService(),
+            NullLogger<OrderNotificationMessageHandler>.Instance);
+        var statusEvent = CreateRefundStatusChangedEvent();
+
+        var result = await handler.HandleAsync(
+            RefundStatusChangedEvent.TypeName,
+            Encoding.UTF8.GetBytes(statusEvent.Serialize()),
+            CancellationToken.None);
+
+        Assert.Equal(OrderNotificationHandlingResult.Retry, result);
+    }
+
+    [Fact]
     public void ConsumerRetryHeaderIsDurableAndBoundedInput()
     {
         Assert.True(OrderNotificationDeliveryProcessor.TryReadRetryCount(null, out var missing));
@@ -222,14 +320,35 @@ public sealed class OrderMessagingContractTests
         7,
         84m);
 
+    private static RefundStatusChangedEvent CreateRefundStatusChangedEvent() => new(
+        Guid.NewGuid().ToString("D"),
+        RefundStatusChangedEvent.TypeName,
+        DateTime.UtcNow,
+        401,
+        "REF000401",
+        101,
+        7,
+        "APPROVED",
+        "COMPLETED",
+        84m);
+
     private sealed class RecordingDispatcher : IOrderNotificationDispatcher
     {
         public OrderCreatedEvent? Notification { get; private set; }
+        public RefundStatusChangedEvent? RefundStatus { get; private set; }
         public Exception? Failure { get; init; }
 
         public Task DispatchOrderCreatedAsync(OrderCreatedEvent notification, CancellationToken cancellationToken)
         {
             Notification = notification;
+            return Failure is null ? Task.CompletedTask : Task.FromException(Failure);
+        }
+
+        public Task DispatchRefundStatusChangedAsync(
+            RefundStatusChangedEvent statusEvent,
+            CancellationToken cancellationToken)
+        {
+            RefundStatus = statusEvent;
             return Failure is null ? Task.CompletedTask : Task.FromException(Failure);
         }
     }

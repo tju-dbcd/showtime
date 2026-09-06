@@ -571,6 +571,33 @@ public sealed class RefundReviewService(
         refundRequest.CompleteTime = reviewedAt;
         refundRequest.UpdateBy = actor;
 
+        var statusChangedEvent = new RefundStatusChangedEvent(
+            Guid.NewGuid().ToString("D"),
+            RefundStatusChangedEvent.TypeName,
+            DateTime.SpecifyKind(reviewedAt, DateTimeKind.Utc),
+            refundRequest.RefundId,
+            refundRequest.RefundNo,
+            refundRequest.OrderId,
+            refundRequest.UserId,
+            refundRequest.ApproveStatus,
+            refundRequest.RefundStatus,
+            refundRequest.ActualRefund);
+        dbContext.OrderEventOutbox.Add(new OrderEventOutbox
+        {
+            EventId = statusChangedEvent.EventId,
+            EventType = RefundStatusChangedEvent.TypeName,
+            RoutingKey = RefundStatusChangedEvent.RoutingKeyName,
+            AggregateId = refundRequest.RefundId,
+            UserId = refundRequest.UserId,
+            Payload = statusChangedEvent.Serialize(),
+            OccurredAt = reviewedAt,
+            Status = "PENDING",
+            AttemptCount = 0,
+            NextAttemptAt = reviewedAt,
+            CreateBy = actor,
+            UpdateBy = actor,
+        });
+
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
