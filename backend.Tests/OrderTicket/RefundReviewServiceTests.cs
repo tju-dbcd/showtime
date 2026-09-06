@@ -923,7 +923,7 @@ public sealed class RefundReviewServiceTests
     }
 
     [Fact]
-    public async Task ApproveAsync_WhenAtomicPaymentUpdateAffectsNoRows_RollsBackAllState()
+    public async Task ApproveAsync_WhenRemainingRefundableAmountIsInsufficient_RejectsWithoutMutation()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
@@ -949,7 +949,7 @@ public sealed class RefundReviewServiceTests
     }
 
     [Fact]
-    public async Task ApproveAsync_WhenAlreadyApproved_DoesNotRefundTwice()
+    public async Task ApproveAsync_WhenAlreadyApproved_DoesNotWriteDuplicateOutbox()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);

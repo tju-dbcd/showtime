@@ -1086,7 +1086,7 @@ public sealed class RefundConcurrencyTests
     }
 
     [Fact]
-    public async Task ApproveAsync_WhenPaymentUpdateAffectsNoRows_RequeriesAfterRollback()
+    public async Task ApproveAsync_WhenRemainingRefundableAmountIsInsufficient_SkipsBulkUpdatesAndRecoveryRead()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
