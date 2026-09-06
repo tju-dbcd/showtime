@@ -1,5 +1,7 @@
 # 本地开发一键依赖：docker compose up -d redis
 # 用法：docker compose ps 确认 redis 健康后，再 dotnet run 启动后端。
+# 可选依赖 RabbitMQ（订单异步通知/退款异步完成）：默认 RabbitMq:Enabled=false 不启用；
+# 需要消息队列时再起 docker compose up -d rabbitmq，并把 RabbitMq:Enabled 置为 true。
 services:
   redis:
     image: redis:7
@@ -11,4 +13,16 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
+      retries: 20
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: showtime-rabbitmq
+    ports:
+      # 5672 为 AMQP 业务端口；15672 为管理控制台（guest/guest）
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
       retries: 20
