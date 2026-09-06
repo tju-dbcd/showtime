@@ -70,6 +70,10 @@
    - OSS 配置 `Oss:` 节（Endpoint/Bucket/BaseUrl 本地已内置在 `backend/appsettings.Development.json`，`Enabled` 默认 false）：
      - 本地联调 OSS：user-secrets 注入 AccessKey（`Oss:AccessKeyId` / `Oss:AccessKeySecret`），并把 `Oss:Enabled` 置 true；具体见第 4 节与 `backend/appsettings.example.json` 模板
      - 生产环境：通过环境变量 `Oss__Endpoint` / `Oss__Bucket` / `Oss__BaseUrl` / `Oss__AccessKeyId` / `Oss__AccessKeySecret` / `Oss__Enabled`（或 KMS/Docker secret）注入，AccessKey 严禁写进任何提交进仓库的文件
+   - RabbitMQ 连接串 `ConnectionStrings:RabbitMq`（本地默认已内置在 `backend/appsettings.Development.json`：`amqp://guest:guest@localhost:5672/`）：
+     - 默认关闭（`RabbitMq:Enabled=false`）：不连接 broker，订单/退款 outbox 由进程内 `LocalOrderEventPublisher` 完成退款与实时通知，单机开发无需 RabbitMQ；
+     - 本地启用：仓库根 `docker compose up -d rabbitmq` 一键起（管理台 http://localhost:15672 ，guest/guest），再把 `RabbitMq:Enabled` 置 true（user-secrets `RabbitMq:Enabled` 或环境变量 `RabbitMq__Enabled=true`）
+     - 生产环境：通过环境变量 `ConnectionStrings__RabbitMq` 注入
    - 前端环境变量：`frontend/.env.production`、`frontend/.env.development` 已移出版本控制，真实值由 CI/部署注入；仓库内只保留 `frontend/.env.example` 占位模板。
    - JWT 签名密钥 `Jwt:Key` 在 `backend/appsettings.Development.json` 中配置了一个**仅限本地开发（DEV-ONLY）**的随机密钥，保证本地可直接启动。该值仅用于 Development 环境，**生产环境严禁复用**，必须通过环境变量 `Jwt__Key`（或其他密钥管理机制）覆盖，切勿把开发密钥写入 `appsettings.json` 或生产配置。
 7. 新人环境准备：
