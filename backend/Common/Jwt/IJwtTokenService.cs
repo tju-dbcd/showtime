@@ -6,5 +6,6 @@ public interface IJwtTokenService
 {
     JwtTokenResult CreateToken(
         SysUser user,
-        IReadOnlyCollection<string> roleCodes);
+        IReadOnlyCollection<string> roleCodes,
+        long sessionId);
 }

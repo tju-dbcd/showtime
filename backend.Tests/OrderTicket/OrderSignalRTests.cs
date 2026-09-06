@@ -130,6 +130,7 @@ public sealed class OrderSignalRTests
             AuthTestFactory.TestAudience,
             [
                 new Claim(JwtRegisteredClaimNames.Sub, userId),
+                new Claim("sid", AuthTestFactory.TestSessionId.ToString()),
                 new Claim("role", "USER"),
             ],
             expires: DateTime.UtcNow.AddMinutes(10),

@@ -12,6 +12,7 @@ public sealed partial class AuthService(
     AppDbContext dbContext,
     IPasswordHasher<SysUser> passwordHasher,
     IJwtTokenService jwtTokenService,
+    IUserSessionService userSessionService,
     TimeProvider timeProvider,
     ILogger<AuthService> logger) : IAuthService
 {
@@ -111,6 +112,7 @@ public sealed partial class AuthService(
 
     public async Task<AuthServiceResult<LoginResponse>> LoginAsync(
         LoginRequest request,
+        ClientRequestMetadata client,
         CancellationToken cancellationToken)
     {
         var account = request.Account.Trim();
@@ -182,7 +184,21 @@ public sealed partial class AuthService(
             .Order(StringComparer.Ordinal)
             .ToArray();
 
-        var token = jwtTokenService.CreateToken(user, roleCodes);
+        var sessionResult = await userSessionService.StartAsync(
+            user.UserId,
+            client,
+            cancellationToken);
+        if (!sessionResult.IsSuccess)
+        {
+            return AuthServiceResult<LoginResponse>.Failed(
+                AuthFailure.SessionUnavailable);
+        }
+
+        var session = sessionResult.Value!;
+        var token = jwtTokenService.CreateToken(
+            user,
+            roleCodes,
+            session.SessionId);
         var expiresIn = Math.Max(
             0,
             (long)Math.Ceiling(
@@ -193,9 +209,45 @@ public sealed partial class AuthService(
             "Bearer",
             expiresIn,
             token.ExpiresAtUtc,
+            session.RefreshToken,
+            session.RefreshTokenExpiresAtUtc,
             CreateUserResponse(user, roleCodes));
 
         return AuthServiceResult<LoginResponse>.Succeeded(response);
+    }
+
+    public async Task<AuthServiceResult<RefreshTokenResponse>> RefreshAsync(
+        RefreshTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        var sessionResult = await userSessionService.RotateAsync(
+            request.RefreshToken,
+            cancellationToken);
+        if (!sessionResult.IsSuccess)
+        {
+            return AuthServiceResult<RefreshTokenResponse>.Failed(
+                MapSessionFailure(sessionResult.Failure));
+        }
+
+        var session = sessionResult.Value!;
+        var accessToken = jwtTokenService.CreateToken(
+            session.User,
+            session.RoleCodes,
+            session.SessionId);
+        var expiresIn = Math.Max(
+            0,
+            (long)Math.Ceiling(
+                (accessToken.ExpiresAtUtc - timeProvider.GetUtcNow().UtcDateTime)
+                .TotalSeconds));
+
+        return AuthServiceResult<RefreshTokenResponse>.Succeeded(
+            new RefreshTokenResponse(
+                accessToken.AccessToken,
+                "Bearer",
+                expiresIn,
+                accessToken.ExpiresAtUtc,
+                session.RefreshToken,
+                session.RefreshTokenExpiresAtUtc));
     }
 
     private async Task<AuthFailure> FindRegistrationConflictAsync(
@@ -296,6 +348,17 @@ public sealed partial class AuthService(
         var normalized = value?.Trim();
         return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
+
+    private static AuthFailure MapSessionFailure(UserSessionFailure failure) =>
+        failure switch
+        {
+            UserSessionFailure.Expired => AuthFailure.RefreshTokenExpired,
+            UserSessionFailure.LoggedOut => AuthFailure.RefreshTokenLoggedOut,
+            UserSessionFailure.Locked => AuthFailure.RefreshTokenLocked,
+            UserSessionFailure.TokenReused => AuthFailure.RefreshTokenReused,
+            UserSessionFailure.AccountUnavailable => AuthFailure.AccountDisabled,
+            _ => AuthFailure.InvalidRefreshToken,
+        };
 
     [GeneratedRegex(@"^(?:\+?[0-9]{6,19}|[0-9]{20})$")]
     private static partial Regex PhoneRegex();

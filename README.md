@@ -213,11 +213,40 @@ dotnet run
 
 | 文档 | 说明 |
 |------|------|
-| [docs/API.md](docs/API.md) | API 约定、错误码、数据模型、状态枚举、规划接口 |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 环境依赖、配置项、数据库初始化、部署流程、排查 |
+| [doc/API.md](doc/API.md) | API 约定、错误码、数据模型、状态枚举、规划接口 |
+| [doc/DEPLOYMENT.md](doc/DEPLOYMENT.md) | 环境依赖、配置项、数据库初始化、部署流程、排查 |
 | [PLAN.md](PLAN.md) | 项目开发计划与各角色任务 |
 | [CONVENTIONS.md](CONVENTIONS.md) | Git 工作流、数据库规范、编码约定 |
 | [db/testdata/README.md](db/testdata/README.md) | 测试数据生成工具说明 |
+
+## 实名信息 API 与本地密钥
+
+用户实名记录接口均需要 JWT：
+
+- `GET /api/users/me/real-names`
+- `POST /api/users/me/real-names`
+- `PUT /api/users/me/real-names/{realNameId}`
+- `PATCH /api/users/me/real-names/{realNameId}/default`
+- `DELETE /api/users/me/real-names/{realNameId}`
+
+接口只返回脱敏身份证号。数据库 `USER_REAL_NAME.ID_CARD_NO` 使用 AES-256-GCM
+加密，运行后端前必须配置 `IdentityData:EncryptionKey`（环境变量写法为
+`IdentityData__EncryptionKey`），其值是 Base64 编码的 32 个随机字节。可以在
+PowerShell 中生成：
+
+```powershell
+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
+
+本地推荐写入 user-secrets，严禁提交真实密钥：
+
+```powershell
+dotnet user-secrets --project backend set "IdentityData:EncryptionKey" "<Base64密钥>"
+```
+
+当前版本的实名认证为开发阶段模拟实现：身份证格式校验通过即标记为已认证。
+共享数据库若已有历史明文，先阅读
+`db/tools/IdentityDataMigration/README.md`，dry-run 后再显式迁移。
 
 ---
 

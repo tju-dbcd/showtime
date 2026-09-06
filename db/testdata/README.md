@@ -1,5 +1,9 @@
 # 测试数据生成工具
 
+> 生成器会写入实名测试数据。运行前必须设置与后端一致的
+> `IdentityData__EncryptionKey`（Base64 编码的 32 字节密钥），否则会拒绝执行；
+> 密钥不得写入 `appsettings.json` 或提交到 Git。
+
 ## 1. 测试项目配置 TestDataGenerator.csproj
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">

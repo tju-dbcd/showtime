@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -8,11 +9,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Common.Jwt;
+using ShowtimeBackend.Common.IdentityData;
 using ShowtimeBackend.Common.Middlewares;
 using ShowtimeBackend.Common.OpenApi;
 using ShowtimeBackend.Common.Oss;
+using ShowtimeBackend.Common.RateLimiting;
 using ShowtimeBackend.Common.TicketSecurity;
 using ShowtimeBackend.Data;
+using ShowtimeBackend.Data.Interceptors;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.UserPermission;
 using ShowtimeBackend.Services.FileStorage;
@@ -46,13 +50,17 @@ builder.Host.UseSerilog((context, services, configuration) =>
 // 审计 sink（DbOperationTicketAuditSink）经 IDbContextFactory 创建独立实例，保证审计写入不卷入业务事务。
 // 注意：不得再对 AppDbContext 调用 AddDbContext，否则其注册的 scoped DbContextOptions 会与
 // singleton DbContextFactory 冲突（Cannot consume scoped service from singleton）。
-Action<DbContextOptionsBuilder> configureDatabase = options => options.UseOracle(
-    builder.Configuration.GetConnectionString("Oracle")
-    ?? throw new InvalidOperationException(
-        "Connection string 'Oracle' is not set."),
-    oracle => oracle.UseOracleSQLCompatibility(
-        OracleSQLCompatibility.DatabaseVersion21));
-builder.Services.AddDbContextFactory<AppDbContext>(configureDatabase);
+builder.Services.AddDbContextFactory<AppDbContext>((serviceProvider, options) =>
+{
+    options.UseOracle(
+        builder.Configuration.GetConnectionString("Oracle")
+        ?? throw new InvalidOperationException(
+            "Connection string 'Oracle' is not set."),
+        oracle => oracle.UseOracleSQLCompatibility(
+            OracleSQLCompatibility.DatabaseVersion21));
+    options.AddInterceptors(
+        serviceProvider.GetRequiredService<UserRealNameEncryptionInterceptor>());
+});
 builder.Services.AddScoped<AppDbContext>(provider =>
     provider.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
 
@@ -139,6 +147,16 @@ builder.Services.AddSingleton<IFileStorageService>(serviceProvider =>
 });
 
 builder.Services
+    .AddOptions<IdentityDataOptions>()
+    .Bind(builder.Configuration.GetSection(IdentityDataOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<
+    Microsoft.Extensions.Options.IValidateOptions<IdentityDataOptions>,
+    IdentityDataOptionsValidator>();
+builder.Services.AddSingleton<IIdentityDataProtector, AesGcmIdentityDataProtector>();
+builder.Services.AddSingleton<UserRealNameEncryptionInterceptor>();
+
+builder.Services
     .AddOptions<JwtOptions>()
     .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
     .ValidateDataAnnotations()
@@ -192,6 +210,57 @@ builder.Services
     {
         // 统一 401/403 响应体为 ApiResponse 信封（与业务错误格式一致）
         JwtErrorEnvelope.Configure(options.Events);
+        options.Events.OnTokenValidated = async context =>
+        {
+            var userIdValue = context.Principal?.FindFirst(
+                JwtRegisteredClaimNames.Sub)?.Value;
+            var sessionIdValue = context.Principal?.FindFirst("sid")?.Value;
+            if (!long.TryParse(
+                    userIdValue,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var userId)
+                || userId <= 0
+                || !long.TryParse(
+                    sessionIdValue,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var sessionId)
+                || sessionId <= 0)
+            {
+                context.Fail("The access token does not contain a valid session.");
+                return;
+            }
+
+            try
+            {
+                var sessionService = context.HttpContext.RequestServices
+                    .GetRequiredService<IUserSessionService>();
+                if (!await sessionService.IsActiveAsync(
+                        userId,
+                        sessionId,
+                        context.HttpContext.RequestAborted))
+                {
+                    context.Fail("The login session is no longer active.");
+                }
+            }
+            catch (OperationCanceledException)
+                when (context.HttpContext.RequestAborted.IsCancellationRequested)
+            {
+                context.Fail("Session validation was cancelled.");
+            }
+            catch (Exception exception)
+            {
+                var logger = context.HttpContext.RequestServices
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("JwtSessionValidation");
+                logger.LogWarning(
+                    exception,
+                    "JWT session validation failed closed for session {SessionId}.",
+                    sessionId);
+                context.Fail("The login session could not be validated.");
+            }
+        };
         options.Events.OnMessageReceived = context =>
         {
             var accessToken = context.Request.Query["access_token"];
@@ -227,6 +296,8 @@ builder.Services
             };
         });
 builder.Services.AddAuthorization();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddApiRateLimiting(builder.Configuration);
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, SubjectUserIdProvider>();
 builder.Services.AddSingleton<IOrderNotificationDispatcher, SignalROrderNotificationDispatcher>();
@@ -287,8 +358,12 @@ builder.Services
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IPasswordHasher<SysUser>, PasswordHasher<SysUser>>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+builder.Services.AddSingleton<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddSingleton<ITicketTokenService, HmacTicketTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUserSessionService, UserSessionService>();
+builder.Services.AddScoped<IUserRealNameService, UserRealNameService>();
+builder.Services.AddSingleton<IOperationLogWriter, DatabaseOperationLogWriter>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IOrderExpirationService, OrderExpirationService>();
@@ -367,6 +442,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 // 本地磁盘存储启用时，把存储根目录作为公开只读静态资源挂到 /files（与 OSS 公共读语义一致）。

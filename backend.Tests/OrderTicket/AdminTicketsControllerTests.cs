@@ -272,6 +272,7 @@ public sealed class AdminTicketsControllerTests
             [
                 new Claim(JwtRegisteredClaimNames.Sub, "1001"),
                 new Claim(JwtRegisteredClaimNames.UniqueName, "admin-user"),
+                new Claim("sid", AuthTestFactory.TestSessionId.ToString()),
                 new Claim("role", role),
             ],
             expires: DateTime.UtcNow.AddMinutes(10),
