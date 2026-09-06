@@ -217,3 +217,25 @@ export const issueOrderTickets = (orderId: number) => {
     params: { path: { orderId } },
   });
 };
+
+// ========== 营销内容相关 ==========
+export type MarketingContentType = components['schemas']['MarketingContentType'];
+export type MarketingContentStatus = components['schemas']['MarketingContentStatus'];
+export type MarketingContentDto = components['schemas']['MarketingContentDto'];
+export type CreateMarketingContentRequest = components['schemas']['CreateMarketingContentRequest'];
+export type UpdateMarketingContentRequest = components['schemas']['UpdateMarketingContentRequest'];
+
+// 创建营销内容
+export const createMarketingContent = (data: CreateMarketingContentRequest) => {
+  return client.POST('/api/admin/marketing-contents', {
+    body: data,
+  });
+};
+
+// 更新营销内容
+export const updateMarketingContent = (contentId: number, data: UpdateMarketingContentRequest) => {
+  return client.PUT('/api/admin/marketing-contents/{contentId}', {
+    params: { path: { contentId } },
+    body: data,
+  });
+};
