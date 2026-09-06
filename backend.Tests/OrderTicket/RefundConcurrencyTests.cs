@@ -113,30 +113,6 @@ public sealed class RefundConcurrencyTests
         Assert.Single(exception.Entries);
     }
 
-    [Fact]
-    public async Task DifferentItemCompletions_ForSameOrder_EndAsFullyRefundedWithoutLostUpdate()
-    {
-        await using var fixture = await RefundTestData.CreateTwoPendingRefundsAsync();
-
-        var firstEvent = await fixture.ApproveAndReadEventAsync(fixture.RefundIds[0]);
-        var first = await fixture.CreateCompletionService().CompleteAsync(
-            firstEvent,
-            CancellationToken.None);
-        var afterFirst = await fixture.OrderStatusAsync();
-        var secondEvent = await fixture.ApproveAndReadEventAsync(fixture.RefundIds[1]);
-        var second = await fixture.CreateCompletionService().CompleteAsync(
-            secondEvent,
-            CancellationToken.None);
-
-        Assert.Equal(RefundCompletionOutcome.Completed, first.Outcome);
-        Assert.Equal("PART_REFUND", afterFirst);
-        Assert.Equal(RefundCompletionOutcome.Completed, second.Outcome);
-        Assert.Equal("REFUNDED", await fixture.OrderStatusAsync());
-        Assert.Equal(
-            firstEvent.ActualRefund + secondEvent.ActualRefund,
-            await fixture.PaymentRefundAmountAsync());
-    }
-
     [Theory]
     [InlineData("order-item", typeof(OrderItem))]
     [InlineData("ticket", typeof(ETicket))]

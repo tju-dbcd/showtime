@@ -189,6 +189,9 @@ public sealed class RefundCompletionServiceTests
         Assert.Equal(RefundCompletionOutcome.Completed, second.Outcome);
         Assert.Equal("REFUNDED", await fixture.OrderStatusAsync());
         Assert.Equal(168m, await fixture.PaymentRefundAmountAsync());
+        Assert.All(
+            await fixture.Db.Set<OrderItem>().AsNoTracking().ToListAsync(),
+            item => Assert.Equal("REFUNDED", item.ItemStatus));
     }
 
     [Fact]
