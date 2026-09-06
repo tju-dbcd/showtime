@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
@@ -8,6 +9,7 @@ using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 
 namespace ShowtimeBackend.Tests.OrderTicket;
 
@@ -92,6 +94,18 @@ public sealed class OrderServiceTests
             Assert.NotNull(item.OrderItemId);
             Assert.NotNull(item.SeatLockId);
         });
+        var outbox = await db.OrderEventOutbox.SingleAsync();
+        Assert.Equal(OrderCreatedEvent.TypeName, outbox.EventType);
+        Assert.Equal(OrderCreatedEvent.RoutingKeyName, outbox.RoutingKey);
+        Assert.Equal(result.Value.OrderId, outbox.AggregateId);
+        Assert.Equal("PENDING", outbox.Status);
+        var orderCreated = JsonSerializer.Deserialize<OrderCreatedEvent>(
+            outbox.Payload,
+            OrderCreatedEvent.SerializerOptions);
+        Assert.NotNull(orderCreated);
+        Assert.Equal(result.Value.OrderNo, orderCreated.OrderNo);
+        Assert.Equal(2, orderCreated.TicketCount);
+        Assert.Equal(7, orderCreated.UserId);
     }
 
     [Fact]

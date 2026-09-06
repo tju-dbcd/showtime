@@ -50,6 +50,7 @@ public sealed class OrderIdempotencyConcurrencyTests
         Assert.Equal(1, await verification.Set<Order>().CountAsync());
         Assert.Equal(1, await verification.Set<OrderItem>().CountAsync());
         Assert.Equal(1, await verification.SeatReservations.CountAsync());
+        Assert.Equal(1, await verification.OrderEventOutbox.CountAsync());
         Assert.Single(guard.ReleaseCalls);
     }
 
@@ -91,6 +92,7 @@ public sealed class OrderIdempotencyConcurrencyTests
         await using var verificationConnection = await database.OpenConnectionAsync();
         await using var verification = CreateDbContext(verificationConnection);
         Assert.Equal(1, await verification.Set<Order>().CountAsync());
+        Assert.Equal(1, await verification.OrderEventOutbox.CountAsync());
         var locks = await verification.SeatLocks.AsNoTracking()
             .OrderBy(item => item.SeatId)
             .ToListAsync();
@@ -128,6 +130,33 @@ public sealed class OrderIdempotencyConcurrencyTests
         Assert.Equal(
             "ACTIVE",
             (await verification.SeatLocks.SingleAsync()).LockStatus);
+        Assert.Empty(guard.ReleaseCalls);
+    }
+
+    [Fact]
+    public async Task OutboxInsertFailure_RollsBackOrderReservationAndLockConversion()
+    {
+        await using var database = await SharedDatabase.CreateAsync();
+        await database.AddLockAsync(50, "lock-50");
+        await using var connection = await database.OpenConnectionAsync();
+        await using var db = CreateDbContext(connection, new FailOutboxInsertInterceptor());
+        var guard = new ConcurrentSeatLockGuard();
+        var service = CreateService(db, guard);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => service.CreateAsync(
+            7,
+            "creator",
+            "outbox-failure",
+            Request(50, 60, "lock-50"),
+            CancellationToken.None));
+
+        await using var verificationConnection = await database.OpenConnectionAsync();
+        await using var verification = CreateDbContext(verificationConnection);
+        Assert.Empty(await verification.Set<Order>().ToListAsync());
+        Assert.Empty(await verification.Set<OrderItem>().ToListAsync());
+        Assert.Empty(await verification.SeatReservations.ToListAsync());
+        Assert.Empty(await verification.OrderEventOutbox.ToListAsync());
+        Assert.Equal("ACTIVE", (await verification.SeatLocks.SingleAsync()).LockStatus);
         Assert.Empty(guard.ReleaseCalls);
     }
 
@@ -303,6 +332,37 @@ public sealed class OrderIdempotencyConcurrencyTests
                 eventData,
                 result,
                 cancellationToken);
+        }
+    }
+
+    private sealed class FailOutboxInsertInterceptor : DbCommandInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("T_ORDER_EVENT_OUTBOX", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Simulated outbox insert failure.");
+            }
+
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("T_ORDER_EVENT_OUTBOX", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Simulated outbox insert failure.");
+            }
+
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }
     }
 

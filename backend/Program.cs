@@ -17,6 +17,7 @@ using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.UserPermission;
 using ShowtimeBackend.Services.FileStorage;
 using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
 using ShowtimeBackend.Services.SeatZone;
@@ -177,11 +178,31 @@ builder.Services
     .ValidateOnStart();
 
 builder.Services
+    .AddOptions<RabbitMqOptions>()
+    .Bind(
+        builder.Configuration.GetSection(RabbitMqOptions.SectionName),
+        binder => binder.ErrorOnUnknownConfiguration = true)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<RabbitMqOptions>, RabbitMqOptionsValidator>();
+
+builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         // 统一 401/403 响应体为 ApiResponse 信封（与业务错误格式一致）
         JwtErrorEnvelope.Configure(options.Events);
+        options.Events.OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            if (!string.IsNullOrEmpty(accessToken) &&
+                context.HttpContext.Request.Path.StartsWithSegments("/hubs/order-notifications"))
+            {
+                context.Token = accessToken;
+            }
+
+            return Task.CompletedTask;
+        };
     });
 builder.Services
     .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
@@ -206,6 +227,20 @@ builder.Services
             };
         });
 builder.Services.AddAuthorization();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, SubjectUserIdProvider>();
+builder.Services.AddSingleton<IOrderNotificationDispatcher, SignalROrderNotificationDispatcher>();
+builder.Services.AddScoped<IOrderNotificationMessageHandler, OrderNotificationMessageHandler>();
+builder.Services.AddScoped<OrderNotificationDeliveryProcessor>();
+
+if (builder.Configuration.GetValue<bool>("RabbitMq:Enabled"))
+{
+    builder.Services.AddSingleton<IRabbitMqConnectionProvider, RabbitMqConnectionProvider>();
+    builder.Services.AddSingleton<IOrderEventPublisher, RabbitMqOrderEventPublisher>();
+    builder.Services.AddScoped<IOrderEventOutboxService, OrderEventOutboxService>();
+    builder.Services.AddHostedService<OrderEventOutboxWorker>();
+    builder.Services.AddHostedService<RabbitMqOrderNotificationWorker>();
+}
 
 builder.Services
     .AddControllers()
@@ -265,6 +300,7 @@ builder.Services.AddHostedService<ExchangeExpirationWorker>();
 builder.Services.AddScoped<IRefundLockCoordinator, OracleRefundLockCoordinator>();
 builder.Services.AddScoped<IRefundApplicationService, RefundApplicationService>();
 builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();
+builder.Services.AddScoped<IRefundCompletionService, RefundCompletionService>();
 builder.Services.AddScoped<IOrderTicketAuditSink, DbOperationTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
@@ -339,6 +375,7 @@ if (localStorage.Enabled)
 
 app.MapGet("/", () => "Showtime API is running.");
 app.MapControllers();
+app.MapHub<OrderNotificationsHub>("/hubs/order-notifications");
 
 app.Run();
 

@@ -78,6 +78,7 @@ public sealed class OrderIdempotencyServiceTests
         Assert.Equal(1, await fixture.Db.Set<Order>().CountAsync());
         Assert.Equal(2, await fixture.Db.Set<OrderItem>().CountAsync());
         Assert.Equal(2, await fixture.Db.SeatReservations.CountAsync());
+        Assert.Equal(1, await fixture.Db.OrderEventOutbox.CountAsync());
         Assert.All(await fixture.Db.SeatLocks.AsNoTracking().ToListAsync(), item =>
             Assert.Equal("CONVERTED", item.LockStatus));
         Assert.Equal(2, fixture.Guard.ReleaseCalls.Count);
@@ -143,6 +144,7 @@ public sealed class OrderIdempotencyServiceTests
         Assert.True(second.IsSuccess, second.Message);
         Assert.NotEqual(first.Value!.OrderId, second.Value!.OrderId);
         Assert.Equal(2, await fixture.Db.Set<Order>().CountAsync());
+        Assert.Equal(2, await fixture.Db.OrderEventOutbox.CountAsync());
     }
 
     [Fact]
