@@ -234,6 +234,7 @@ public sealed class ExchangeConcurrencyTests
             return (await order.CreateAsync(
                 7,
                 "order-racer",
+                "test-key-exchange-race",
                 new CreateOrderRequest(
                     22, [new CreateOrderItemRequest(701, 801, null, "lock-701")], null),
                 timeout.Token)).IsSuccess;

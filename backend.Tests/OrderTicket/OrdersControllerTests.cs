@@ -15,6 +15,49 @@ namespace ShowtimeBackend.Tests.OrderTicket;
 
 public sealed class OrdersControllerTests
 {
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Create_WithMissingOrBlankIdempotencyKey_ReturnsInvalidKey(string? key)
+    {
+        await using var db = CreateDbContext();
+        var identity = new ClaimsIdentity(
+            [new Claim("sub", "7"), new Claim(ClaimTypes.Name, "alice")],
+            "test");
+        var controller = CreateController(db, new ClaimsPrincipal(identity));
+
+        var result = await controller.Create(
+            key,
+            ValidCreateRequest(),
+            CancellationToken.None);
+
+        var response = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        var body = Assert.IsType<ApiResponse<OrderResponse>>(response.Value);
+        Assert.Equal("ORDER_INVALID_IDEMPOTENCY_KEY", body.Code);
+    }
+
+    [Fact]
+    public async Task Create_WithOverlongTrimmedIdempotencyKey_ReturnsInvalidKey()
+    {
+        await using var db = CreateDbContext();
+        var identity = new ClaimsIdentity(
+            [new Claim("sub", "7"), new Claim(ClaimTypes.Name, "alice")],
+            "test");
+        var controller = CreateController(db, new ClaimsPrincipal(identity));
+
+        var result = await controller.Create(
+            $" {new string('k', 65)} ",
+            ValidCreateRequest(),
+            CancellationToken.None);
+
+        var response = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        var body = Assert.IsType<ApiResponse<OrderResponse>>(response.Value);
+        Assert.Equal("ORDER_INVALID_IDEMPOTENCY_KEY", body.Code);
+    }
+
     [Fact]
     public async Task List_WithoutSubjectClaim_ReturnsUnauthorized()
     {
@@ -58,7 +101,10 @@ public sealed class OrdersControllerTests
             [new CreateOrderItemRequest(20, 30, 40, "secret-lock-token")],
             null);
 
-        var result = await controller.Create(request, CancellationToken.None);
+        var result = await controller.Create(
+            "audit-success",
+            request,
+            CancellationToken.None);
 
         Assert.IsType<CreatedAtActionResult>(result.Result);
         Assert.NotNull(writer.Request);
@@ -84,7 +130,10 @@ public sealed class OrdersControllerTests
             [new CreateOrderItemRequest(20, 30, null, "secret-lock-token")],
             null);
 
-        var result = await controller.Create(request, CancellationToken.None);
+        var result = await controller.Create(
+            "audit-failure",
+            request,
+            CancellationToken.None);
 
         var failure = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status409Conflict, failure.StatusCode);
@@ -101,6 +150,7 @@ public sealed class OrdersControllerTests
             new ThrowingOperationLogWriter());
 
         var result = await controller.Create(
+            "audit-unavailable",
             new CreateOrderRequest(10, [], null),
             CancellationToken.None);
 
@@ -196,6 +246,7 @@ public sealed class OrdersControllerTests
         public Task<OrderTicketResult<OrderResponse>> CreateAsync(
             long userId,
             string actor,
+            string? idempotencyKey,
             CreateOrderRequest request,
             CancellationToken cancellationToken) => Task.FromResult(createResult);
 
@@ -251,4 +302,9 @@ public sealed class OrdersControllerTests
         [],
         [],
         DateTime.UtcNow);
+
+    private static CreateOrderRequest ValidCreateRequest() => new(
+        10,
+        [new CreateOrderItemRequest(50, 60, null, "lock-50")],
+        null);
 }

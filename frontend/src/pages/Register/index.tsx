@@ -18,7 +18,7 @@ const Register = () => {
   }) => {
     setLoading(true);
     try {
-      const response: any = await authAPI.register({
+      const { data, error } = await authAPI.register({
         userName: values.username,
         password: values.password,
         phone: values.phone,
@@ -26,27 +26,22 @@ const Register = () => {
         nickname: values.nickname || null,
       });
 
-      console.log('注册响应:', response);
+      if (error) {
+        message.error(error.message || '注册失败');
+        return;
+      }
 
-      // 处理可能被拦截器解包或未解包的情况
-      const result = response.data ? response.data : response;
-      console.log('result:', result);
-
-      // 判断成功：success 为 true 且有 data
-      if (result.success === true && result.data) {
+      if (data?.success && data?.data) {
         message.success('注册成功！请登录 🎉');
         setTimeout(() => {
           navigate('/login');
         }, 500);
       } else {
-        // 如果 success 为 false 或 data 为空，显示错误
-        message.error(result.message || '注册失败，请重试');
+        message.error(data?.message || '注册失败，请重试');
       }
     } catch (error: any) {
       console.error('注册异常:', error);
-      // 从 error.response 中提取后端返回的错误消息
-      const msg = error.response?.data?.message || error.message || '注册失败';
-      message.error(msg);
+      message.error(error.message || '注册失败');
     } finally {
       setLoading(false);
     }

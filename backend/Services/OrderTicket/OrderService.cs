@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Oracle.ManagedDataAccess.Client;
+using Microsoft.Extensions.Options;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
@@ -10,13 +10,15 @@ using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.SeatZone;
 using ShowtimeBackend.Services.ShowSession;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 
 namespace ShowtimeBackend.Services.OrderTicket;
 
 public sealed class OrderService(
     AppDbContext dbContext,
     TimeProvider timeProvider,
-    ISeatLockGuard? seatLockGuard = null) : IOrderService
+    ISeatLockGuard? seatLockGuard = null,
+    IOptions<OrderExpirationOptions>? expirationOptions = null) : IOrderService
 {
     // 与座位规则 NUMBER(3) 的取值范围保持一致，并避免生成过大的 Oracle IN 查询。
     private const int MaxSeatsPerOrder = 999;
@@ -158,19 +160,54 @@ public sealed class OrderService(
     public async Task<OrderTicketResult<OrderResponse>> CreateAsync(
         long userId,
         string actor,
+        string? idempotencyKey,
         CreateOrderRequest request,
         CancellationToken cancellationToken)
     {
+        var normalizedIdempotencyKey = idempotencyKey?.Trim();
+        if (string.IsNullOrEmpty(normalizedIdempotencyKey) ||
+            normalizedIdempotencyKey.Length > 64)
+        {
+            return Invalid(
+                "ORDER_INVALID_IDEMPOTENCY_KEY",
+                "Idempotency-Key is required and must not exceed 64 characters after trimming.");
+        }
+
+        var normalizedItems = request.Items.Select(item => new OrderIdempotencyItem(
+            item.SeatId,
+            item.PriceStrategyId,
+            item.RealNameId,
+            item.LockToken ?? string.Empty)).ToArray();
         if (request.SessionId <= 0 || request.Items.Count is 0 or > MaxSeatsPerOrder ||
-            request.Items.Any(item => item.SeatId <= 0 ||
-                                      item.PriceStrategyId <= 0 ||
-                                      string.IsNullOrWhiteSpace(item.LockToken) ||
-                                      item.LockToken.Length > 64) ||
-            request.Items.Select(item => item.SeatId).Distinct().Count() != request.Items.Count ||
-            request.Items.Select(item => item.LockToken)
+            normalizedItems.Any(item => item.SeatId <= 0 ||
+                                        item.PriceStrategyId <= 0 ||
+                                        string.IsNullOrWhiteSpace(item.LockToken) ||
+                                        item.LockToken.Length > 64) ||
+            normalizedItems.Select(item => item.SeatId).Distinct().Count() != request.Items.Count ||
+            normalizedItems.Select(item => item.LockToken)
                 .Distinct(StringComparer.Ordinal).Count() != request.Items.Count)
         {
             return Invalid("ORDER_INVALID_ITEMS", "Order items must contain valid, distinct seats.");
+        }
+
+        var normalizedRemark = string.IsNullOrWhiteSpace(request.Remark)
+            ? null
+            : request.Remark.Trim();
+        var requestHash = OrderIdempotencyRequestHasher.Compute(
+            request.SessionId,
+            normalizedItems,
+            normalizedRemark);
+        var existing = await FindIdempotencyRecordAsync(
+            userId,
+            normalizedIdempotencyKey,
+            cancellationToken);
+        if (existing is not null)
+        {
+            return await ResolveIdempotencyRecordAsync(
+                existing,
+                requestHash,
+                userId,
+                cancellationToken);
         }
 
         // 查询场次实体
@@ -190,6 +227,9 @@ public sealed class OrderService(
             .ToListAsync(cancellationToken);
 
         var seatIds = request.Items.Select(item => item.SeatId).ToArray();
+        var lockTokens = normalizedItems.ToDictionary(
+            item => item.SeatId,
+            item => item.LockToken);
         var seats = await dbContext.Set<Seat>()
             .AsNoTracking()
             .Where(item => seatIds.Contains(item.SeatId))
@@ -284,13 +324,20 @@ public sealed class OrderService(
                 !locks.TryGetValue(item.SeatId, out var seatLock) ||
                 !string.Equals(
                     seatLock.LockToken,
-                    item.LockToken,
+                    lockTokens[item.SeatId],
                     StringComparison.Ordinal)))
         {
-            return OrderTicketResult<OrderResponse>.Fail(
+            var fallback = OrderTicketResult<OrderResponse>.Fail(
                 OrderTicketFailure.Conflict,
                 "ORDER_SEAT_LOCK_INVALID",
                 "Every order item requires an active seat lock owned by the current user.");
+            return await RecoverIdempotencyAsync(
+                userId,
+                normalizedIdempotencyKey,
+                requestHash,
+                fallback,
+                missingWinnerIsFailure: false,
+                cancellationToken);
         }
 
         var order = new Order
@@ -303,9 +350,13 @@ public sealed class OrderService(
             DiscountAmount = 0m,
             TicketCount = orderItems.Count,
             OrderStatus = "PENDING_PAY",
-            ExpireTime = now.AddMinutes(15),
+            ExpireTime = now.AddMinutes(
+                expirationOptions?.Value.PendingPaymentExpireMinutes ??
+                new OrderExpirationOptions().PendingPaymentExpireMinutes),
             Source = "WEB",
-            Remark = string.IsNullOrWhiteSpace(request.Remark) ? null : request.Remark.Trim(),
+            Remark = normalizedRemark,
+            IdempotencyKey = normalizedIdempotencyKey,
+            IdempotencyRequestHash = requestHash,
             CreateBy = actor,
             UpdateBy = actor,
             Items = orderItems
@@ -332,14 +383,18 @@ public sealed class OrderService(
 
                 if (convertedCount != request.Items.Count)
                 {
-                    if (transaction is not null)
-                    {
-                        await transaction.RollbackAsync(cancellationToken);
-                    }
-                    return OrderTicketResult<OrderResponse>.Fail(
+                    await RollbackAsync(transaction, cancellationToken);
+                    var fallback = OrderTicketResult<OrderResponse>.Fail(
                         OrderTicketFailure.Conflict,
                         "ORDER_SEAT_LOCK_INVALID",
                         "One or more seat locks are no longer active.");
+                    return await RecoverIdempotencyAsync(
+                        userId,
+                        normalizedIdempotencyKey,
+                        requestHash,
+                        fallback,
+                        missingWinnerIsFailure: false,
+                        cancellationToken);
                 }
             }
             else
@@ -353,6 +408,23 @@ public sealed class OrderService(
 
             dbContext.Add(order);
             await dbContext.SaveChangesAsync(cancellationToken);
+
+            var orderCreated = OrderCreatedEvent.Create(order, now);
+            dbContext.OrderEventOutbox.Add(new OrderEventOutbox
+            {
+                EventId = orderCreated.EventId,
+                EventType = OrderCreatedEvent.TypeName,
+                RoutingKey = OrderCreatedEvent.RoutingKeyName,
+                AggregateId = order.OrderId,
+                UserId = userId,
+                Payload = orderCreated.Serialize(),
+                OccurredAt = now,
+                Status = "PENDING",
+                AttemptCount = 0,
+                NextAttemptAt = now,
+                CreateBy = actor,
+                UpdateBy = actor,
+            });
 
             for (var index = 0; index < orderItems.Count; index++)
             {
@@ -383,12 +455,21 @@ public sealed class OrderService(
         }
         catch (DbUpdateException exception)
         {
-            if (transaction is not null)
+            await RollbackAsync(transaction, cancellationToken);
+
+            var uniqueConstraint = OrderCreateConstraintClassifier.Classify(exception);
+            if (uniqueConstraint == OrderCreateUniqueConstraint.IdempotencyKey)
             {
-                await transaction.RollbackAsync(cancellationToken);
+                return await RecoverIdempotencyAsync(
+                    userId,
+                    normalizedIdempotencyKey,
+                    requestHash,
+                    fallback: null,
+                    missingWinnerIsFailure: true,
+                    cancellationToken);
             }
 
-            if (ContainsOracleError(exception, 1))
+            if (uniqueConstraint == OrderCreateUniqueConstraint.SeatReservation)
             {
                 return OrderTicketResult<OrderResponse>.Fail(
                     OrderTicketFailure.Conflict,
@@ -400,10 +481,7 @@ public sealed class OrderService(
         }
         catch (Exception)
         {
-            if (transaction is not null)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-            }
+            await RollbackAsync(transaction, cancellationToken);
 
             throw;
         }
@@ -537,6 +615,90 @@ public sealed class OrderService(
         return await orders.SingleOrDefaultAsync(item => item.OrderId == orderId, cancellationToken);
     }
 
+    private Task<IdempotencyRecord?> FindIdempotencyRecordAsync(
+        long userId,
+        string idempotencyKey,
+        CancellationToken cancellationToken) => dbContext.Set<Order>()
+        .AsNoTracking()
+        .Where(item =>
+            item.UserId == userId &&
+            item.IdempotencyKey == idempotencyKey)
+        .Select(item => new IdempotencyRecord(
+            item.OrderId,
+            item.IdempotencyRequestHash))
+        .SingleOrDefaultAsync(cancellationToken);
+
+    private async Task<OrderTicketResult<OrderResponse>> RecoverIdempotencyAsync(
+        long userId,
+        string idempotencyKey,
+        string requestHash,
+        OrderTicketResult<OrderResponse>? fallback,
+        bool missingWinnerIsFailure,
+        CancellationToken cancellationToken)
+    {
+        dbContext.ChangeTracker.Clear();
+        var existing = await FindIdempotencyRecordAsync(
+            userId,
+            idempotencyKey,
+            cancellationToken);
+        if (existing is not null)
+        {
+            return await ResolveIdempotencyRecordAsync(
+                existing,
+                requestHash,
+                userId,
+                cancellationToken);
+        }
+
+        if (!missingWinnerIsFailure && fallback is not null)
+            return fallback;
+
+        return OrderTicketResult<OrderResponse>.Fail(
+            OrderTicketFailure.Internal,
+            "ORDER_IDEMPOTENCY_RECOVERY_FAILED",
+            "The competing idempotent order could not be recovered.");
+    }
+
+    private async Task<OrderTicketResult<OrderResponse>> ResolveIdempotencyRecordAsync(
+        IdempotencyRecord existing,
+        string requestHash,
+        long userId,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(
+                existing.RequestHash,
+                requestHash,
+                StringComparison.Ordinal))
+        {
+            return OrderTicketResult<OrderResponse>.Fail(
+                OrderTicketFailure.Conflict,
+                "ORDER_IDEMPOTENCY_CONFLICT",
+                "Idempotency-Key was already used for a different order request.");
+        }
+
+        var order = await FindOrderDetailsAsync(
+            existing.OrderId,
+            userId,
+            cancellationToken);
+        return order is null
+            ? OrderTicketResult<OrderResponse>.Fail(
+                OrderTicketFailure.Internal,
+                "ORDER_IDEMPOTENCY_RECOVERY_FAILED",
+                "The idempotent order could not be loaded.")
+            : OrderTicketResult<OrderResponse>.Success(ToResponse(order));
+    }
+
+    private static async Task RollbackAsync(
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        if (transaction is null)
+            return;
+
+        await transaction.RollbackAsync(cancellationToken);
+        await transaction.DisposeAsync();
+    }
+
     private static string CreateBusinessNumber(string prefix, DateTime now) =>
         $"{prefix}{now:yyyyMMddHHmmssfff}{Guid.NewGuid():N}"[..28].ToUpperInvariant();
 
@@ -591,16 +753,5 @@ public sealed class OrderService(
     private static OrderTicketResult<OrderResponse> NotFound(string code, string message) =>
         OrderTicketResult<OrderResponse>.Fail(OrderTicketFailure.NotFound, code, message);
 
-    private static bool ContainsOracleError(Exception exception, int number)
-    {
-        for (Exception? current = exception; current is not null; current = current.InnerException)
-        {
-            if (current is OracleException oracleException && oracleException.Number == number)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private sealed record IdempotencyRecord(long OrderId, string? RequestHash);
 }

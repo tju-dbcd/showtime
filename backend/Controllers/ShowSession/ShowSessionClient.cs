@@ -50,8 +50,14 @@ public class ShowSessionClientController : ControllerBase
     }
 
     /// <summary>
-    /// 获取指定场次的区域票价策略列表
+    /// 获取指定场次的区域票价（实时展示报价）。
     /// </summary>
+    /// <remarks>
+    /// 展示口径：以当前时间实时计算动态调价后的报价，仅供浏览/比价。<para/>
+    /// 结算口径：下单/改签以“座位锁创建时刻的价格”为准，而非本端点返回值；
+    /// 成交价按锁定时点锁定，展示价与成交价允许不一致。详见
+    /// <see cref="ShowtimeBackend.Services.ShowSession.PricingChange.CalculateRealtimePrice"/> 的 evaluationTime 语义。
+    /// </remarks>
     [HttpGet("sessions/{sessionId:long}/pricing-strategies")]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<PricingStrategyDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<PricingStrategyDto>>), StatusCodes.Status400BadRequest)]
@@ -68,7 +74,7 @@ public class ShowSessionClientController : ControllerBase
         try
         {
             var strategies = await _sessionService.GetPricingStrategiesAsync(sessionId, cancellationToken);
-            return Ok(ApiResponse<IEnumerable<PricingStrategyDto>>.Ok(strategies, "获取票价策略成功"));
+            return Ok(ApiResponse<IEnumerable<PricingStrategyDto>>.Ok(strategies, "获取票价展示报价成功"));
         }
         catch (KeyNotFoundException ex)
         {

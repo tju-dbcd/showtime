@@ -53,6 +53,7 @@ public sealed class OrdersController(
     [HttpPost]
     [ProducesResponseType(typeof(ApiResponse<OrderResponse>), StatusCodes.Status201Created)]
     public async Task<ActionResult<ApiResponse<OrderResponse>>> Create(
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         [FromBody] CreateOrderRequest request,
         CancellationToken cancellationToken)
     {
@@ -62,7 +63,12 @@ public sealed class OrdersController(
         }
 
         var startedAt = timeProvider.GetTimestamp();
-        var result = await orderService.CreateAsync(userId, actor, request, cancellationToken);
+        var result = await orderService.CreateAsync(
+            userId,
+            actor,
+            idempotencyKey,
+            request,
+            cancellationToken);
         var costTime = Math.Max(
             0,
             (long)Math.Ceiling(timeProvider.GetElapsedTime(startedAt).TotalMilliseconds));

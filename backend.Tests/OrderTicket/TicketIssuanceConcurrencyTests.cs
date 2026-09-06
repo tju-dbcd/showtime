@@ -249,7 +249,12 @@ public sealed class TicketIssuanceConcurrencyTests
                         "ERERERERERERERERERERERERERERERERERERERERERE=",
                 }))),
         NullLogger<PaymentService>.Instance,
-        new NullOrderTicketAuditSink());
+        new NullOrderTicketAuditSink(),
+        new OrderExpirationService(
+            db,
+            new FixedTimeProvider(OperationTime),
+            Options.Create(new OrderExpirationOptions()),
+            NullLogger<OrderExpirationService>.Instance));
 
     private sealed class BlockingSaveInterceptor(
         TaskCompletionSource reachedSave,

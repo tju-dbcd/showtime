@@ -21,9 +21,11 @@ using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.UserPermission;
 using ShowtimeBackend.Services.FileStorage;
 using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
 using ShowtimeBackend.Services.SeatZone;
+using ShowtimeBackend.Services.MarketingContent;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
@@ -32,6 +34,7 @@ using Scalar.AspNetCore;
 using StackExchange.Redis;
 using Serilog;
 using ShowtimeBackend.Common.LocalStorage;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -185,6 +188,23 @@ builder.Services
     .ValidateOnStart();
 
 builder.Services
+    .AddOptions<OrderExpirationOptions>()
+    .Bind(
+        builder.Configuration.GetSection(OrderExpirationOptions.SectionName),
+        binder => binder.ErrorOnUnknownConfiguration = true)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
+    .AddOptions<RabbitMqOptions>()
+    .Bind(
+        builder.Configuration.GetSection(RabbitMqOptions.SectionName),
+        binder => binder.ErrorOnUnknownConfiguration = true)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<RabbitMqOptions>, RabbitMqOptionsValidator>();
+
+builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -241,6 +261,17 @@ builder.Services
                 context.Fail("The login session could not be validated.");
             }
         };
+        options.Events.OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            if (!string.IsNullOrEmpty(accessToken) &&
+                context.HttpContext.Request.Path.StartsWithSegments("/hubs/order-notifications"))
+            {
+                context.Token = accessToken;
+            }
+
+            return Task.CompletedTask;
+        };
     });
 builder.Services
     .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
@@ -267,6 +298,30 @@ builder.Services
 builder.Services.AddAuthorization();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddApiRateLimiting(builder.Configuration);
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, SubjectUserIdProvider>();
+builder.Services.AddSingleton<IOrderNotificationDispatcher, SignalROrderNotificationDispatcher>();
+builder.Services.AddScoped<IOrderNotificationMessageHandler, OrderNotificationMessageHandler>();
+builder.Services.AddScoped<OrderNotificationDeliveryProcessor>();
+
+var rabbitMqEnabled = builder.Configuration.GetValue<bool>("RabbitMq:Enabled");
+// 可靠事件 outbox 与进程内处理始终注册：RabbitMq:Enabled=false（默认）时由
+// LocalOrderEventPublisher 把 outbox 消息交给同一消息处理器在进程内完成退款与通知，
+// 避免批准退款后永远停在 PROCESSING；启用 RabbitMQ 时发布走 broker 并额外启动消费 Worker。
+builder.Services.AddSingleton<LocalOrderEventPublisher>();
+builder.Services.AddScoped<IOrderEventOutboxService, OrderEventOutboxService>();
+builder.Services.AddHostedService<OrderEventOutboxWorker>();
+if (rabbitMqEnabled)
+{
+    builder.Services.AddSingleton<IRabbitMqConnectionProvider, RabbitMqConnectionProvider>();
+    builder.Services.AddSingleton<RabbitMqOrderEventPublisher>();
+    builder.Services.AddHostedService<RabbitMqOrderNotificationWorker>();
+}
+
+builder.Services.AddSingleton<IOrderEventPublisher>(serviceProvider =>
+    rabbitMqEnabled
+        ? serviceProvider.GetRequiredService<RabbitMqOrderEventPublisher>()
+        : serviceProvider.GetRequiredService<LocalOrderEventPublisher>());
 
 builder.Services
     .AddControllers()
@@ -311,6 +366,8 @@ builder.Services.AddScoped<IUserRealNameService, UserRealNameService>();
 builder.Services.AddSingleton<IOperationLogWriter, DatabaseOperationLogWriter>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IOrderExpirationService, OrderExpirationService>();
+builder.Services.AddHostedService<OrderExpirationWorker>();
 builder.Services.AddScoped<ITicketIssuanceService, TicketIssuanceService>();
 builder.Services.AddScoped<ITicketQueryService, TicketQueryService>();
 builder.Services.AddScoped<ITicketRedemptionService, TicketRedemptionService>();
@@ -328,9 +385,12 @@ builder.Services.AddHostedService<ExchangeExpirationWorker>();
 builder.Services.AddScoped<IRefundLockCoordinator, OracleRefundLockCoordinator>();
 builder.Services.AddScoped<IRefundApplicationService, RefundApplicationService>();
 builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();
+builder.Services.AddScoped<IRefundCompletionService, RefundCompletionService>();
 builder.Services.AddScoped<IOrderTicketAuditSink, DbOperationTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
+builder.Services.AddScoped<IAdminMarketingContentService, AdminMarketingContentService>();
+builder.Services.AddScoped<IClientMarketingContentService, ClientMarketingContentService>();
 builder.Services.AddScoped<ISeatLockService>(serviceProvider =>
     new SeatLockService(
         serviceProvider.GetRequiredService<AppDbContext>(),
@@ -346,9 +406,27 @@ builder.Services.AddScoped<IClientShowService, ClientShowService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiResponseExceptionHandler>();
+
+// OpenAPI 服务器地址：由配置 OpenApi:ServerUrl 提供（不要硬编码端口）。
+// 未配置时不写入 document.Servers，避免把错误的固定 URL 固化进 OpenAPI 快照（如前端 openapi.json）。
+var openApiServerUrl = builder.Configuration["OpenApi:ServerUrl"];
+
 builder.Services.AddOpenApi(options =>
 {
+    options.AddDocumentTransformer((document, context, cancellationToken) =>
+    {
+        if (!string.IsNullOrWhiteSpace(openApiServerUrl))
+        {
+            document.Servers = new List<OpenApiServer>
+            {
+                new OpenApiServer { Url = openApiServerUrl }
+            };
+        }
+        return Task.CompletedTask;
+    });
+
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+    options.AddOperationTransformer<OrderIdempotencyOperationTransformer>();
     options.AddSchemaTransformer<EnumStringSchemaTransformer>();
     options.AddSchemaTransformer<TicketRedemptionSchemaTransformer>();
 });
@@ -383,6 +461,7 @@ if (localStorage.Enabled)
 
 app.MapGet("/", () => "Showtime API is running.");
 app.MapControllers();
+app.MapHub<OrderNotificationsHub>("/hubs/order-notifications");
 
 app.Run();
 

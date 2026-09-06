@@ -8,11 +8,14 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.FileStorage;
+using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 using ShowtimeBackend.Services.UserPermission;
 
 namespace ShowtimeBackend.Tests;
@@ -34,6 +37,8 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
     private readonly bool _localStorageEnabled;
     private readonly string? _localStorageRoot;
     private readonly IReadOnlyDictionary<string, string?>? _additionalConfiguration;
+    private readonly bool _enableOrderExpirationWorker;
+    private readonly bool _enableOrderEventOutboxWorker;
 
     public AuthTestFactory(
         string? jwtKey = TestKey,
@@ -41,6 +46,8 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
         bool replaceWithFakeStorage = false,
         IFileStorageService? customFileStorage = null,
         bool localStorageEnabled = false,
+        bool enableOrderExpirationWorker = false,
+        bool enableOrderEventOutboxWorker = false,
         IReadOnlyDictionary<string, string?>? additionalConfiguration = null)
     {
         _jwtKey = jwtKey;
@@ -49,6 +56,8 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
         _customFileStorage = customFileStorage;
         _localStorageEnabled = localStorageEnabled;
         _additionalConfiguration = additionalConfiguration;
+        _enableOrderExpirationWorker = enableOrderExpirationWorker;
+        _enableOrderEventOutboxWorker = enableOrderEventOutboxWorker;
         // 本地磁盘存储用例指向独立临时目录，测试结束整目录清理
         _localStorageRoot = localStorageEnabled
             ? Path.Combine(
@@ -171,6 +180,31 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
         });
         builder.ConfigureServices(services =>
         {
+            if (!_enableOrderExpirationWorker)
+            {
+                var workerDescriptors = services
+                    .Where(descriptor =>
+                        descriptor.ServiceType == typeof(IHostedService) &&
+                        descriptor.ImplementationType == typeof(OrderExpirationWorker))
+                    .ToList();
+                foreach (var descriptor in workerDescriptors)
+                    services.Remove(descriptor);
+            }
+
+            // PR65 后 outbox worker 默认始终注册（RabbitMQ 关闭时进程内完成退款/通知）；
+            // 绝大多数用例并不需要后台轮询，默认移除以免后台 worker 变更库状态造成竞态，
+            // 需要验证兜底链路/注册的用例显式开启。
+            if (!_enableOrderEventOutboxWorker)
+            {
+                var outboxWorkerDescriptors = services
+                    .Where(descriptor =>
+                        descriptor.ServiceType == typeof(IHostedService) &&
+                        descriptor.ImplementationType == typeof(OrderEventOutboxWorker))
+                    .ToList();
+                foreach (var descriptor in outboxWorkerDescriptors)
+                    services.Remove(descriptor);
+            }
+
             services.RemoveAll<AppDbContext>();
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();

@@ -37,7 +37,12 @@ public sealed class OrderServiceRedisGuardTests
             ],
             "靠近过道");
 
-        var result = await service.CreateAsync(7, "alice", request, CancellationToken.None);
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            "test-key-guard-release",
+            request,
+            CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         // 下单成功后按 座位×场次×LockToken 释放 Redis 锁。
@@ -65,6 +70,7 @@ public sealed class OrderServiceRedisGuardTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-guard-invalid",
             new CreateOrderRequest(
                 10,
                 [new CreateOrderItemRequest(50, 60, null, "missing-lock")],

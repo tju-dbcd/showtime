@@ -45,6 +45,9 @@ public class ShowSessionService : IClientShowSessionService
         return sessions.Select(ToDto);
     }
 
+    /// <summary>
+    /// 获取场次票价策略（前端展示价计算）
+    /// </summary>
     public async Task<IEnumerable<PricingStrategyDto>> GetPricingStrategiesAsync(
         long sessionId,
         CancellationToken cancellationToken = default)
@@ -65,12 +68,13 @@ public class ShowSessionService : IClientShowSessionService
             .Where(r => r.SessionId == sessionId && r.Status == "ENABLED")
             .ToListAsync(cancellationToken);
 
-        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        // 展示价算力取当前 UTC 时间
+        var evaluationTime = _timeProvider.GetUtcNow().UtcDateTime;
 
         return strategies.Select(p =>
         {
             decimal finalPrice = session != null
-                ? PricingChange.CalculateRealtimePrice(p.Price, session.StartTime, nowUtc, p.SeatSectionId, dynamicRules)
+                ? PricingChange.CalculateRealtimePrice(p.Price, session.StartTime, evaluationTime, p.SeatSectionId, dynamicRules)
                 : p.Price;
 
             return new PricingStrategyDto(
@@ -142,9 +146,10 @@ public class AdminShowSessionService : IAdminShowSessionService
     }
 
     public async Task ConfigurePriceStrategiesAsync(
-     long sessionId,
-     IEnumerable<CreatePriceStrategyRequest> requests,
-     CancellationToken cancellationToken = default)
+        long sessionId,
+        IEnumerable<CreatePriceStrategyRequest> requests,
+        string operatorName = "admin",
+        CancellationToken cancellationToken = default)
     {
         if (requests == null)
         {
@@ -175,10 +180,12 @@ public class AdminShowSessionService : IAdminShowSessionService
                 _context.PriceStrategy.RemoveRange(oldStrategies);
             }
 
-            // [] 则仅清空
+            // [] 空数组时静默清空并直接提交
             if (requestList.Count > 0)
             {
                 var now = DateTime.UtcNow;
+                var currentOperator = string.IsNullOrWhiteSpace(operatorName) ? "admin" : operatorName;
+
                 var newStrategies = requestList.Select(req => new PriceStrategy
                 {
                     SessionId = sessionId,
@@ -193,8 +200,8 @@ public class AdminShowSessionService : IAdminShowSessionService
                     Priority = req.Priority,
                     Quota = req.Quota,
                     Status = PriceStrategyStatus.ENABLED.ToDbString(),
-                    CreateBy = "admin",
-                    UpdateBy = "admin",
+                    CreateBy = currentOperator,
+                    UpdateBy = currentOperator,
                     CreateTime = now,
                     UpdateTime = now
                 }).ToList();
@@ -215,6 +222,7 @@ public class AdminShowSessionService : IAdminShowSessionService
     public async Task ConfigureDynamicPricingRulesAsync(
         long sessionId,
         IEnumerable<CreateDynamicPricingRuleRequest> requests,
+        string operatorName = "admin",
         CancellationToken cancellationToken = default)
     {
         if (requests == null)
@@ -230,6 +238,16 @@ public class AdminShowSessionService : IAdminShowSessionService
         if (!sessionExists)
             throw new KeyNotFoundException("演出场次不存在");
 
+        // 校验调价时间窗口偏置 (StartOffsetMinutes 必须大于等于 EndOffsetMinutes)
+        foreach (var req in requestList)
+        {
+            if (req.StartOffsetMinutes.HasValue && req.EndOffsetMinutes.HasValue &&
+                req.StartOffsetMinutes.Value < req.EndOffsetMinutes.Value)
+            {
+                throw new ArgumentException($"调价时间窗口配置无效：StartOffsetMinutes ({req.StartOffsetMinutes}) 必须大于等于 EndOffsetMinutes ({req.EndOffsetMinutes})");
+            }
+        }
+
         using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -243,10 +261,12 @@ public class AdminShowSessionService : IAdminShowSessionService
                 _context.DynamicPricingRules.RemoveRange(oldRules);
             }
 
-            //  [] 仅清空，不插入
+            // [] 空数组时仅进行静默清空
             if (requestList.Count > 0)
             {
                 var now = DateTime.UtcNow;
+                var currentOperator = string.IsNullOrWhiteSpace(operatorName) ? "admin" : operatorName;
+
                 var newRules = requestList.Select(req => new DynamicPricingRule
                 {
                     SessionId = sessionId,
@@ -259,8 +279,8 @@ public class AdminShowSessionService : IAdminShowSessionService
                     AdjustmentValue = req.AdjustmentValue,
                     Priority = req.Priority,
                     Status = "ENABLED",
-                    CreateBy = "admin",
-                    UpdateBy = "admin",
+                    CreateBy = currentOperator,
+                    UpdateBy = currentOperator,
                     CreateTime = now,
                     UpdateTime = now
                 }).ToList();

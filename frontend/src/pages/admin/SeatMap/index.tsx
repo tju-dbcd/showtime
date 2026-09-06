@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Select,
   Card,
@@ -14,11 +14,13 @@ import {
   Switch,
   Popconfirm,
   Empty,
+  Radio,
 } from 'antd';
 import {
   PlusOutlined,
   EditOutlined,
   ReloadOutlined,
+  SaveOutlined,
 } from '@ant-design/icons';
 import {
   getSeatMapList,
@@ -27,6 +29,7 @@ import {
   createSeat,
   deleteSeat,
   batchUpdateSeats,
+  updateSeat,
   type SeatMapResponse,
   type SeatSectionResponse,
   type SeatResponse,
@@ -55,6 +58,13 @@ const SeatMapEditor = () => {
   const [loadingSeats, setLoadingSeats] = useState(false);
   const [selectedSeatIds, setSelectedSeatIds] = useState<Set<number>>(new Set());
 
+  // 图形视图相关
+  const [viewMode, setViewMode] = useState<'table' | 'canvas'>('table');
+  const [modifiedCoords, setModifiedCoords] = useState<Map<number, { xCoord: number; yCoord: number }>>(new Map());
+  const [savingLayout, setSavingLayout] = useState(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const dragState = useRef<{ seatId: number; offsetX: number; offsetY: number } | null>(null);
+
   const [addVisible, setAddVisible] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
   const [addForm] = Form.useForm();
@@ -74,6 +84,7 @@ const SeatMapEditor = () => {
     setSelectedSectionId(null);
     setSeats([]);
     setSelectedSeatIds(new Set());
+    setModifiedCoords(new Map());
     getSeatSections(mapId, { PageSize: 100 }).then(res => {
       if (res.data?.data?.items) setSections(res.data.data.items);
     }).catch(() => message.error('加载票区列表失败'));
@@ -90,6 +101,7 @@ const SeatMapEditor = () => {
   const handleSectionChange = useCallback((sectionId: number) => {
     setSelectedSectionId(sectionId);
     setSelectedSeatIds(new Set());
+    setModifiedCoords(new Map());
     if (sectionId) loadSeats(sectionId);
   }, [loadSeats]);
 
@@ -137,8 +149,8 @@ const SeatMapEditor = () => {
         seatIds: Array.from(selectedSeatIds).map(Number),
         seatType: values.seatType ?? null,
         seatStatus: values.seatStatus ?? null,
-        isAisleSide: values.isAisleSide ?? null,
-        isSellable: values.isSellable ?? null,
+        isAisleSide: values.isAisleSide === 'yes' ? true : values.isAisleSide === 'no' ? false : null,
+        isSellable: values.isSellable === 'yes' ? true : values.isSellable === 'no' ? false : null,
       });
       if (res.error) {
         const errMsg = (res.error as { message?: string })?.message || '批量编辑失败';
@@ -152,7 +164,8 @@ const SeatMapEditor = () => {
       loadSeats(selectedSectionId);
     } catch (err) {
       if (err && typeof err === 'object' && 'errorFields' in err) return;
-      message.error('批量编辑失败');
+      const errMsg = (err as { message?: string })?.message || '批量编辑失败';
+      message.error(errMsg);
     } finally {
       setEditLoading(false);
     }
@@ -177,6 +190,93 @@ const SeatMapEditor = () => {
       setSelectedSeatIds(new Set());
     } else {
       setSelectedSeatIds(new Set(seats.map(s => Number(s.seatId))));
+    }
+  };
+
+  // 图形视图：获取座位当前坐标（优先用修改后的，否则用原始值）
+  const getSeatCoord = (seat: SeatResponse) => {
+    const modified = modifiedCoords.get(Number(seat.seatId));
+    if (modified) return modified;
+    return { xCoord: Number(seat.xCoord) || 0, yCoord: Number(seat.yCoord) || 0 };
+  };
+
+  // 图形视图：开始拖拽
+  const handleSeatMouseDown = (e: React.MouseEvent, seatId: number) => {
+    e.preventDefault();
+    const seat = seats.find(s => Number(s.seatId) === seatId);
+    if (!seat || !canvasRef.current) return;
+    const coord = getSeatCoord(seat);
+    const rect = canvasRef.current.getBoundingClientRect();
+    dragState.current = {
+      seatId,
+      offsetX: e.clientX - rect.left - coord.xCoord,
+      offsetY: e.clientY - rect.top - coord.yCoord,
+    };
+  };
+
+  // 图形视图：拖拽中
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragState.current || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const newX = Math.max(0, Math.round(e.clientX - rect.left - dragState.current.offsetX));
+    const newY = Math.max(0, Math.round(e.clientY - rect.top - dragState.current.offsetY));
+    const seatId = dragState.current.seatId;
+    setModifiedCoords(prev => {
+      const next = new Map(prev);
+      next.set(seatId, { xCoord: newX, yCoord: newY });
+      return next;
+    });
+  }, []);
+
+  // 图形视图：结束拖拽
+  const handleCanvasMouseUp = useCallback(() => {
+    dragState.current = null;
+  }, []);
+
+  // 图形视图：保存布局（逐个更新座位坐标）
+  const handleSaveLayout = async () => {
+    if (modifiedCoords.size === 0) {
+      message.info('没有修改需要保存');
+      return;
+    }
+    setSavingLayout(true);
+    try {
+      let success = 0;
+      let failed = 0;
+      for (const [seatId, coord] of modifiedCoords) {
+        const seat = seats.find(s => Number(s.seatId) === seatId);
+        if (!seat) continue;
+        const data: SeatRequest = {
+          rowCode: seat.rowCode,
+          seatNo: seat.seatNo,
+          rowIndex: seat.rowIndex ?? 0,
+          colIndex: seat.colIndex ?? 0,
+          xCoord: coord.xCoord,
+          yCoord: coord.yCoord,
+          seatType: seat.seatType,
+          seatStatus: seat.seatStatus,
+          isAisleSide: seat.isAisleSide ?? false,
+          isSellable: seat.isSellable ?? true,
+          remark: seat.remark ?? null,
+        };
+        const res = await updateSeat(seatId, data);
+        if (res.error) {
+          failed++;
+        } else {
+          success++;
+        }
+      }
+      if (failed > 0) {
+        message.warning(`保存完成：成功 ${success} 个，失败 ${failed} 个`);
+      } else {
+        message.success(`成功保存 ${success} 个座位的布局`);
+      }
+      setModifiedCoords(new Map());
+      if (selectedSectionId) loadSeats(selectedSectionId);
+    } catch {
+      message.error('保存布局失败');
+    } finally {
+      setSavingLayout(false);
     }
   };
 
@@ -282,6 +382,12 @@ const SeatMapEditor = () => {
               {selectedSeatIds.size === seats.length && seats.length > 0 ? '取消全选' : '全选'}
             </Button>
             <span style={{ color: '#999' }}>共 {seats.length} 个座位，已选 {selectedSeatIds.size} 个</span>
+            <div style={{ marginLeft: 'auto' }}>
+              <Radio.Group value={viewMode} onChange={e => setViewMode(e.target.value)} size="small">
+                <Radio.Button value="table">表格视图</Radio.Button>
+                <Radio.Button value="canvas">图形视图</Radio.Button>
+              </Radio.Group>
+            </div>
           </Space>
         </Card>
       )}
@@ -289,7 +395,7 @@ const SeatMapEditor = () => {
       <Card size="small">
         {!selectedSectionId ? (
           <Empty description="请先选择座位图和票区" />
-        ) : (
+        ) : viewMode === 'table' ? (
           <Table
             columns={columns}
             dataSource={seats}
@@ -302,6 +408,79 @@ const SeatMapEditor = () => {
               onChange: keys => setSelectedSeatIds(new Set(keys.map(Number))),
             }}
           />
+        ) : (
+          <div>
+            <Space style={{ marginBottom: 12 }}>
+              <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                onClick={handleSaveLayout}
+                loading={savingLayout}
+                disabled={modifiedCoords.size === 0}
+              >
+                保存布局（{modifiedCoords.size} 项修改）
+              </Button>
+              <Button onClick={() => setModifiedCoords(new Map())} disabled={modifiedCoords.size === 0}>
+                撤销修改
+              </Button>
+              <span style={{ color: '#999', fontSize: 12 }}>拖动座位调整位置，点击"保存布局"批量更新坐标</span>
+            </Space>
+            <div
+              ref={canvasRef}
+              onMouseMove={handleCanvasMouseMove}
+              onMouseUp={handleCanvasMouseUp}
+              onMouseLeave={handleCanvasMouseUp}
+              style={{
+                position: 'relative',
+                width: '100%',
+                height: 500,
+                border: '1px solid #d9d9d9',
+                borderRadius: 4,
+                background: '#fafafa',
+                overflow: 'auto',
+                cursor: 'default',
+              }}
+            >
+              {seats.map(seat => {
+                const coord = getSeatCoord(seat);
+                const isModified = modifiedCoords.has(Number(seat.seatId));
+                const typeFound = SEAT_TYPES.find(t => t.value === seat.seatType);
+                const bgColor = seat.seatStatus === 'DISABLED' ? '#ff4d4f'
+                  : seat.seatStatus === 'MAINTENANCE' ? '#faad14'
+                  : seat.seatType === 'COUPLE' ? '#722ed1'
+                  : seat.seatType === 'ACCESSIBLE' ? '#13c2c2'
+                  : seat.seatType === 'COMPANION' ? '#eb2f96'
+                  : '#1677ff';
+                return (
+                  <div
+                    key={seat.seatId}
+                    onMouseDown={e => handleSeatMouseDown(e, Number(seat.seatId))}
+                    title={`${seat.rowCode}排${seat.seatNo}座 (${typeFound?.label || seat.seatType})`}
+                    style={{
+                      position: 'absolute',
+                      left: coord.xCoord,
+                      top: coord.yCoord,
+                      width: 28,
+                      height: 28,
+                      borderRadius: 4,
+                      background: bgColor,
+                      color: '#fff',
+                      fontSize: 10,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'move',
+                      userSelect: 'none',
+                      border: isModified ? '2px solid #faad14' : 'none',
+                      boxShadow: isModified ? '0 0 4px #faad14' : 'none',
+                    }}
+                  >
+                    {seat.seatNo}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </Card>
 
@@ -374,18 +553,26 @@ const SeatMapEditor = () => {
         cancelText="取消"
         width={480}
       >
-        <Form form={editForm} layout="vertical">
+        <Form form={editForm} layout="vertical" initialValues={{ isAisleSide: 'unchanged', isSellable: 'unchanged' }}>
           <Form.Item label="座位类型（不选则不改）" name="seatType">
             <Select allowClear options={SEAT_TYPES} placeholder="选择座位类型" />
           </Form.Item>
           <Form.Item label="座位状态（不选则不改）" name="seatStatus">
             <Select allowClear options={SEAT_STATUSES} placeholder="选择座位状态" />
           </Form.Item>
-          <Form.Item label="过道侧（不切换则不改）" name="isAisleSide" valuePropName="checked">
-            <Switch checkedChildren="是" unCheckedChildren="否" />
+          <Form.Item label="过道侧" name="isAisleSide">
+            <Radio.Group>
+              <Radio value="yes">是</Radio>
+              <Radio value="no">否</Radio>
+              <Radio value="unchanged">不修改</Radio>
+            </Radio.Group>
           </Form.Item>
-          <Form.Item label="可售（不切换则不改）" name="isSellable" valuePropName="checked">
-            <Switch checkedChildren="是" unCheckedChildren="否" />
+          <Form.Item label="可售" name="isSellable">
+            <Radio.Group>
+              <Radio value="yes">是</Radio>
+              <Radio value="no">否</Radio>
+              <Radio value="unchanged">不修改</Radio>
+            </Radio.Group>
           </Form.Item>
           <div style={{ color: '#999', fontSize: 12 }}>未设置的字段将保持原值不变。</div>
         </Form>

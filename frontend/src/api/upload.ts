@@ -1,7 +1,5 @@
-import apiClient from './client';
-import type { ApiResponse } from '@/types/api';
-
-// ========== 文件上传（OSS，后端代理上传） ==========
+import { client } from './request';
+//import type { paths } from './types';
 
 /** folder 取值白名单，与后端 FileStorageFolders 保持一致 */
 export type FileUploadFolder = 'show' | 'marketing' | 'avatar' | 'tmp';
@@ -14,7 +12,7 @@ export interface FileUploadResult {
 
 /**
  * 上传文件到 OSS，返回公开 URL 与对象键。
- * 成功：返回 { url, objectKey }；失败：抛 Error（消息来自后端 ApiResponse.message），由调用方提示。
+ * 成功：返回 { url, objectKey }；失败：抛 Error，由调用方提示。
  */
 export const uploadFile = async (
   file: File,
@@ -24,14 +22,17 @@ export const uploadFile = async (
   form.append('file', file);
   form.append('folder', folder);
 
-  const response = await apiClient.post<ApiResponse<FileUploadResult>>(
-    '/api/files/upload',
-    form,
-  );
+  const { data, error } = await client.POST('/api/files/upload', {
+    body: form as any,
+  });
 
-  const result = response.data.data;
+  if (error) {
+    throw new Error(error.message || '上传失败，请重试');
+  }
+
+  const result = data?.data;
   if (!result) {
-    throw new Error(response.data.message || '上传失败，请重试');
+    throw new Error(data?.message || '上传失败，请重试');
   }
   return result;
 };

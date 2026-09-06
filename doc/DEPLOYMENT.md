@@ -28,13 +28,13 @@
 | Oracle 数据库 | **21c XE** | 数据存储 | 项目连接：`120.27.157.163:1521/XEPDB1` |
 | Git | 2.x | 版本控制 | 遵循 [CONVENTIONS.md](../CONVENTIONS.md) 的分支规范 |
 
-**可选依赖**（尚未在仓库中引入，属规划能力）：
+**可选依赖**（其中 Redis / RabbitMQ / OSS 已引入仓库，默认关闭或可降级，不阻塞其他功能）：
 
 | 软件 | 用途 | 状态 |
 |------|------|------|
-| Redis | 选座分布式锁（防超卖） | 规划中（PLAN 第 4 周） |
-| 阿里云 OSS | 图片资源（演出海报/头像等）存储 | 可选（未启用时 `Oss:Enabled=false`，不影响其他功能；配置见第 7 节） |
-| RabbitMQ | 订单状态异步通知 | 规划中（PLAN 第 5 周） |
+| Redis | 选座分布式锁（防超卖） | 已引入；本地 `docker compose up -d redis` 一键起，不可用时自动降级为纯 Oracle 流程（见 CONVENTIONS.md 第 3 节） |
+| 阿里云 OSS | 图片资源（演出海报/头像等）存储 | 已引入；未启用时 `Oss:Enabled=false`，不影响其他功能；配置见第 7 节 |
+| RabbitMQ | 订单异步通知 / 退款异步完成 | 已引入；**默认关闭**（`RabbitMq:Enabled=false`）时由进程内 outbox 处理，退款与实时通知照常可用；启用方法见第 4.3 节 |
 | Loki + Grafana | 日志监控看板 | 规划中（PLAN 第 5 周） |
 
 ---
@@ -171,6 +171,24 @@ npm run dev       # 启动开发服务器（默认 http://localhost:5173）
 | `npm run build` | 类型检查 + 生产构建（产物在 `dist/`） |
 | `npm run preview` | 本地预览生产构建 |
 | `npm run lint` | Oxlint 代码检查 |
+
+### 4.3 RabbitMQ（可选，默认关闭）
+
+RabbitMQ 仅用于**跨进程/多实例**的可靠异步通知与退款完成。默认配置 `RabbitMq:Enabled=false` 时后端不连接 broker，订单/退款 outbox 由**进程内** `LocalOrderEventPublisher` 直接处理，退款完成与 SignalR 实时通知照常可用，单机部署无需 RabbitMQ。
+
+需要消息队列时（本地联调 / 多实例部署）：
+
+```bash
+# 1. 一键起本地 broker（管理台 http://localhost:15672 ，guest/guest）
+docker compose up -d rabbitmq
+docker compose ps               # showtime-rabbitmq 健康后即可
+
+# 2. 开启后端消息通道（开发环境）
+dotnet user-secrets set "RabbitMq:Enabled" "true"
+# 或环境变量注入：RabbitMq__Enabled=true
+```
+
+连接串 `ConnectionStrings:RabbitMq` 本地默认 `amqp://guest:guest@localhost:5672/`（已内置在 `backend/appsettings.Development.json`）；生产通过环境变量 `ConnectionStrings__RabbitMq` 注入。启用后的链路：approve 退款 → outbox → broker → 消费 Worker 完成退款并推送 `RefundStatusChanged` 通知。
 
 ---
 

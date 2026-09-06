@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -12,6 +13,7 @@ using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 
 namespace ShowtimeBackend.Tests.OrderTicket;
 
@@ -577,12 +579,45 @@ internal sealed class RefundTestData : IAsyncDisposable
         new RefundPolicyEngine(),
         TimeProvider);
 
+    public void SetRefundId(long refundId) => RefundId = refundId;
+
     public RefundReviewService CreateReviewService() => new(
         Db,
         TimeProvider,
         new TestRefundLockCoordinator(Db),
         NullLogger<RefundReviewService>.Instance,
         AuditSink);
+
+    public RefundCompletionService CreateCompletionService(AppDbContext? db = null) => new(
+        db ?? Db,
+        TimeProvider,
+        new TestRefundLockCoordinator(db ?? Db),
+        NullLogger<RefundCompletionService>.Instance,
+        AuditSink);
+
+    public async Task<RefundApprovedEvent> ApproveAndReadEventAsync(long? refundId = null)
+    {
+        var targetRefundId = refundId ?? RefundId;
+        var approval = await CreateReviewService().ApproveAsync(
+            "admin",
+            targetRefundId,
+            new ApproveRefundRequest(null),
+            CancellationToken.None);
+        if (!approval.IsSuccess)
+        {
+            throw new InvalidOperationException($"Refund approval failed: {approval.ErrorCode}");
+        }
+
+        var payload = await Db.Set<OrderEventOutbox>()
+            .AsNoTracking()
+            .Where(item => item.AggregateId == targetRefundId &&
+                item.EventType == RefundApprovedEvent.TypeName)
+            .Select(item => item.Payload)
+            .SingleAsync();
+        return JsonSerializer.Deserialize<RefundApprovedEvent>(
+            payload,
+            OrderCreatedEvent.SerializerOptions)!;
+    }
 
     public AppDbContext CreateDbContext(params IInterceptor[] interceptors)
     {

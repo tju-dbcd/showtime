@@ -1,117 +1,231 @@
-import apiClient from './client';
-import type {
-  ApiResponse,
-  LoginRequest,
-  LoginResponse,
-  RegisterRequest,
-  RegisterResponse,
-  ShowSessionDto,
-  PricingStrategyDto,
-  SessionSeatMapDto,
-  CreateOrderRequest,
-  OrderResponse,
-  PagedOrderResponse,
-  PaymentResponse,
-  PaymentProcessResponse,
-  MockPaymentRequest,
-  TicketResponse,
-  PagedResponse,
-  ShowDto,
-  SeatLockBatchResponse,
-  SeatLockReleaseResponse
-} from '@/types/api';
+import { client } from './request';
+import type { components } from './types';
+
+type ShowStatus = components['schemas']['ShowStatus'];
+type OrderStatus = components['schemas']['OrderStatus'];
+type PaymentChannel = components['schemas']['PaymentChannel'];
+type PaymentResult = components['schemas']['PaymentResult'];
 
 // ========== Auth API ==========
 export const authAPI = {
-  login: (data: LoginRequest) =>
-    apiClient.post<ApiResponse<LoginResponse>>('/api/auth/login', data),
+  login: (data: { account: string; password: string }) =>
+    client.POST('/api/auth/login', { body: data }),
 
-  register: (data: RegisterRequest) =>
-    apiClient.post<ApiResponse<RegisterResponse>>('/api/auth/register', data),
+  register: (data: {
+    userName: string;
+    password: string;
+    phone: string;
+    nickname?: string | null;
+    email?: string | null;
+  }) =>
+    client.POST('/api/auth/register', { body: data }),
 };
 
-// ========== ShowSession API ==========
-export const showSessionAPI = {
-  // 获取演出的所有场次
-  getShowSessions: (showId: number) =>
-    apiClient.get<ApiResponse<ShowSessionDto[]>>(`/api/client/shows/${showId}/sessions`),
-
-  // 获取场次的定价策略
-  getPricingStrategies: (sessionId: number) =>
-    apiClient.get<ApiResponse<PricingStrategyDto[]>>(`/api/client/sessions/${sessionId}/pricing-strategies`),
-};
-
+// ========== Show API ==========
 export const showAPI = {
-  // 获取演出列表（分页/搜索/筛选）
   getShows: (params?: {
     PageIndex?: number;
     PageSize?: number;
     Keyword?: string;
     CategoryId?: number;
-    Status?: string;
+    Status?: ShowStatus;
   }) =>
-    apiClient.get<ApiResponse<PagedResponse<ShowDto>>>('/api/client/shows', { params }),
+    client.GET('/api/client/shows', { params: { query: params } }),
 
-  // 获取演出详情
   getShowDetail: (showId: number) =>
-    apiClient.get<ApiResponse<ShowDto>>(`/api/client/shows/${showId}`),
+    client.GET('/api/client/shows/{showId}', { params: { path: { showId } } }),
+};
+
+// ========== ShowSession API ==========
+export const showSessionAPI = {
+  getShowSessions: (showId: number) =>
+    client.GET('/api/client/shows/{showId}/sessions', { params: { path: { showId } } }),
+
+  getPricingStrategies: (sessionId: number) =>
+    client.GET('/api/client/sessions/{sessionId}/pricing-strategies', { params: { path: { sessionId } } }),
 };
 
 // ========== Session API ==========
 export const sessionAPI = {
-  // 获取场次的座位图
   getSessionSeatMap: (sessionId: number) =>
-    apiClient.get<ApiResponse<SessionSeatMapDto>>(`/api/sessions/${sessionId}/seat-map`),
+    client.GET('/api/sessions/{sessionId}/seat-map', { params: { path: { sessionId } } }),
 };
 
 // ========== Order API ==========
 export const orderAPI = {
-  // 获取订单列表（分页）
-  getOrders: (params?: { Status?: string; Page?: number; PageSize?: number }) =>
-    apiClient.get<ApiResponse<PagedOrderResponse>>('/api/orders', { params }),
+  getOrders: (params?: { Status?: OrderStatus; Page?: number; PageSize?: number }) =>
+    client.GET('/api/orders', { params: { query: params } }),
 
-  // 获取订单详情
   getOrder: (orderId: number) =>
-    apiClient.get<ApiResponse<OrderResponse>>(`/api/orders/${orderId}`),
+    client.GET('/api/orders/{orderId}', { params: { path: { orderId } } }),
 
-  // 创建订单
-  createOrder: (data: CreateOrderRequest) =>
-    apiClient.post<ApiResponse<OrderResponse>>('/api/orders', data),
+  // idempotencyKey：后端 POST /api/orders 必填的幂等键（同一次下单尝试内保持相同，失败重试可安全重放）
+  createOrder: (
+    data: {
+      sessionId: number;
+      items: Array<{
+        seatId: number;
+        priceStrategyId: number;
+        realNameId: number | null;
+        lockToken: string;
+      }>;
+      remark: string | null;
+    },
+    idempotencyKey: string,
+  ) =>
+    client.POST('/api/orders', {
+      body: data,
+      params: { header: { 'Idempotency-Key': idempotencyKey } },
+    }),
 
-  // 取消订单
   cancelOrder: (orderId: number) =>
-    apiClient.patch<ApiResponse<OrderResponse>>(`/api/orders/${orderId}/cancel`),
+    client.PATCH('/api/orders/{orderId}/cancel', { params: { path: { orderId } } }),
 };
 
 // ========== Ticket API ==========
 export const ticketAPI = {
-  // 获取当前用户订单的电子票凭证
   getTickets: (orderId: number) =>
-    apiClient.get<ApiResponse<TicketResponse[]>>(`/api/orders/${orderId}/tickets`),
+    client.GET('/api/orders/{orderId}/tickets', { params: { path: { orderId } } }),
 };
 
 // ========== Payment API ==========
 export const paymentAPI = {
-  // 获取订单的支付记录
   getPayments: (orderId: number) =>
-    apiClient.get<ApiResponse<PaymentResponse[]>>(`/api/orders/${orderId}/payments`),
+    client.GET('/api/orders/{orderId}/payments', { params: { path: { orderId } } }),
 
-  // 模拟支付
-  mockPayment: (orderId: number, data: MockPaymentRequest) =>
-    apiClient.post<ApiResponse<PaymentProcessResponse>>(`/api/orders/${orderId}/payments/mock`, data),
+  // payChannel/result 与后端 PaymentChannel/PaymentResult 枚举一致
+  mockPayment: (orderId: number, data: { payChannel: PaymentChannel; result: PaymentResult }) =>
+    client.POST('/api/orders/{orderId}/payments/mock', {
+      params: { path: { orderId } },
+      body: data,
+    }),
 };
 
 // ========== 座位锁 API ==========
 export const seatLockAPI = {
-  // 锁定座位
   lockSeats: (sessionId: number, seatIds: number[]) =>
-    apiClient.post<ApiResponse<SeatLockBatchResponse>>(`/api/sessions/${sessionId}/seat-locks`, {
-      seatIds,
+    client.POST('/api/sessions/{sessionId}/seat-locks', {
+      params: { path: { sessionId } },
+      body: { seatIds },
     }),
 
-  // 释放座位
   releaseSeats: (sessionId: number, lockTokens: string[]) =>
-    apiClient.post<ApiResponse<SeatLockReleaseResponse>>(`/api/sessions/${sessionId}/seat-locks/release`, {
-      lockTokens,
+    client.POST('/api/sessions/{sessionId}/seat-locks/release', {
+      params: { path: { sessionId } },
+      body: { lockTokens },
+    }),
+};
+
+// ========== 用户 API ==========
+export const userAPI = {
+  // 更新头像
+  updateAvatar: (data: { avatarUrl: string }) =>
+    client.PUT('/api/users/me/avatar', { body: data }),
+};
+
+// ========== 退票 API ==========
+export const refundAPI = {
+  // 退票报价（获取退票金额估算）
+  getRefundQuote: (orderId: number, data: { orderItemIds: number[] }) =>
+    client.POST('/api/orders/{orderId}/refunds/quote', {
+      params: { path: { orderId } },
+      body: data,
+    }),
+
+  // 申请退票
+  applyRefund: (orderId: number, data: { orderItemIds: number[]; reason: string }) =>
+    client.POST('/api/orders/{orderId}/refunds', {
+      params: { path: { orderId } },
+      body: data,
+    }),
+
+  // 获取退票记录列表（使用枚举类型）
+  getRefundList: (
+    orderId: number,
+    params?: {
+      ApproveStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+      RefundStatus?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+      Page?: number;
+      PageSize?: number;
+    }
+  ) =>
+    client.GET('/api/orders/{orderId}/refunds', {
+      params: { path: { orderId }, query: params },
+    }),
+
+  // 获取退票详情
+  getRefundDetail: (refundId: number) =>
+    client.GET('/api/refunds/{refundId}', {
+      params: { path: { refundId } },
+    }),
+};
+
+// ========== 改签 API ==========
+export const exchangeAPI = {
+  // 改签报价（获取改签估算）
+  getExchangeQuote: (
+    orderId: number,
+    data: {
+      targetSessionId: number;
+      targetItems: {
+        originalOrderItemId: number;
+        seatId: number;
+        priceStrategyId: number;
+        lockToken: string;
+      }[];
+    }
+  ) =>
+    client.POST('/api/orders/{orderId}/exchanges/quote', {
+      params: { path: { orderId } },
+      body: data,
+    }),
+
+  // 申请改签
+  applyExchange: (
+    orderId: number,
+    data: {
+      targetSessionId: number;
+      targetItems: {
+        originalOrderItemId: number;
+        seatId: number;
+        priceStrategyId: number;
+        lockToken: string;
+      }[];
+      reason: string | null;
+    }
+  ) =>
+    client.POST('/api/orders/{orderId}/exchanges', {
+      params: { path: { orderId } },
+      body: data,
+    }),
+
+  // 获取改签记录列表（使用枚举类型）
+  getExchangeList: (
+    orderId: number,
+    params?: {
+      ApproveStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+      ExchangeStatus?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+      Page?: number;
+      PageSize?: number;
+    }
+  ) =>
+    client.GET('/api/orders/{orderId}/exchanges', {
+      params: { path: { orderId }, query: params },
+    }),
+
+  // 获取改签详情
+  getExchangeDetail: (exchangeId: number) =>
+    client.GET('/api/exchanges/{exchangeId}', {
+      params: { path: { exchangeId } },
+    }),
+
+  // 支付改签差价（管理员审核通过后调用，body 与 ExchangePaymentRequest 契约一致）
+  payExchange: (
+    exchangeId: number,
+    data: { payChannel: PaymentChannel; result: PaymentResult }
+  ) =>
+    client.POST('/api/exchanges/{exchangeId}/pay', {
+      params: { path: { exchangeId } },
+      body: data,
     }),
 };

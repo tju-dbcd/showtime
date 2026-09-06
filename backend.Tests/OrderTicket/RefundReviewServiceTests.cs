@@ -1,9 +1,11 @@
+using System.Text.Json;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -607,7 +609,7 @@ public sealed class RefundReviewServiceTests
     }
 
     [Fact]
-    public async Task ApproveAsync_AtomicallyCompletesRefundAndReleasesReservation()
+    public async Task ApproveAsync_AtomicallyApprovesRefundAndWritesOutboxWithoutCompleting()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
@@ -620,12 +622,12 @@ public sealed class RefundReviewServiceTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(RefundApproveStatus.APPROVED, result.Value!.ApproveStatus);
-        Assert.Equal(RefundStatus.COMPLETED, result.Value.RefundStatus);
-        Assert.Equal(84m, await fixture.PaymentRefundAmountAsync());
-        Assert.Equal("REFUNDED", await fixture.ItemStatusAsync());
-        Assert.Equal("REFUNDED", await fixture.TicketStatusAsync());
-        Assert.Equal("RELEASED", await fixture.ReservationStatusAsync());
-        Assert.Equal("REFUNDED", await fixture.Db.Set<Order>()
+        Assert.Equal(RefundStatus.PROCESSING, result.Value.RefundStatus);
+        Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
+        Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
+        Assert.Equal("REFUNDING", await fixture.TicketStatusAsync());
+        Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
+        Assert.Equal("ISSUED", await fixture.Db.Set<Order>()
             .AsNoTracking()
             .Where(item => item.OrderId == fixture.OrderId)
             .Select(item => item.OrderStatus)
@@ -633,13 +635,25 @@ public sealed class RefundReviewServiceTests
         var reservation = await fixture.Db.Set<SeatReservation>()
             .AsNoTracking()
             .SingleAsync(item => item.OrderItemId == fixture.OrderItemIds[0]);
-        Assert.Equal(RefundTestData.FixedUtcNow, reservation.CancelTime);
-        Assert.Equal("review-admin", reservation.UpdateBy);
+        Assert.Null(reservation.CancelTime);
         Assert.Equal("review-admin", result.Value.ReviewBy);
         Assert.Equal(RefundTestData.FixedUtcNow, result.Value.ReviewTime);
-        Assert.Equal(RefundTestData.FixedUtcNow, result.Value.CompleteTime);
+        Assert.Null(result.Value.CompleteTime);
         Assert.Equal("审核通过", result.Value.ReviewRemark);
         Assert.Equal(1, fixture.TimeProvider.GetUtcNowCallCount);
+        var outbox = Assert.Single(await fixture.Db.Set<OrderEventOutbox>()
+            .AsNoTracking()
+            .ToListAsync());
+        Assert.Equal(RefundApprovedEvent.TypeName, outbox.EventType);
+        Assert.Equal(RefundApprovedEvent.RoutingKeyName, outbox.RoutingKey);
+        Assert.Equal(fixture.RefundId, outbox.AggregateId);
+        Assert.Equal(fixture.UserId, outbox.UserId);
+        var approvedEvent = JsonSerializer.Deserialize<RefundApprovedEvent>(
+            outbox.Payload,
+            OrderCreatedEvent.SerializerOptions);
+        Assert.NotNull(approvedEvent);
+        Assert.Equal(outbox.EventId, approvedEvent.EventId);
+        Assert.Equal(84m, approvedEvent.ActualRefund);
     }
 
     [Fact]
@@ -684,7 +698,7 @@ public sealed class RefundReviewServiceTests
         Assert.Equal(0.8m, result.Value.FeeRate);
         Assert.Equal(0m, result.Value.AppliedServiceFee);
         Assert.Equal(84m, result.Value.ActualRefund);
-        Assert.Equal(84m, await fixture.PaymentRefundAmountAsync());
+        Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
     }
 
     [Fact]
@@ -909,7 +923,7 @@ public sealed class RefundReviewServiceTests
     }
 
     [Fact]
-    public async Task ApproveAsync_WhenAtomicPaymentUpdateAffectsNoRows_RollsBackAllState()
+    public async Task ApproveAsync_WhenRemainingRefundableAmountIsInsufficient_RejectsWithoutMutation()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
@@ -935,82 +949,7 @@ public sealed class RefundReviewServiceTests
     }
 
     [Fact]
-    public async Task ApproveAsync_TwoPartialRefundsProgressOrderToPartThenFullyRefunded()
-    {
-        await using var fixture = await RefundTestData.CreatePendingRefundAsync(itemCount: 2);
-        await fixture.Db.Set<RefundItem>()
-            .Where(item => item.RefundId == fixture.RefundId &&
-                item.OrderItemId == fixture.OrderItemIds[1])
-            .ExecuteDeleteAsync();
-        var firstRefund = await fixture.Db.Set<RefundRequest>()
-            .SingleAsync(item => item.RefundId == fixture.RefundId);
-        firstRefund.RefundType = "PART";
-        firstRefund.RefundAmount = 105m;
-        firstRefund.ActualRefund = 84m;
-        fixture.Db.Add(new RefundRequest
-        {
-            RefundId = 402,
-            RefundNo = "REF000402",
-            OrderId = fixture.OrderId,
-            UserId = fixture.UserId,
-            RefundType = "PART",
-            RefundReason = "第二张票",
-            RefundAmount = 105m,
-            ActualRefund = 84m,
-            FeeRate = 0.8m,
-            AppliedServiceFee = 0m,
-            ApproveStatus = "PENDING",
-            RefundStatus = "PENDING",
-            CreateTime = RefundTestData.FixedUtcNow.AddMinutes(-30),
-            CreateBy = "alice",
-            UpdateBy = "alice",
-            Items =
-            [
-                new RefundItem
-                {
-                    RefundItemId = 502,
-                    OrderItemId = fixture.OrderItemIds[1],
-                    RefundBaseAmount = 105m,
-                    CreateBy = "alice",
-                    UpdateBy = "alice",
-                },
-            ],
-        });
-        await fixture.Db.SaveChangesAsync();
-        fixture.Db.ChangeTracker.Clear();
-
-        var firstResult = await fixture.CreateReviewService().ApproveAsync(
-            "admin",
-            fixture.RefundId,
-            new ApproveRefundRequest(null),
-            CancellationToken.None);
-        var afterFirst = await fixture.Db.Set<Order>()
-            .AsNoTracking()
-            .Where(item => item.OrderId == fixture.OrderId)
-            .Select(item => item.OrderStatus)
-            .SingleAsync();
-        var secondResult = await fixture.CreateReviewService().ApproveAsync(
-            "admin",
-            402,
-            new ApproveRefundRequest(null),
-            CancellationToken.None);
-
-        Assert.True(firstResult.IsSuccess);
-        Assert.Equal("PART_REFUND", afterFirst);
-        Assert.True(secondResult.IsSuccess);
-        Assert.Equal("REFUNDED", await fixture.Db.Set<Order>()
-            .AsNoTracking()
-            .Where(item => item.OrderId == fixture.OrderId)
-            .Select(item => item.OrderStatus)
-            .SingleAsync());
-        Assert.Equal(168m, await fixture.PaymentRefundAmountAsync());
-        Assert.All(
-            await fixture.Db.Set<OrderItem>().AsNoTracking().ToListAsync(),
-            item => Assert.Equal("REFUNDED", item.ItemStatus));
-    }
-
-    [Fact]
-    public async Task ApproveAsync_WhenAlreadyApproved_DoesNotRefundTwice()
+    public async Task ApproveAsync_WhenAlreadyApproved_DoesNotWriteDuplicateOutbox()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
@@ -1030,7 +969,10 @@ public sealed class RefundReviewServiceTests
         Assert.True(first.IsSuccess);
         Assert.Equal(OrderTicketFailure.Conflict, second.Failure);
         Assert.Equal("REFUND_ALREADY_REVIEWED", second.ErrorCode);
-        Assert.Equal(84m, await fixture.PaymentRefundAmountAsync());
+        Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
+        Assert.Equal(1, await fixture.Db.Set<OrderEventOutbox>()
+            .CountAsync(item => item.EventType == RefundApprovedEvent.TypeName &&
+                item.AggregateId == fixture.RefundId));
     }
 
     [Fact]
@@ -1051,8 +993,8 @@ public sealed class RefundReviewServiceTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal("APPROVED", await fixture.RefundApproveStatusAsync());
-        Assert.Equal(84m, await fixture.PaymentRefundAmountAsync());
-        Assert.Equal("RELEASED", await fixture.ReservationStatusAsync());
+        Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
+        Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
     }
 
     [Fact]

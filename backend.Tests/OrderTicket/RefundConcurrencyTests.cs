@@ -6,9 +6,11 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Oracle.EntityFrameworkCore.Infrastructure;
 using Oracle.ManagedDataAccess.Client;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
@@ -17,11 +19,26 @@ using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 
 namespace ShowtimeBackend.Tests.OrderTicket;
 
 public sealed class RefundConcurrencyTests
 {
+    private const long OracleRefundOrderId = 998_830_001;
+    private const long OracleRefundPaymentId = 998_830_001;
+    private const long OracleRefundUserId = 998_830_001;
+    private const long OracleRefundSessionId = 998_830_001;
+    private const long OracleRefundSeatSectionId = 998_830_001;
+    private const long OracleRefundSeatId = 998_830_001;
+    private const long OracleRefundPriceStrategyId = 998_830_001;
+    private const long OracleRefundOrderItemId = 998_830_001;
+    private const long OracleRefundTicketId = 998_830_001;
+    private const long OracleRefundReservationId = 998_830_001;
+    private const long OracleRefundRequestId = 998_830_001;
+    private const long OracleRefundItemId = 998_830_001;
+    private const string OracleRefundMarker = "oracle-refund-gate";
+
     [Fact]
     public async Task ApproveAndReject_FromSameOriginalState_OnlyOneSaveSucceeds()
     {
@@ -96,47 +113,27 @@ public sealed class RefundConcurrencyTests
         Assert.Single(exception.Entries);
     }
 
-    [Fact]
-    public async Task DifferentItemApprovals_ForSameOrder_EndAsFullyRefundedWithoutLostUpdate()
-    {
-        await using var fixture = await RefundTestData.CreateTwoPendingRefundsAsync();
-
-        var first = await fixture.ApproveWithFreshContextAsync(fixture.RefundIds[0]);
-        var afterFirst = await fixture.OrderStatusAsync();
-        var second = await fixture.ApproveWithFreshContextAsync(fixture.RefundIds[1]);
-
-        Assert.True(first.IsSuccess);
-        Assert.Equal("PART_REFUND", afterFirst);
-        Assert.True(second.IsSuccess);
-        Assert.Equal("REFUNDED", await fixture.OrderStatusAsync());
-        Assert.Equal(
-            first.Value!.ActualRefund!.Value + second.Value!.ActualRefund!.Value,
-            await fixture.PaymentRefundAmountAsync());
-    }
-
     [Theory]
     [InlineData("order-item", typeof(OrderItem))]
     [InlineData("ticket", typeof(ETicket))]
     [InlineData("order", typeof(Order))]
-    public async Task ApproveAsync_WhenEntityTokenChangesAfterBulkDml_RollsBackEverything(
+    public async Task CompleteAsync_WhenEntityTokenChangesAfterBulkDml_RollsBackEverything(
         string token,
         Type expectedConcurrentEntityType)
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
+        var approvedEvent = await fixture.ApproveAndReadEventAsync();
         var observer = new RefundBulkUpdateObserver();
         var concurrency = new ApproveEntityConcurrencyInterceptor(token);
         await using var db = fixture.CreateDbContext(observer, concurrency);
-        var service = CreateReviewService(db, fixture.TimeProvider);
+        var service = CreateCompletionService(db, fixture.TimeProvider);
 
-        var result = await service.ApproveAsync(
-            "admin",
-            fixture.RefundId,
-            new ApproveRefundRequest(null),
+        var result = await service.CompleteAsync(
+            approvedEvent,
             CancellationToken.None);
 
-        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
-        Assert.Equal("REFUND_REVIEW_CONFLICT", result.ErrorCode);
+        Assert.Equal(RefundCompletionOutcome.RetryableFailure, result.Outcome);
         Assert.Equal(1, observer.PaymentUpdateRows);
         Assert.Equal(1, observer.ReservationUpdateRows);
         Assert.Equal(1, concurrency.MutationAffectedRows);
@@ -150,8 +147,8 @@ public sealed class RefundConcurrencyTests
         Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
         Assert.Equal("REFUNDING", await fixture.TicketStatusAsync());
         Assert.Equal("ISSUED", await fixture.OrderStatusAsync());
-        Assert.Equal("PENDING", await fixture.RefundApproveStatusAsync());
-        Assert.Equal("PENDING", await fixture.Db.Set<RefundRequest>()
+        Assert.Equal("APPROVED", await fixture.RefundApproveStatusAsync());
+        Assert.Equal("PROCESSING", await fixture.Db.Set<RefundRequest>()
             .AsNoTracking()
             .Where(item => item.RefundId == fixture.RefundId)
             .Select(item => item.RefundStatus)
@@ -159,7 +156,7 @@ public sealed class RefundConcurrencyTests
     }
 
     [Fact]
-    public async Task ApproveAsync_UsesRefundThenOrderLockAndStableItemOrder()
+    public async Task CompleteAsync_UsesRefundThenOrderLockAndStableItemOrder()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync(
             itemCount: 2,
@@ -170,24 +167,18 @@ public sealed class RefundConcurrencyTests
             .Select(item => item.OrderItemId)
             .ToListAsync();
         Assert.Equal(fixture.OrderItemIds.Reverse(), seededOrder);
+        var approvedEvent = await fixture.ApproveAndReadEventAsync();
 
         var itemOrderObserver = new StableRefundItemOrderObserver();
         await using var db = fixture.CreateDbContext(itemOrderObserver);
         var coordinator = new RecordingRefundLockCoordinator(db);
-        var service = new RefundReviewService(
-            db,
-            fixture.TimeProvider,
-            coordinator,
-            NullLogger<RefundReviewService>.Instance,
-            fixture.AuditSink);
+        var service = CreateCompletionService(db, fixture.TimeProvider, coordinator);
 
-        var result = await service.ApproveAsync(
-            "admin",
-            fixture.RefundId,
-            new ApproveRefundRequest(null),
+        var result = await service.CompleteAsync(
+            approvedEvent,
             CancellationToken.None);
 
-        Assert.True(result.IsSuccess);
+        Assert.Equal(RefundCompletionOutcome.Completed, result.Outcome);
         Assert.Equal(["refund:401", "order:11"], coordinator.Calls);
         Assert.All(coordinator.TransactionObserved, Assert.True);
         Assert.True(
@@ -286,9 +277,11 @@ public sealed class RefundConcurrencyTests
         var connectionBuilder = new OracleConnectionStringBuilder(connectionString);
         var configuredUser = ValidatePersonalOracleIdentifier(
             connectionBuilder.UserID?.Trim());
+        connectionBuilder.Pooling = true;
+        connectionBuilder.ConnectionTimeout = 20;
 
-        await using var firstConnection = new OracleConnection(connectionString);
-        await using var secondConnection = new OracleConnection(connectionString);
+        await using var firstConnection = new OracleConnection(connectionBuilder.ConnectionString);
+        await using var secondConnection = new OracleConnection(connectionBuilder.ConnectionString);
         await firstConnection.OpenAsync();
         await secondConnection.OpenAsync();
         var firstSchema = await ValidatePersonalOracleConnectionAsync(
@@ -305,95 +298,182 @@ public sealed class RefundConcurrencyTests
 
         await EnsureOwnedOracleBaseTablesAsync(firstConnection);
         await EnsureOwnedOracleBaseTablesAsync(secondConnection);
-
-        await using var firstTransaction = await firstConnection.BeginTransactionAsync();
+        await SeedOracleRefundFixtureAsync(firstConnection, firstSchema);
         try
         {
-            var orderId = await ReadOracleScalarAsync<decimal?>(
-                firstConnection,
-                firstTransaction,
-                $"SELECT ORDER_ID FROM {firstSchema}.T_ORDER " +
-                "WHERE ROWNUM = 1 FOR UPDATE");
-            if (!orderId.HasValue)
-            {
-                throw new InvalidOperationException(
-                    "The configured personal Oracle test schema has no T_ORDER row to lock.");
-            }
-
-            await using var secondTransaction = await secondConnection.BeginTransactionAsync();
+            await using var firstTransaction = await firstConnection.BeginTransactionAsync();
             try
             {
-                await using var competingLock = secondConnection.CreateCommand();
-                competingLock.BindByName = true;
-                competingLock.Transaction = (OracleTransaction)secondTransaction;
-                competingLock.CommandText =
-                    $"SELECT ORDER_ID FROM {secondSchema}.T_ORDER " +
-                    "WHERE ORDER_ID = :id FOR UPDATE NOWAIT";
-                competingLock.Parameters.Add(
+                var orderId = await ReadOracleScalarAsync<decimal?>(
+                    firstConnection,
+                    firstTransaction,
+                    $"SELECT ORDER_ID FROM {firstSchema}.T_ORDER " +
+                    "WHERE ORDER_ID = :id AND CREATE_BY = :marker FOR UPDATE",
                     new OracleParameter(
                         "id",
                         OracleDbType.Int64,
-                        Convert.ToInt64(orderId.Value),
-                        System.Data.ParameterDirection.Input));
-                var exception = await Assert.ThrowsAsync<OracleException>(
-                    () => competingLock.ExecuteScalarAsync());
-                Assert.Equal(54, exception.Number);
+                        OracleRefundOrderId,
+                        ParameterDirection.Input),
+                    new OracleParameter(
+                        "marker",
+                        OracleDbType.Varchar2,
+                        OracleRefundMarker,
+                        ParameterDirection.Input));
+                Assert.Equal(OracleRefundOrderId, Convert.ToInt64(orderId));
+
+                await using var secondTransaction = await secondConnection.BeginTransactionAsync();
+                try
+                {
+                    await using var competingLock = secondConnection.CreateCommand();
+                    competingLock.BindByName = true;
+                    competingLock.Transaction = (OracleTransaction)secondTransaction;
+                    competingLock.CommandText =
+                        $"SELECT ORDER_ID FROM {secondSchema}.T_ORDER " +
+                        "WHERE ORDER_ID = :id FOR UPDATE NOWAIT";
+                    competingLock.Parameters.Add(
+                        new OracleParameter(
+                            "id",
+                            OracleDbType.Int64,
+                            OracleRefundOrderId,
+                            ParameterDirection.Input));
+                    var exception = await Assert.ThrowsAsync<OracleException>(
+                        () => competingLock.ExecuteScalarAsync());
+                    Assert.Equal(54, exception.Number);
+                }
+                finally
+                {
+                    await secondTransaction.RollbackAsync();
+                }
             }
             finally
             {
-                await secondTransaction.RollbackAsync();
+                await firstTransaction.RollbackAsync();
             }
-        }
-        finally
-        {
-            await firstTransaction.RollbackAsync();
-        }
 
-        await using var paymentTransaction = await firstConnection.BeginTransactionAsync();
-        try
-        {
-            await using var paymentQuery = firstConnection.CreateCommand();
-            paymentQuery.Transaction = (OracleTransaction)paymentTransaction;
-            paymentQuery.CommandText =
-                $"SELECT PAYMENT_ID, REFUND_AMOUNT FROM {firstSchema}.PAYMENT " +
-                "WHERE PAY_STATUS = 'SUCCESS' " +
-                "AND REFUND_AMOUNT + 0.01 <= PAY_AMOUNT AND ROWNUM = 1 FOR UPDATE";
-            await using var paymentReader = await paymentQuery.ExecuteReaderAsync();
-            if (!await paymentReader.ReadAsync())
+            await using var paymentTransaction = await firstConnection.BeginTransactionAsync();
+            try
             {
-                throw new InvalidOperationException(
-                    "The configured personal Oracle test schema has no refundable SUCCESS payment.");
+                await using var paymentQuery = firstConnection.CreateCommand();
+                paymentQuery.BindByName = true;
+                paymentQuery.Transaction = (OracleTransaction)paymentTransaction;
+                paymentQuery.CommandText =
+                    $"SELECT PAYMENT_ID, REFUND_AMOUNT FROM {firstSchema}.PAYMENT " +
+                    "WHERE PAYMENT_ID = :paymentId AND ORDER_ID = :orderId " +
+                    "AND CREATE_BY = :marker AND PAY_STATUS = 'SUCCESS' " +
+                    "AND REFUND_AMOUNT + 0.01 <= PAY_AMOUNT FOR UPDATE";
+                paymentQuery.Parameters.Add(
+                    new OracleParameter(
+                        "paymentId",
+                        OracleDbType.Int64,
+                        OracleRefundPaymentId,
+                        ParameterDirection.Input));
+                paymentQuery.Parameters.Add(
+                    new OracleParameter(
+                        "orderId",
+                        OracleDbType.Int64,
+                        OracleRefundOrderId,
+                        ParameterDirection.Input));
+                paymentQuery.Parameters.Add(
+                    new OracleParameter(
+                        "marker",
+                        OracleDbType.Varchar2,
+                        OracleRefundMarker,
+                        ParameterDirection.Input));
+                await using var paymentReader = await paymentQuery.ExecuteReaderAsync();
+                Assert.True(await paymentReader.ReadAsync());
+
+                var paymentId = Convert.ToInt64(paymentReader.GetValue(0));
+                var before = Convert.ToDecimal(paymentReader.GetValue(1));
+                await paymentReader.DisposeAsync();
+                await using var accumulate = firstConnection.CreateCommand();
+                accumulate.BindByName = true;
+                accumulate.Transaction = (OracleTransaction)paymentTransaction;
+                accumulate.CommandText =
+                    $"UPDATE {firstSchema}.PAYMENT " +
+                    "SET REFUND_AMOUNT = REFUND_AMOUNT + :amount " +
+                    "WHERE PAYMENT_ID = :paymentId";
+                accumulate.Parameters.Add(
+                    new OracleParameter(
+                        "amount",
+                        OracleDbType.Decimal,
+                        0.01m,
+                        ParameterDirection.Input));
+                accumulate.Parameters.Add(
+                    new OracleParameter(
+                        "paymentId",
+                        OracleDbType.Int64,
+                        paymentId,
+                        ParameterDirection.Input));
+                Assert.Equal(1, await accumulate.ExecuteNonQueryAsync());
+                var after = await ReadOracleScalarAsync<decimal>(
+                    firstConnection,
+                    paymentTransaction,
+                    $"SELECT REFUND_AMOUNT FROM {firstSchema}.PAYMENT " +
+                    "WHERE PAYMENT_ID = :paymentId",
+                    new OracleParameter(
+                        "paymentId",
+                        OracleDbType.Int64,
+                        paymentId,
+                        ParameterDirection.Input));
+                Assert.Equal(before + 0.01m, after);
+            }
+            finally
+            {
+                await paymentTransaction.RollbackAsync();
             }
 
-            var paymentId = Convert.ToInt64(paymentReader.GetValue(0));
-            var before = Convert.ToDecimal(paymentReader.GetValue(1));
-            await paymentReader.DisposeAsync();
-            await using var accumulate = firstConnection.CreateCommand();
-            accumulate.BindByName = true;
-            accumulate.Transaction = (OracleTransaction)paymentTransaction;
-            accumulate.CommandText =
-                $"UPDATE {firstSchema}.PAYMENT " +
-                "SET REFUND_AMOUNT = REFUND_AMOUNT + :amount " +
-                "WHERE PAYMENT_ID = :paymentId";
-            accumulate.Parameters.Add(
-                new OracleParameter("amount", OracleDbType.Decimal, 0.01m,
-                    System.Data.ParameterDirection.Input));
-            accumulate.Parameters.Add(
-                new OracleParameter("paymentId", OracleDbType.Int64, paymentId,
-                    System.Data.ParameterDirection.Input));
-            Assert.Equal(1, await accumulate.ExecuteNonQueryAsync());
-            var after = await ReadOracleScalarAsync<decimal>(
-                firstConnection,
-                paymentTransaction,
-                $"SELECT REFUND_AMOUNT FROM {firstSchema}.PAYMENT " +
-                "WHERE PAYMENT_ID = :paymentId",
-                new OracleParameter("paymentId", OracleDbType.Int64, paymentId,
-                    System.Data.ParameterDirection.Input));
-            Assert.Equal(before + 0.01m, after);
+            var options = new DbContextOptionsBuilder<OracleRefundTestDbContext>()
+                .UseOracle(
+                    firstConnection,
+                    oracle => oracle.UseOracleSQLCompatibility(
+                        OracleSQLCompatibility.DatabaseVersion21))
+                .ReplaceService<IModelCacheKeyFactory, PersonalSchemaModelCacheKeyFactory>()
+                .Options;
+            await using var db = new OracleRefundTestDbContext(options, firstSchema);
+            var completionNow = DateTime.UtcNow.AddSeconds(1);
+            var approvedEvent = new RefundApprovedEvent(
+                Guid.NewGuid().ToString("D"),
+                RefundApprovedEvent.TypeName,
+                completionNow,
+                OracleRefundRequestId,
+                "ORAREFUNDREQ998830001",
+                OracleRefundOrderId,
+                OracleRefundUserId,
+                80m);
+            var completionLogger = new RecordingLogger<RefundCompletionService>();
+            var completion = new RefundCompletionService(
+                db,
+                new FixedTimeProvider(completionNow),
+                new OracleRefundLockCoordinator(db),
+                completionLogger,
+                new NullOrderTicketAuditSink());
+
+            var completed = await completion.CompleteAsync(
+                approvedEvent,
+                CancellationToken.None);
+            var replayed = await completion.CompleteAsync(
+                approvedEvent,
+                CancellationToken.None);
+
+            Assert.True(
+                completed.Outcome == RefundCompletionOutcome.Completed,
+                $"Completion outcome: {completed.Outcome}, {completed.Code}, {completed.Message}; " +
+                string.Join(" | ", completionLogger.Entries.Select(item => item.Exception)));
+            Assert.Equal(RefundCompletionOutcome.AlreadyCompleted, replayed.Outcome);
+            Assert.Equal(80m, await db.Set<Payment>()
+                .AsNoTracking()
+                .Where(item => item.PaymentId == OracleRefundPaymentId)
+                .Select(item => item.RefundAmount)
+                .SingleAsync());
+            Assert.Equal("COMPLETED", await db.Set<RefundRequest>()
+                .AsNoTracking()
+                .Where(item => item.RefundId == OracleRefundRequestId)
+                .Select(item => item.RefundStatus)
+                .SingleAsync());
         }
         finally
         {
-            await paymentTransaction.RollbackAsync();
+            await CleanupOracleRefundFixtureAsync(firstConnection, firstSchema);
         }
     }
 
@@ -619,11 +699,9 @@ public sealed class RefundConcurrencyTests
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
-        var observer = new RefundBulkUpdateObserver();
-        var concurrency = new ApproveEntityConcurrencyInterceptor("order-item");
+        var concurrency = new ApproveRequestConcurrencyInterceptor();
         var reviewedAfterRollback = new ReviewedAfterRollbackInterceptor();
         await using var db = fixture.CreateDbContext(
-            observer,
             concurrency,
             reviewedAfterRollback);
         var service = CreateReviewService(db, fixture.TimeProvider);
@@ -636,8 +714,6 @@ public sealed class RefundConcurrencyTests
 
         Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
         Assert.Equal("REFUND_ALREADY_REVIEWED", result.ErrorCode);
-        Assert.Equal(1, observer.PaymentUpdateRows);
-        Assert.Equal(1, observer.ReservationUpdateRows);
         Assert.Equal(1, reviewedAfterRollback.MutationAffectedRows);
         Assert.Empty(db.ChangeTracker.Entries());
         Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
@@ -662,11 +738,9 @@ public sealed class RefundConcurrencyTests
         var selectFailure = new RecoverySelectFailureInterceptor(
             recovery,
             "REFUND_REQUEST");
-        var observer = new RefundBulkUpdateObserver();
-        var concurrency = new ApproveEntityConcurrencyInterceptor("order-item");
+        var concurrency = new ApproveRequestConcurrencyInterceptor();
         var logger = new RecordingLogger<RefundReviewService>();
         await using var db = fixture.CreateDbContext(
-            observer,
             concurrency,
             rollback,
             selectFailure);
@@ -682,9 +756,7 @@ public sealed class RefundConcurrencyTests
         Assert.Equal("REFUND_REVIEW_CONFLICT", result.ErrorCode);
         Assert.Equal(1, rollback.RollbackCount);
         Assert.Equal(1, selectFailure.AttemptCount);
-        Assert.Equal(1, concurrency.SaveAttemptCount);
-        Assert.Equal(1, observer.PaymentUpdateAttempts);
-        Assert.Equal(1, observer.ReservationUpdateAttempts);
+        Assert.True(concurrency.Mutated);
         Assert.Empty(db.ChangeTracker.Entries());
         Assert.Null(db.Database.CurrentTransaction);
         Assert.Contains(logger.Entries, entry =>
@@ -701,10 +773,9 @@ public sealed class RefundConcurrencyTests
         using var cancellation = new CancellationTokenSource();
         var recovery = new RollbackRecoveryProbe();
         var rollback = new RollbackRecordingInterceptor(recovery, cancellation);
-        var observer = new RefundBulkUpdateObserver();
-        var concurrency = new ApproveEntityConcurrencyInterceptor("order-item");
+        var concurrency = new ApproveRequestConcurrencyInterceptor();
         var logger = new RecordingLogger<RefundReviewService>();
-        await using var db = fixture.CreateDbContext(observer, concurrency, rollback);
+        await using var db = fixture.CreateDbContext(concurrency, rollback);
 
         var result = await CreateReviewService(db, fixture.TimeProvider, logger)
             .ApproveAsync(
@@ -717,9 +788,7 @@ public sealed class RefundConcurrencyTests
         Assert.Equal("REFUND_REVIEW_CONFLICT", result.ErrorCode);
         Assert.True(cancellation.IsCancellationRequested);
         Assert.Equal(1, rollback.RollbackCount);
-        Assert.Equal(1, concurrency.SaveAttemptCount);
-        Assert.Equal(1, observer.PaymentUpdateAttempts);
-        Assert.Equal(1, observer.ReservationUpdateAttempts);
+        Assert.True(concurrency.Mutated);
         Assert.Empty(db.ChangeTracker.Entries());
         Assert.Null(db.Database.CurrentTransaction);
         Assert.Contains(logger.Entries, entry =>
@@ -933,10 +1002,11 @@ public sealed class RefundConcurrencyTests
     }
 
     [Fact]
-    public async Task ApproveAsync_WhenReservationReleaseCountChanges_RollsBackExecutedPaymentUpdate()
+    public async Task CompleteAsync_WhenReservationReleaseCountChanges_RollsBackExecutedPaymentUpdate()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
+        var approvedEvent = await fixture.ApproveAndReadEventAsync();
         await fixture.Db.Database.ExecuteSqlRawAsync(
             """
             CREATE TRIGGER DELETE_RESERVATION_AFTER_PAYMENT_UPDATE
@@ -947,33 +1017,32 @@ public sealed class RefundConcurrencyTests
             """);
         var interceptor = new RefundBulkUpdateObserver();
         await using var db = fixture.CreateDbContext(interceptor);
-        var service = CreateReviewService(db, fixture.TimeProvider);
+        var service = CreateCompletionService(db, fixture.TimeProvider);
 
-        var result = await service.ApproveAsync(
-            "admin",
-            fixture.RefundId,
-            new ApproveRefundRequest(null),
+        var result = await service.CompleteAsync(
+            approvedEvent,
             CancellationToken.None);
 
-        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
-        Assert.Equal("REFUND_RESERVATION_DATA_INCONSISTENT", result.ErrorCode);
+        Assert.Equal(RefundCompletionOutcome.RetryableFailure, result.Outcome);
+        Assert.Equal("REFUND_RESERVATION_CONFLICT", result.Code);
         Assert.Equal(1, interceptor.PaymentUpdateRows);
         Assert.Equal(0, interceptor.TrackedPaymentsAtUpdate);
         Assert.Equal(0, interceptor.TrackedReservationsAtUpdate);
-        Assert.Equal(1, interceptor.RefundRequestRecoveryReadCount);
+        Assert.Equal(0, interceptor.RefundRequestRecoveryReadCount);
         Assert.Empty(db.ChangeTracker.Entries());
         Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
         Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
         Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
         Assert.Equal("REFUNDING", await fixture.TicketStatusAsync());
-        Assert.Equal("PENDING", await fixture.RefundApproveStatusAsync());
+        Assert.Equal("APPROVED", await fixture.RefundApproveStatusAsync());
     }
 
     [Fact]
-    public async Task ApproveAsync_WhenReservationConflictRecoverySelectFails_ReturnsFallbackOnce()
+    public async Task CompleteAsync_WhenReservationConflictDoesNotDependOnRecoveryRead()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
+        var approvedEvent = await fixture.ApproveAndReadEventAsync();
         await fixture.Db.Database.ExecuteSqlRawAsync(
             """
             CREATE TRIGGER DELETE_RESERVATION_AFTER_PAYMENT_UPDATE_RECOVERY
@@ -988,37 +1057,36 @@ public sealed class RefundConcurrencyTests
             recovery,
             "REFUND_REQUEST");
         var observer = new RefundBulkUpdateObserver();
-        var logger = new RecordingLogger<RefundReviewService>();
         await using var db = fixture.CreateDbContext(
             observer,
             rollback,
             selectFailure);
 
-        var result = await CreateReviewService(db, fixture.TimeProvider, logger)
-            .ApproveAsync(
-                "admin",
-                fixture.RefundId,
-                new ApproveRefundRequest(null),
+        var result = await CreateCompletionService(db, fixture.TimeProvider)
+            .CompleteAsync(
+                approvedEvent,
                 CancellationToken.None);
 
-        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
-        Assert.Equal("REFUND_RESERVATION_DATA_INCONSISTENT", result.ErrorCode);
+        Assert.Equal(RefundCompletionOutcome.RetryableFailure, result.Outcome);
+        Assert.Equal("REFUND_RESERVATION_CONFLICT", result.Code);
         Assert.Equal(1, rollback.RollbackCount);
-        Assert.Equal(1, selectFailure.AttemptCount);
+        Assert.Equal(0, selectFailure.AttemptCount);
         Assert.Equal(1, observer.PaymentUpdateAttempts);
         Assert.Equal(1, observer.ReservationUpdateAttempts);
         Assert.Equal(1, observer.PaymentUpdateRows);
         Assert.Equal(0, observer.ReservationUpdateRows);
         Assert.Empty(db.ChangeTracker.Entries());
         Assert.Null(db.Database.CurrentTransaction);
-        Assert.Contains(logger.Entries, entry =>
-            entry.Level == LogLevel.Warning &&
-            entry.Message.Contains("recovery", StringComparison.OrdinalIgnoreCase));
-        await AssertPendingApprovalStateAsync(fixture);
+        Assert.Equal("APPROVED", await fixture.RefundApproveStatusAsync());
+        Assert.Equal("PROCESSING", await fixture.Db.Set<RefundRequest>()
+            .AsNoTracking()
+            .Where(item => item.RefundId == fixture.RefundId)
+            .Select(item => item.RefundStatus)
+            .SingleAsync());
     }
 
     [Fact]
-    public async Task ApproveAsync_WhenPaymentUpdateAffectsNoRows_RequeriesAfterRollback()
+    public async Task ApproveAsync_WhenRemainingRefundableAmountIsInsufficient_SkipsBulkUpdatesAndRecoveryRead()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
@@ -1038,10 +1106,10 @@ public sealed class RefundConcurrencyTests
 
         Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
         Assert.Equal("REFUND_PAYMENT_AMOUNT_CONFLICT", result.ErrorCode);
-        Assert.Equal(1, observer.PaymentUpdateAttempts);
+        Assert.Equal(0, observer.PaymentUpdateAttempts);
         Assert.Equal(0, observer.PaymentUpdateRows);
         Assert.Equal(0, observer.ReservationUpdateRows);
-        Assert.Equal(1, observer.RefundRequestRecoveryReadCount);
+        Assert.Equal(0, observer.RefundRequestRecoveryReadCount);
         Assert.Empty(db.ChangeTracker.Entries());
         Assert.Equal(22m, await fixture.PaymentRefundAmountAsync());
         Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
@@ -1052,7 +1120,7 @@ public sealed class RefundConcurrencyTests
     }
 
     [Fact]
-    public async Task ApproveAsync_WhenPaymentConflictRecoverySelectFails_ReturnsFallbackOnce()
+    public async Task ApproveAsync_WhenPaymentLimitFails_DoesNotNeedRecoveryRead()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
@@ -1082,15 +1150,12 @@ public sealed class RefundConcurrencyTests
         Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
         Assert.Equal("REFUND_PAYMENT_AMOUNT_CONFLICT", result.ErrorCode);
         Assert.Equal(1, rollback.RollbackCount);
-        Assert.Equal(1, selectFailure.AttemptCount);
-        Assert.Equal(1, observer.PaymentUpdateAttempts);
+        Assert.Equal(0, selectFailure.AttemptCount);
+        Assert.Equal(0, observer.PaymentUpdateAttempts);
         Assert.Equal(0, observer.PaymentUpdateRows);
         Assert.Equal(0, observer.ReservationUpdateAttempts);
         Assert.Empty(db.ChangeTracker.Entries());
         Assert.Null(db.Database.CurrentTransaction);
-        Assert.Contains(logger.Entries, entry =>
-            entry.Level == LogLevel.Warning &&
-            entry.Message.Contains("recovery", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(22m, await fixture.PaymentRefundAmountAsync());
         Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
         Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
@@ -1100,10 +1165,11 @@ public sealed class RefundConcurrencyTests
     }
 
     [Fact]
-    public async Task ApproveAsync_WhenSaveFails_RollsBackBulkUpdatesAndClearsTracker()
+    public async Task CompleteAsync_WhenSaveFails_RollsBackBulkUpdatesAndClearsTracker()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
+        var approvedEvent = await fixture.ApproveAndReadEventAsync();
         await fixture.Db.Database.ExecuteSqlRawAsync(
             """
             CREATE TRIGGER FAIL_REFUND_APPROVE
@@ -1114,16 +1180,14 @@ public sealed class RefundConcurrencyTests
             """);
         var interceptor = new RefundBulkUpdateObserver();
         await using var db = fixture.CreateDbContext(interceptor);
-        var service = CreateReviewService(db, fixture.TimeProvider);
+        var service = CreateCompletionService(db, fixture.TimeProvider);
 
-        var result = await service.ApproveAsync(
-            "admin",
-            fixture.RefundId,
-            new ApproveRefundRequest(null),
+        var result = await service.CompleteAsync(
+            approvedEvent,
             CancellationToken.None);
 
-        Assert.Equal(OrderTicketFailure.Internal, result.Failure);
-        Assert.Equal("REFUND_APPROVE_FAILED", result.ErrorCode);
+        Assert.Equal(RefundCompletionOutcome.RetryableFailure, result.Outcome);
+        Assert.Equal("REFUND_COMPLETION_FAILED", result.Code);
         Assert.Equal(1, interceptor.PaymentUpdateRows);
         Assert.Equal(1, interceptor.ReservationUpdateRows);
         Assert.Empty(db.ChangeTracker.Entries());
@@ -1132,26 +1196,24 @@ public sealed class RefundConcurrencyTests
         Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
         Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
         Assert.Equal("REFUNDING", await fixture.TicketStatusAsync());
-        Assert.Equal("PENDING", await fixture.RefundApproveStatusAsync());
+        Assert.Equal("APPROVED", await fixture.RefundApproveStatusAsync());
     }
 
     [Fact]
-    public async Task ApproveAsync_WhenRequestTokensChangeBeforeSave_RollsBackBulkUpdates()
+    public async Task CompleteAsync_WhenRequestTokensChangeBeforeSave_RollsBackBulkUpdates()
     {
         await using var fixture = await RefundTestData.CreatePendingRefundAsync();
         await MakeSingleItemFinancialsConsistentAsync(fixture);
+        var approvedEvent = await fixture.ApproveAndReadEventAsync();
         var interceptor = new ApproveRequestConcurrencyInterceptor();
         await using var db = fixture.CreateDbContext(interceptor);
-        var service = CreateReviewService(db, fixture.TimeProvider);
+        var service = CreateCompletionService(db, fixture.TimeProvider);
 
-        var result = await service.ApproveAsync(
-            "admin",
-            fixture.RefundId,
-            new ApproveRefundRequest(null),
+        var result = await service.CompleteAsync(
+            approvedEvent,
             CancellationToken.None);
 
-        Assert.Equal(OrderTicketFailure.Conflict, result.Failure);
-        Assert.Equal("REFUND_REVIEW_CONFLICT", result.ErrorCode);
+        Assert.Equal(RefundCompletionOutcome.RetryableFailure, result.Outcome);
         Assert.True(interceptor.Mutated);
         Assert.Equal(84m, interceptor.ObservedRefundAmountBeforeMutation);
         Assert.Equal("RELEASED", interceptor.ObservedReservationStatusBeforeMutation);
@@ -1160,7 +1222,12 @@ public sealed class RefundConcurrencyTests
         Assert.Equal(0m, await fixture.PaymentRefundAmountAsync());
         Assert.Equal("ACTIVE", await fixture.ReservationStatusAsync());
         Assert.Equal("REFUNDING", await fixture.ItemStatusAsync());
-        Assert.Equal("PENDING", await fixture.RefundApproveStatusAsync());
+        Assert.Equal("APPROVED", await fixture.RefundApproveStatusAsync());
+        Assert.Equal("PROCESSING", await fixture.Db.Set<RefundRequest>()
+            .AsNoTracking()
+            .Where(item => item.RefundId == fixture.RefundId)
+            .Select(item => item.RefundStatus)
+            .SingleAsync());
     }
 
     private static async Task<SqliteConnection> OpenConnectionAsync(
@@ -1196,6 +1263,332 @@ public sealed class RefundConcurrencyTests
     private static bool IsAsciiLetter(char character) =>
         character is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
 
+    private static async Task SeedOracleRefundFixtureAsync(
+        OracleConnection connection,
+        string schema)
+    {
+        await CleanupOracleRefundFixtureAsync(connection, schema);
+        var showId = await ReadOracleScalarAsync<decimal?>(
+            connection,
+            null,
+            $"SELECT MIN(SHOW_ID) FROM {schema}.SHOW");
+        var seatMapId = await ReadOracleScalarAsync<decimal?>(
+            connection,
+            null,
+            $"SELECT MIN(SEAT_MAP_ID) FROM {schema}.SEAT_MAP");
+        if (!showId.HasValue || !seatMapId.HasValue)
+        {
+            throw new InvalidOperationException(
+                "Oracle refund concurrency tests require at least one owned SHOW " +
+                "and SEAT_MAP row for read-only foreign-key anchors.");
+        }
+
+        try
+        {
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.SYS_USER (" +
+                "USER_ID, USER_NAME, PASSWORD_HASH, PHONE, USER_TYPE, STATUS, " +
+                "CREATE_BY, UPDATE_BY) VALUES (:userId, :userName, :passwordHash, " +
+                ":phone, 'NORMAL', 1, :marker, :marker)",
+                new OracleParameter("userId", OracleDbType.Int64, OracleRefundUserId,
+                    ParameterDirection.Input),
+                new OracleParameter("userName", OracleDbType.Varchar2,
+                    "oracle_refund_gate_998830001", ParameterDirection.Input),
+                new OracleParameter("passwordHash", OracleDbType.Varchar2,
+                    "oracle-refund-gate-not-a-real-password", ParameterDirection.Input),
+                new OracleParameter("phone", OracleDbType.Varchar2,
+                    "998830001", ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.SHOW_SESSION (" +
+                "SESSION_ID, SHOW_ID, SEAT_MAP_ID, START_TIME, END_TIME, " +
+                "SALE_START_TIME, SALE_END_TIME, SESSION_STATUS, CREATE_BY, UPDATE_BY) " +
+                "VALUES (:sessionId, :showId, :seatMapId, " +
+                "SYSTIMESTAMP + INTERVAL '7' DAY, " +
+                "SYSTIMESTAMP + INTERVAL '7' DAY + INTERVAL '2' HOUR, " +
+                "SYSTIMESTAMP - INTERVAL '1' DAY, " +
+                "SYSTIMESTAMP + INTERVAL '6' DAY, 'ONSALE', :marker, :marker)",
+                new OracleParameter("sessionId", OracleDbType.Int64,
+                    OracleRefundSessionId, ParameterDirection.Input),
+                new OracleParameter("showId", OracleDbType.Int64,
+                    Convert.ToInt64(showId.Value), ParameterDirection.Input),
+                new OracleParameter("seatMapId", OracleDbType.Int64,
+                    Convert.ToInt64(seatMapId.Value), ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.SEAT_SECTION (" +
+                "SEAT_SECTION_ID, SEAT_MAP_ID, SECTION_CODE, SECTION_NAME, " +
+                "SECTION_TYPE, IS_SELLABLE, DISPLAY_ORDER, CREATE_BY, UPDATE_BY) " +
+                "VALUES (:id, :seatMapId, 'ORAREFUND', 'Oracle Refund Test', " +
+                "'NORMAL', 'Y', 998, :marker, :marker)",
+                new OracleParameter("id", OracleDbType.Int64,
+                    OracleRefundSeatSectionId, ParameterDirection.Input),
+                new OracleParameter("seatMapId", OracleDbType.Int64,
+                    Convert.ToInt64(seatMapId.Value), ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.SEAT (" +
+                "SEAT_ID, SEAT_SECTION_ID, ROW_CODE, SEAT_NO, ROW_INDEX, COL_INDEX, " +
+                "X_COORD, Y_COORD, SEAT_TYPE, SEAT_STATUS, IS_AISLE_SIDE, IS_SELLABLE, " +
+                "CREATE_BY, UPDATE_BY) VALUES (:id, :sectionId, 'ORT', '1', 998, 998, " +
+                "0, 0, 'NORMAL', 'ENABLED', 'N', 'Y', :marker, :marker)",
+                new OracleParameter("id", OracleDbType.Int64,
+                    OracleRefundSeatId, ParameterDirection.Input),
+                new OracleParameter("sectionId", OracleDbType.Int64,
+                    OracleRefundSeatSectionId, ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.PRICE_STRATEGY (" +
+                "PRICE_STRATEGY_ID, SESSION_ID, SEAT_SECTION_ID, STRATEGY_NAME, " +
+                "PRICE_TYPE, PRICE, SALE_START_TIME, SALE_END_TIME, PRIORITY, STATUS, " +
+                "CREATE_BY, UPDATE_BY) VALUES (:id, :sessionId, :sectionId, " +
+                "'Oracle Refund Test', 'STANDARD', 100, " +
+                "SYSTIMESTAMP - INTERVAL '1' DAY, SYSTIMESTAMP + INTERVAL '6' DAY, " +
+                "998, 'ENABLED', :marker, :marker)",
+                new OracleParameter("id", OracleDbType.Int64,
+                    OracleRefundPriceStrategyId, ParameterDirection.Input),
+                new OracleParameter("sessionId", OracleDbType.Int64,
+                    OracleRefundSessionId, ParameterDirection.Input),
+                new OracleParameter("sectionId", OracleDbType.Int64,
+                    OracleRefundSeatSectionId, ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.T_ORDER (" +
+                "ORDER_ID, ORDER_NO, USER_ID, SESSION_ID, ORDER_TYPE, TOTAL_AMOUNT, " +
+                "DISCOUNT_AMOUNT, TICKET_COUNT, ORDER_STATUS, " +
+                "EXPIRE_TIME, PAY_TIME, ISSUE_TIME, SOURCE, IDEMPOTENCY_KEY, " +
+                "IDEMPOTENCY_REQUEST_HASH, CREATE_BY, UPDATE_BY) " +
+                "VALUES (:orderId, :orderNo, :userId, :sessionId, 'NORMAL', 100, " +
+                "0, 1, 'ISSUED', SYSTIMESTAMP + INTERVAL '1' DAY, " +
+                "SYSTIMESTAMP, SYSTIMESTAMP, 'WEB', :idempotencyKey, " +
+                ":requestHash, :marker, :marker)",
+                new OracleParameter("orderId", OracleDbType.Int64, OracleRefundOrderId,
+                    ParameterDirection.Input),
+                new OracleParameter("orderNo", OracleDbType.Varchar2,
+                    "ORAREFUNDGATE998830001", ParameterDirection.Input),
+                new OracleParameter("userId", OracleDbType.Int64,
+                    OracleRefundUserId, ParameterDirection.Input),
+                new OracleParameter("sessionId", OracleDbType.Int64,
+                    OracleRefundSessionId, ParameterDirection.Input),
+                new OracleParameter("idempotencyKey", OracleDbType.Varchar2,
+                    "oracle-refund-lock-gate", ParameterDirection.Input),
+                new OracleParameter("requestHash", OracleDbType.Char,
+                    new string('A', 64), ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.ORDER_ITEM (" +
+                "ORDER_ITEM_ID, ORDER_ID, SEAT_ID, PRICE_STRATEGY_ID, UNIT_PRICE, " +
+                "ITEM_STATUS, CREATE_BY, UPDATE_BY) VALUES (:id, :orderId, :seatId, " +
+                ":priceId, 100, 'REFUNDING', :marker, :marker)",
+                new OracleParameter("id", OracleDbType.Int64,
+                    OracleRefundOrderItemId, ParameterDirection.Input),
+                new OracleParameter("orderId", OracleDbType.Int64,
+                    OracleRefundOrderId, ParameterDirection.Input),
+                new OracleParameter("seatId", OracleDbType.Int64,
+                    OracleRefundSeatId, ParameterDirection.Input),
+                new OracleParameter("priceId", OracleDbType.Int64,
+                    OracleRefundPriceStrategyId, ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.PAYMENT (" +
+                "PAYMENT_ID, PAYMENT_NO, ORDER_ID, USER_ID, PAY_AMOUNT, PAY_CHANNEL, " +
+                "PAY_STATUS, PAY_TIME, REFUND_AMOUNT, CREATE_BY, UPDATE_BY) VALUES (" +
+                ":paymentId, :paymentNo, :orderId, :userId, 100, 'ALIPAY', " +
+                "'SUCCESS', SYSTIMESTAMP, 0, :marker, :marker)",
+                new OracleParameter("paymentId", OracleDbType.Int64,
+                    OracleRefundPaymentId, ParameterDirection.Input),
+                new OracleParameter("paymentNo", OracleDbType.Varchar2,
+                    "ORAREFUNDGATEPAY998830001", ParameterDirection.Input),
+                new OracleParameter("orderId", OracleDbType.Int64, OracleRefundOrderId,
+                    ParameterDirection.Input),
+                new OracleParameter("userId", OracleDbType.Int64,
+                    OracleRefundUserId, ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.E_TICKET (" +
+                "ETICKET_ID, ETICKET_NO, ORDER_ITEM_ID, USER_ID, QR_CODE, " +
+                "ANTI_FAKE_CODE, TICKET_STATUS, CREATE_BY, UPDATE_BY) VALUES " +
+                "(:id, 'ORAREFUNDTKT998830001', :itemId, :userId, " +
+                "'oracle-refund-gate-qr', 'oracle-refund-gate-anti', " +
+                "'REFUNDING', :marker, :marker)",
+                new OracleParameter("id", OracleDbType.Int64,
+                    OracleRefundTicketId, ParameterDirection.Input),
+                new OracleParameter("itemId", OracleDbType.Int64,
+                    OracleRefundOrderItemId, ParameterDirection.Input),
+                new OracleParameter("userId", OracleDbType.Int64,
+                    OracleRefundUserId, ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.SEAT_RESERVATION (" +
+                "SEAT_RESERVATION_ID, SESSION_ID, SEAT_ID, ORDER_ITEM_ID, " +
+                "RESERVATION_TYPE, RESERVATION_STATUS, RESERVE_TIME, CREATE_BY, UPDATE_BY) " +
+                "VALUES (:id, :sessionId, :seatId, :itemId, 'ORDER', 'ACTIVE', " +
+                "SYSTIMESTAMP - INTERVAL '1' HOUR, :marker, :marker)",
+                new OracleParameter("id", OracleDbType.Int64,
+                    OracleRefundReservationId, ParameterDirection.Input),
+                new OracleParameter("sessionId", OracleDbType.Int64,
+                    OracleRefundSessionId, ParameterDirection.Input),
+                new OracleParameter("seatId", OracleDbType.Int64,
+                    OracleRefundSeatId, ParameterDirection.Input),
+                new OracleParameter("itemId", OracleDbType.Int64,
+                    OracleRefundOrderItemId, ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.REFUND_REQUEST (" +
+                "REFUND_ID, REFUND_NO, ORDER_ID, USER_ID, REFUND_TYPE, REFUND_REASON, " +
+                "REFUND_AMOUNT, ACTUAL_REFUND, FEE_RATE, APPLIED_SERVICE_FEE, " +
+                "APPROVE_STATUS, REVIEW_BY, REVIEW_TIME, REFUND_STATUS, CREATE_BY, UPDATE_BY) " +
+                "VALUES (:id, 'ORAREFUNDREQ998830001', :orderId, :userId, 'FULL', " +
+                "'oracle test', 100, 80, .8, 0, 'APPROVED', 'test', SYSTIMESTAMP, " +
+                "'PROCESSING', :marker, :marker)",
+                new OracleParameter("id", OracleDbType.Int64,
+                    OracleRefundRequestId, ParameterDirection.Input),
+                new OracleParameter("orderId", OracleDbType.Int64,
+                    OracleRefundOrderId, ParameterDirection.Input),
+                new OracleParameter("userId", OracleDbType.Int64,
+                    OracleRefundUserId, ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(
+                connection,
+                $"INSERT INTO {schema}.REFUND_ITEM (" +
+                "REFUND_ITEM_ID, REFUND_ID, ORDER_ITEM_ID, REFUND_BASE_AMOUNT, " +
+                "CREATE_BY, UPDATE_BY) VALUES (:id, :refundId, :itemId, 100, " +
+                ":marker, :marker)",
+                new OracleParameter("id", OracleDbType.Int64,
+                    OracleRefundItemId, ParameterDirection.Input),
+                new OracleParameter("refundId", OracleDbType.Int64,
+                    OracleRefundRequestId, ParameterDirection.Input),
+                new OracleParameter("itemId", OracleDbType.Int64,
+                    OracleRefundOrderItemId, ParameterDirection.Input),
+                new OracleParameter("marker", OracleDbType.Varchar2,
+                    OracleRefundMarker, ParameterDirection.Input));
+            await ExecuteOracleNonQueryAsync(connection, "COMMIT");
+        }
+        catch
+        {
+            await ExecuteOracleNonQueryAsync(connection, "ROLLBACK");
+            await CleanupOracleRefundFixtureAsync(connection, schema);
+            throw;
+        }
+    }
+
+    private static async Task CleanupOracleRefundFixtureAsync(
+        OracleConnection connection,
+        string schema)
+    {
+        await ExecuteOracleNonQueryAsync(connection, "ROLLBACK");
+        await DeleteOracleFixtureRowAsync(
+            connection, schema, "REFUND_ITEM", "REFUND_ITEM_ID", OracleRefundItemId);
+        await DeleteOracleFixtureRowAsync(
+            connection, schema, "REFUND_REQUEST", "REFUND_ID", OracleRefundRequestId);
+        await DeleteOracleFixtureRowAsync(
+            connection,
+            schema,
+            "SEAT_RESERVATION",
+            "SEAT_RESERVATION_ID",
+            OracleRefundReservationId);
+        await DeleteOracleFixtureRowAsync(
+            connection, schema, "E_TICKET", "ETICKET_ID", OracleRefundTicketId);
+        await ExecuteOracleNonQueryAsync(
+            connection,
+            $"DELETE FROM {schema}.PAYMENT WHERE PAYMENT_ID = :id " +
+            "AND CREATE_BY = :marker",
+            new OracleParameter("id", OracleDbType.Int64, OracleRefundPaymentId,
+                ParameterDirection.Input),
+            new OracleParameter("marker", OracleDbType.Varchar2, OracleRefundMarker,
+                ParameterDirection.Input));
+        await DeleteOracleFixtureRowAsync(
+            connection, schema, "ORDER_ITEM", "ORDER_ITEM_ID", OracleRefundOrderItemId);
+        await ExecuteOracleNonQueryAsync(
+            connection,
+            $"DELETE FROM {schema}.T_ORDER WHERE ORDER_ID = :id " +
+            "AND CREATE_BY = :marker",
+            new OracleParameter("id", OracleDbType.Int64, OracleRefundOrderId,
+                ParameterDirection.Input),
+            new OracleParameter("marker", OracleDbType.Varchar2, OracleRefundMarker,
+                ParameterDirection.Input));
+        await DeleteOracleFixtureRowAsync(
+            connection,
+            schema,
+            "PRICE_STRATEGY",
+            "PRICE_STRATEGY_ID",
+            OracleRefundPriceStrategyId);
+        await DeleteOracleFixtureRowAsync(
+            connection, schema, "SEAT", "SEAT_ID", OracleRefundSeatId);
+        await DeleteOracleFixtureRowAsync(
+            connection,
+            schema,
+            "SEAT_SECTION",
+            "SEAT_SECTION_ID",
+            OracleRefundSeatSectionId);
+        await ExecuteOracleNonQueryAsync(
+            connection,
+            $"DELETE FROM {schema}.SHOW_SESSION WHERE SESSION_ID = :id " +
+            "AND CREATE_BY = :marker",
+            new OracleParameter("id", OracleDbType.Int64, OracleRefundSessionId,
+                ParameterDirection.Input),
+            new OracleParameter("marker", OracleDbType.Varchar2, OracleRefundMarker,
+                ParameterDirection.Input));
+        await ExecuteOracleNonQueryAsync(
+            connection,
+            $"DELETE FROM {schema}.SYS_USER WHERE USER_ID = :id " +
+            "AND CREATE_BY = :marker",
+            new OracleParameter("id", OracleDbType.Int64, OracleRefundUserId,
+                ParameterDirection.Input),
+            new OracleParameter("marker", OracleDbType.Varchar2, OracleRefundMarker,
+                ParameterDirection.Input));
+        await ExecuteOracleNonQueryAsync(connection, "COMMIT");
+    }
+
+    private static Task DeleteOracleFixtureRowAsync(
+        OracleConnection connection,
+        string schema,
+        string table,
+        string idColumn,
+        long id) => ExecuteOracleNonQueryAsync(
+        connection,
+        $"DELETE FROM {schema}.{table} WHERE {idColumn} = :id AND CREATE_BY = :marker",
+        new OracleParameter("id", OracleDbType.Int64, id, ParameterDirection.Input),
+        new OracleParameter(
+            "marker",
+            OracleDbType.Varchar2,
+            OracleRefundMarker,
+            ParameterDirection.Input));
+
+    private static async Task ExecuteOracleNonQueryAsync(
+        OracleConnection connection,
+        string commandText,
+        params OracleParameter[] parameters)
+    {
+        await using var command = connection.CreateCommand();
+        command.BindByName = true;
+        command.CommandText = commandText;
+        command.Parameters.AddRange(parameters);
+        await command.ExecuteNonQueryAsync();
+    }
+
     private static async Task<string> ValidatePersonalOracleConnectionAsync(
         OracleConnection connection,
         string configuredUser)
@@ -1228,22 +1621,16 @@ public sealed class RefundConcurrencyTests
         var ownedTableCount = await ReadOracleScalarAsync<decimal>(
             connection,
             null,
-            "SELECT COUNT(*) FROM USER_TABLES " +
-            "WHERE TABLE_NAME IN (:orderTable, :paymentTable)",
-            new OracleParameter(
-                "orderTable",
-                OracleDbType.Varchar2,
-                "T_ORDER",
-                System.Data.ParameterDirection.Input),
-            new OracleParameter(
-                "paymentTable",
-                OracleDbType.Varchar2,
-                "PAYMENT",
-                System.Data.ParameterDirection.Input));
-        if (ownedTableCount != 2m)
+            "SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME IN " +
+            "('T_ORDER','ORDER_ITEM','PAYMENT','E_TICKET','REFUND_REQUEST'," +
+            "'REFUND_ITEM','SEAT_RESERVATION','SYS_USER','SHOW_SESSION','SHOW'," +
+            "'SEAT_MAP','SEAT_SECTION','SEAT','PRICE_STRATEGY')");
+        if (ownedTableCount != 14m)
         {
             throw new InvalidOperationException(
-                "Both T_ORDER and PAYMENT must be base tables owned by the personal Oracle test user; synonyms and shared-owner tables are refused.");
+                "Refund completion dependency tables must be base tables " +
+                "owned by the personal Oracle test user; synonyms and shared-owner " +
+                "tables are refused.");
         }
     }
 
@@ -1406,6 +1793,16 @@ public sealed class RefundConcurrencyTests
         logger ?? NullLogger<RefundReviewService>.Instance,
         new NullOrderTicketAuditSink());
 
+    private static RefundCompletionService CreateCompletionService(
+        AppDbContext db,
+        TimeProvider timeProvider,
+        IRefundLockCoordinator? lockCoordinator = null) => new(
+        db,
+        timeProvider,
+        lockCoordinator ?? new TestRefundLockCoordinator(db),
+        NullLogger<RefundCompletionService>.Instance,
+        new NullOrderTicketAuditSink());
+
     private static async Task MakeSingleItemFinancialsConsistentAsync(
         RefundTestData fixture)
     {
@@ -1487,6 +1884,27 @@ public sealed class RefundConcurrencyTests
                     "SHOWTIME_ORACLE_REFUND_TEST_CONNECTION is not configured; no Oracle connection will be opened.";
             }
         }
+    }
+
+    private sealed class OracleRefundTestDbContext(
+        DbContextOptions<OracleRefundTestDbContext> options,
+        string schema) : AppDbContext(options)
+    {
+        public string PersonalSchema { get; } = ValidatePersonalOracleIdentifier(schema);
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+            modelBuilder.HasDefaultSchema(PersonalSchema);
+        }
+    }
+
+    private sealed class PersonalSchemaModelCacheKeyFactory : IModelCacheKeyFactory
+    {
+        public object Create(DbContext context, bool designTime) => context is
+            OracleRefundTestDbContext personal
+                ? (context.GetType(), personal.PersonalSchema, designTime)
+                : (object)(context.GetType(), designTime);
     }
 
     private sealed class RollbackRecoveryProbe
