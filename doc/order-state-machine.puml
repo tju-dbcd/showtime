@@ -1,0 +1,58 @@
+@startuml 订单生命周期状态机图
+' ============================================================
+' SHOWTIME 订单生命周期状态机
+' 状态枚举：OrderStatus (T_ORDER.ORDER_STATUS)
+'   PENDING_PAY / PAID / ISSUED / PART_REFUND / REFUNDED / CANCELLED
+' 依据代码：
+'   - OrderService.CreateAsync      : 创建 → PENDING_PAY
+'   - OrderService.CancelOrderAsync : PENDING_PAY → CANCELLED（用户取消）
+'   - OrderExpirationService        : PENDING_PAY → CANCELLED（超时）
+'   - PaymentService.PayAsync + TicketIssuanceService.Issue
+'                                   : 支付成功并出票 → ISSUED
+'   - RefundCompletionService       : 退款完成 → REFUNDED / PART_REFUND
+' ============================================================
+
+skinparam defaultFontSize 13
+skinparam state {
+    BackgroundColor #F4F6F8
+    BorderColor #4A5568
+    ArrowColor #4A5568
+}
+
+[*] --> PENDING_PAY : 创建订单\n(锁转正式占座 + Outbox 落库)
+
+state PENDING_PAY : 待支付\nExpireTime 倒计时
+state PAID : 已支付\n(出票待补偿中间态)
+state ISSUED : 已出票\n电子票可核销
+state PART_REFUND : 部分退款\n部分明细已退
+state REFUNDED : 已退款\n全部明细已退
+state CANCELLED : 已取消\n座位预约已释放
+
+' ---- 主路径：支付成功即出票（同一事务） ----
+PENDING_PAY --> ISSUED : 支付成功并出票\n(PaymentService → TicketIssuanceService)
+
+' ---- 异常中间态：支付成功但出票未完成，走补偿 ----
+PENDING_PAY -[#D69E2E]-> PAID : 支付成功\n(出票失败待补偿)
+PAID -[#D69E2E]-> ISSUED : 补偿出票\n(TicketIssuanceContext.Compensation)
+
+' ---- 取消 / 超时 ----
+PENDING_PAY --> CANCELLED : 用户取消\n或 超时未支付(后台扫描)
+
+' ---- 退票（可达状态：ISSUED / PART_REFUND） ----
+ISSUED --> PART_REFUND : 部分明细退款完成\n(RefundCompletionService)
+ISSUED --> REFUNDED : 全部明细退款完成
+PART_REFUND --> REFUNDED : 剩余明细退款完成
+
+note right of PAID
+  正常流程不落 PAID 态：
+  支付成功与出票在同一事务内原子完成，
+  PAID 仅用于出票失败后的补偿重试路径。
+end note
+
+note bottom of CANCELLED
+  CANCELLED 为终态：
+  SEAT_RESERVATION → CANCELLED，
+  PENDING 支付单 → CLOSED。
+end note
+
+@enduml

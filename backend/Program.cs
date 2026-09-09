@@ -1,4 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Globalization;
+using System.Net;
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -8,19 +10,25 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Common.Jwt;
+using ShowtimeBackend.Common.IdentityData;
 using ShowtimeBackend.Common.Middlewares;
 using ShowtimeBackend.Common.OpenApi;
 using ShowtimeBackend.Common.Oss;
+using ShowtimeBackend.Common.RateLimiting;
 using ShowtimeBackend.Common.TicketSecurity;
 using ShowtimeBackend.Data;
+using ShowtimeBackend.Data.Interceptors;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.UserPermission;
 using ShowtimeBackend.Services.FileStorage;
 using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 using ShowtimeBackend.Services.ShowSession;
 using ShowtimeBackend.Services.Impl;
 using ShowtimeBackend.Services.SeatZone;
+using ShowtimeBackend.Services.MarketingContent;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using Oracle.EntityFrameworkCore.Infrastructure;
@@ -28,6 +36,7 @@ using Scalar.AspNetCore;
 using StackExchange.Redis;
 using Serilog;
 using ShowtimeBackend.Common.LocalStorage;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,13 +52,17 @@ builder.Host.UseSerilog((context, services, configuration) =>
 // 审计 sink（DbOperationTicketAuditSink）经 IDbContextFactory 创建独立实例，保证审计写入不卷入业务事务。
 // 注意：不得再对 AppDbContext 调用 AddDbContext，否则其注册的 scoped DbContextOptions 会与
 // singleton DbContextFactory 冲突（Cannot consume scoped service from singleton）。
-Action<DbContextOptionsBuilder> configureDatabase = options => options.UseOracle(
-    builder.Configuration.GetConnectionString("Oracle")
-    ?? throw new InvalidOperationException(
-        "Connection string 'Oracle' is not set."),
-    oracle => oracle.UseOracleSQLCompatibility(
-        OracleSQLCompatibility.DatabaseVersion21));
-builder.Services.AddDbContextFactory<AppDbContext>(configureDatabase);
+builder.Services.AddDbContextFactory<AppDbContext>((serviceProvider, options) =>
+{
+    options.UseOracle(
+        builder.Configuration.GetConnectionString("Oracle")
+        ?? throw new InvalidOperationException(
+            "Connection string 'Oracle' is not set."),
+        oracle => oracle.UseOracleSQLCompatibility(
+            OracleSQLCompatibility.DatabaseVersion21));
+    options.AddInterceptors(
+        serviceProvider.GetRequiredService<UserRealNameEncryptionInterceptor>());
+});
 builder.Services.AddScoped<AppDbContext>(provider =>
     provider.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
 
@@ -136,6 +149,16 @@ builder.Services.AddSingleton<IFileStorageService>(serviceProvider =>
 });
 
 builder.Services
+    .AddOptions<IdentityDataOptions>()
+    .Bind(builder.Configuration.GetSection(IdentityDataOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<
+    Microsoft.Extensions.Options.IValidateOptions<IdentityDataOptions>,
+    IdentityDataOptionsValidator>();
+builder.Services.AddSingleton<IIdentityDataProtector, AesGcmIdentityDataProtector>();
+builder.Services.AddSingleton<UserRealNameEncryptionInterceptor>();
+
+builder.Services
     .AddOptions<JwtOptions>()
     .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
     .ValidateDataAnnotations()
@@ -167,11 +190,90 @@ builder.Services
     .ValidateOnStart();
 
 builder.Services
+    .AddOptions<OrderExpirationOptions>()
+    .Bind(
+        builder.Configuration.GetSection(OrderExpirationOptions.SectionName),
+        binder => binder.ErrorOnUnknownConfiguration = true)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
+    .AddOptions<RabbitMqOptions>()
+    .Bind(
+        builder.Configuration.GetSection(RabbitMqOptions.SectionName),
+        binder => binder.ErrorOnUnknownConfiguration = true)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<RabbitMqOptions>, RabbitMqOptionsValidator>();
+
+builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         // 统一 401/403 响应体为 ApiResponse 信封（与业务错误格式一致）
         JwtErrorEnvelope.Configure(options.Events);
+        options.Events.OnTokenValidated = async context =>
+        {
+            var userIdValue = context.Principal?.FindFirst(
+                JwtRegisteredClaimNames.Sub)?.Value;
+            var sessionIdValue = context.Principal?.FindFirst("sid")?.Value;
+            if (!long.TryParse(
+                    userIdValue,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var userId)
+                || userId <= 0
+                || !long.TryParse(
+                    sessionIdValue,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var sessionId)
+                || sessionId <= 0)
+            {
+                context.Fail("The access token does not contain a valid session.");
+                return;
+            }
+
+            try
+            {
+                var sessionService = context.HttpContext.RequestServices
+                    .GetRequiredService<IUserSessionService>();
+                if (!await sessionService.IsActiveAsync(
+                        userId,
+                        sessionId,
+                        context.HttpContext.RequestAborted))
+                {
+                    context.Fail("The login session is no longer active.");
+                }
+            }
+            catch (OperationCanceledException)
+                when (context.HttpContext.RequestAborted.IsCancellationRequested)
+            {
+                context.Fail("Session validation was cancelled.");
+            }
+            catch (Exception exception)
+            {
+                var logger = context.HttpContext.RequestServices
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("JwtSessionValidation");
+                logger.LogWarning(
+                    exception,
+                    "JWT session validation failed closed for session {SessionId}.",
+                    sessionId);
+                context.Fail("The login session could not be validated.");
+            }
+        };
+        options.Events.OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            if (!string.IsNullOrEmpty(accessToken) &&
+                context.HttpContext.Request.Path.StartsWithSegments("/hubs/order-notifications"))
+            {
+                context.Token = accessToken;
+            }
+
+            return Task.CompletedTask;
+        };
     });
 builder.Services
     .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
@@ -196,6 +298,63 @@ builder.Services
             };
         });
 builder.Services.AddAuthorization();
+builder.Services.AddHttpContextAccessor();
+
+// 反向代理（Nginx）信任策略：默认只信本机（127.0.0.0/8、::1/128），加上配置里
+// 显式声明的代理网段/地址。启用后 RemoteIpAddress/Request.Scheme 才是真实客户端值，
+// 异地登录检测与限流才能按真实 IP 判定（不可盲目信任所有 X-Forwarded-*）。
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+    options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Loopback, 8));
+    options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.IPv6Loopback, 128));
+    foreach (var cidr in builder.Configuration
+        .GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? [])
+    {
+        if (System.Net.IPNetwork.TryParse(cidr, out var network))
+        {
+            options.KnownIPNetworks.Add(network);
+        }
+    }
+
+    foreach (var address in builder.Configuration
+        .GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [])
+    {
+        if (IPAddress.TryParse(address, out var ip))
+        {
+            options.KnownProxies.Add(ip);
+        }
+    }
+});
+builder.Services.AddApiRateLimiting(builder.Configuration);
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, SubjectUserIdProvider>();
+builder.Services.AddSingleton<IOrderNotificationDispatcher, SignalROrderNotificationDispatcher>();
+builder.Services.AddScoped<IOrderNotificationMessageHandler, OrderNotificationMessageHandler>();
+builder.Services.AddScoped<OrderNotificationDeliveryProcessor>();
+
+var rabbitMqEnabled = builder.Configuration.GetValue<bool>("RabbitMq:Enabled");
+// 可靠事件 outbox 与进程内处理始终注册：RabbitMq:Enabled=false（默认）时由
+// LocalOrderEventPublisher 把 outbox 消息交给同一消息处理器在进程内完成退款与通知，
+// 避免批准退款后永远停在 PROCESSING；启用 RabbitMQ 时发布走 broker 并额外启动消费 Worker。
+builder.Services.AddSingleton<LocalOrderEventPublisher>();
+builder.Services.AddScoped<IOrderEventOutboxService, OrderEventOutboxService>();
+builder.Services.AddHostedService<OrderEventOutboxWorker>();
+if (rabbitMqEnabled)
+{
+    builder.Services.AddSingleton<IRabbitMqConnectionProvider, RabbitMqConnectionProvider>();
+    builder.Services.AddSingleton<RabbitMqOrderEventPublisher>();
+    builder.Services.AddHostedService<RabbitMqOrderNotificationWorker>();
+}
+
+builder.Services.AddSingleton<IOrderEventPublisher>(serviceProvider =>
+    rabbitMqEnabled
+        ? serviceProvider.GetRequiredService<RabbitMqOrderEventPublisher>()
+        : serviceProvider.GetRequiredService<LocalOrderEventPublisher>());
 
 builder.Services
     .AddControllers()
@@ -205,6 +364,9 @@ builder.Services
         // 并使 OpenAPI 生成 enum 约束进入 schema。
         options.JsonSerializerOptions.Converters.Add(
             new JsonStringEnumConverter(allowIntegerValues: false));
+        // 时间统一按 UTC 输出（带 Z），避免 Oracle 无时区 TIMESTAMP 回读后被前端误当本地时间
+        options.JsonSerializerOptions.Converters.Add(
+            new ShowtimeBackend.Common.Json.UtcDateTimeJsonConverterFactory());
     })
     .ConfigureApiBehaviorOptions(options =>
     {
@@ -232,10 +394,17 @@ builder.Services
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IPasswordHasher<SysUser>, PasswordHasher<SysUser>>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+builder.Services.AddSingleton<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddSingleton<ITicketTokenService, HmacTicketTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUserSessionService, UserSessionService>();
+builder.Services.AddScoped<IUserRealNameService, UserRealNameService>();
+builder.Services.AddScoped<IAdminUserService, AdminUserService>();
+builder.Services.AddSingleton<IOperationLogWriter, DatabaseOperationLogWriter>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IOrderExpirationService, OrderExpirationService>();
+builder.Services.AddHostedService<OrderExpirationWorker>();
 builder.Services.AddScoped<ITicketIssuanceService, TicketIssuanceService>();
 builder.Services.AddScoped<ITicketQueryService, TicketQueryService>();
 builder.Services.AddScoped<ITicketRedemptionService, TicketRedemptionService>();
@@ -253,9 +422,12 @@ builder.Services.AddHostedService<ExchangeExpirationWorker>();
 builder.Services.AddScoped<IRefundLockCoordinator, OracleRefundLockCoordinator>();
 builder.Services.AddScoped<IRefundApplicationService, RefundApplicationService>();
 builder.Services.AddScoped<IRefundReviewService, RefundReviewService>();
+builder.Services.AddScoped<IRefundCompletionService, RefundCompletionService>();
 builder.Services.AddScoped<IOrderTicketAuditSink, DbOperationTicketAuditSink>();
 builder.Services.AddScoped<IClientShowSessionService, ShowSessionService>();
 builder.Services.AddScoped<IAdminShowSessionService, AdminShowSessionService>();
+builder.Services.AddScoped<IAdminMarketingContentService, AdminMarketingContentService>();
+builder.Services.AddScoped<IClientMarketingContentService, ClientMarketingContentService>();
 builder.Services.AddScoped<ISeatLockService>(serviceProvider =>
     new SeatLockService(
         serviceProvider.GetRequiredService<AppDbContext>(),
@@ -271,14 +443,35 @@ builder.Services.AddScoped<IClientShowService, ClientShowService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiResponseExceptionHandler>();
+
+// OpenAPI 服务器地址：由配置 OpenApi:ServerUrl 提供（不要硬编码端口）。
+// 未配置时不写入 document.Servers，避免把错误的固定 URL 固化进 OpenAPI 快照（如前端 openapi.json）。
+var openApiServerUrl = builder.Configuration["OpenApi:ServerUrl"];
+
 builder.Services.AddOpenApi(options =>
 {
+    options.AddDocumentTransformer((document, context, cancellationToken) =>
+    {
+        if (!string.IsNullOrWhiteSpace(openApiServerUrl))
+        {
+            document.Servers = new List<OpenApiServer>
+            {
+                new OpenApiServer { Url = openApiServerUrl }
+            };
+        }
+        return Task.CompletedTask;
+    });
+
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+    options.AddOperationTransformer<OrderIdempotencyOperationTransformer>();
     options.AddSchemaTransformer<EnumStringSchemaTransformer>();
     options.AddSchemaTransformer<TicketRedemptionSchemaTransformer>();
 });
 
 var app = builder.Build();
+
+// 必须在任何读取 RemoteIpAddress/Scheme 的中间件（异常处理/认证/限流/静态文件）之前执行。
+app.UseForwardedHeaders();
 
 if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 {
@@ -289,6 +482,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 // 本地磁盘存储启用时，把存储根目录作为公开只读静态资源挂到 /files（与 OSS 公共读语义一致）。
@@ -307,6 +501,7 @@ if (localStorage.Enabled)
 
 app.MapGet("/", () => "Showtime API is running.");
 app.MapControllers();
+app.MapHub<OrderNotificationsHub>("/hubs/order-notifications");
 
 app.Run();
 

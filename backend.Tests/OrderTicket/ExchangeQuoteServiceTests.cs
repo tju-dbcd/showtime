@@ -526,21 +526,23 @@ public sealed class ExchangeQuoteServiceTests
             SaleEndTime = RefundTestData.FixedUtcNow.AddDays(3),
             SessionStatus = "ONSALE",
         });
-        fixture.Db.Add(new SeatSection
-        {
-            SeatSectionId = 40,
-            SeatMapId = 30,
-            SectionCode = "A",
-            SectionName = "A",
-        });
         for (var index = 0; index < targetPrices.Count; index++)
         {
             var seatId = 701L + index;
             var strategyId = 801L + index;
+            // 方案 A：同一票区同一时刻只有一个生效档，因此每个目标座位使用独立票区
+            var sectionId = 40L + index * 10;
+            fixture.Db.Add(new SeatSection
+            {
+                SeatSectionId = sectionId,
+                SeatMapId = 30,
+                SectionCode = ((char)('A' + index)).ToString(),
+                SectionName = ((char)('A' + index)).ToString(),
+            });
             fixture.Db.Add(new Seat
             {
                 SeatId = seatId,
-                SeatSectionId = 40,
+                SeatSectionId = sectionId,
                 RowCode = "A",
                 SeatNo = (index + 1).ToString(),
                 RowIndex = 1,
@@ -552,7 +554,7 @@ public sealed class ExchangeQuoteServiceTests
             {
                 PriceStrategyId = strategyId,
                 SessionId = 22,
-                SeatSectionId = 40,
+                SeatSectionId = sectionId,
                 StrategyName = $"price-{index}",
                 Price = targetPrices[index],
                 SaleStartTime = RefundTestData.FixedUtcNow.AddDays(-1),

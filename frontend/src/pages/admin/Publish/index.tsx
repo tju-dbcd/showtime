@@ -1,6 +1,7 @@
 import { Form, Input, Select, DatePicker, Button, Card, message, InputNumber, Space, Divider } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useState, useEffect } from 'react'
+import dayjs from 'dayjs'
 import FileUploader from '../../../components/FileUploader'
 import {
   createShow,
@@ -22,6 +23,8 @@ interface PriceItem {
   seatSectionId: number | undefined
   price: number
   priceType: PriceType
+  // 可选：该票价档的售票时间窗（不填则默认跟随场次售票时间，即整场一直生效）
+  saleWindow: [dayjs.Dayjs | null, dayjs.Dayjs | null] | null
 }
 
 const PRICE_TYPES: { value: PriceType; label: string }[] = [
@@ -40,7 +43,7 @@ const Publish = () => {
   const [categories, setCategories] = useState<CategoryResponse[]>([])
   const [selectedSeatMapId, setSelectedSeatMapId] = useState<number | undefined>()
   const [priceList, setPriceList] = useState<PriceItem[]>([
-    { seatSectionId: undefined, price: 180, priceType: 'STANDARD' }
+    { seatSectionId: undefined, price: 180, priceType: 'STANDARD', saleWindow: null }
   ])
 
   // 加载分类和座位图
@@ -82,7 +85,7 @@ const Publish = () => {
 
   // 添加票价
   const addPrice = () => {
-    setPriceList([...priceList, { seatSectionId: undefined, price: 180, priceType: 'STANDARD' }])
+    setPriceList([...priceList, { seatSectionId: undefined, price: 180, priceType: 'STANDARD', saleWindow: null }])
   }
 
   // 删除票价
@@ -162,8 +165,8 @@ const Publish = () => {
         price: item.price,
         priceType: item.priceType,
         strategyName: `${item.priceType}-${item.price}`,
-        saleStartTime: values.saleTime[0].toISOString(),
-        saleEndTime: values.saleTime[1].toISOString(),
+        saleStartTime: item.saleWindow?.[0] ? item.saleWindow[0].toISOString() : null,
+        saleEndTime: item.saleWindow?.[1] ? item.saleWindow[1].toISOString() : null,
         priority: 0,
       }))
 
@@ -182,7 +185,7 @@ const Publish = () => {
 
       message.success({ content: '发布成功！', key: 'status' })
       form.resetFields()
-      setPriceList([{ seatSectionId: undefined, price: 180, priceType: 'STANDARD' }])
+      setPriceList([{ seatSectionId: undefined, price: 180, priceType: 'STANDARD', saleWindow: null }])
       setSelectedSeatMapId(undefined)
       setSections([])
     } catch (err) {
@@ -201,7 +204,6 @@ const Publish = () => {
           form={form}
           layout="vertical"
           initialValues={{
-            categoryId: 1,
             durationMinutes: 120,
           }}
         >
@@ -315,7 +317,8 @@ const Publish = () => {
           <Divider>票价设置</Divider>
 
           {priceList.map((item, index) => (
-            <Space key={index} size="middle" align="start" style={{ display: 'flex', marginBottom: 16 }} wrap>
+            <div key={index} style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: '12px 16px 4px', marginBottom: 16 }}>
+            <Space size="middle" align="start" style={{ display: 'flex', marginBottom: 8 }} wrap>
               <Form.Item label="票区" required>
                 <Select
                   placeholder="请选择票区"
@@ -364,6 +367,21 @@ const Publish = () => {
                 style={{ marginTop: 30 }}
               />
             </Space>
+            <div style={{ marginBottom: 8 }}>
+              <span style={{ color: '#888', fontSize: 13 }}>售票时间（可选，不填则跟随场次售票窗口，即整场生效；填写可实现早鸟/预售/标准按时间自动切换）</span>
+            </div>
+            <Form.Item label="售票时间" style={{ marginBottom: 12 }}>
+              <DatePicker.RangePicker
+                showTime
+                value={item.saleWindow || undefined}
+                onChange={dates => updatePrice(index, 'saleWindow', dates as PriceItem['saleWindow'])}
+                placeholder={['票价开售时间', '票价截止时间']}
+                format="YYYY-MM-DD HH:mm"
+                style={{ width: 420 }}
+                allowEmpty={[true, true]}
+              />
+            </Form.Item>
+            </div>
           ))}
 
           <Button
@@ -391,7 +409,7 @@ const Publish = () => {
               style={{ marginLeft: 16, width: 140 }}
               onClick={() => {
                 form.resetFields()
-                setPriceList([{ seatSectionId: undefined, price: 180, priceType: 'STANDARD' }])
+                setPriceList([{ seatSectionId: undefined, price: 180, priceType: 'STANDARD', saleWindow: null }])
                 setSelectedSeatMapId(undefined)
                 setSections([])
               }}

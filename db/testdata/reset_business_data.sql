@@ -1,0 +1,86 @@
+-- ============================================================
+-- 测试数据重置脚本（谨慎使用！）
+--
+-- 用途：清空由 db/testdata 生成器产生的业务数据，便于重新生成
+--       “与当前 schema/后端一致”的全量测试数据。
+--
+-- ⚠️ 警告：
+--   1) 该脚本执行 DML 删除，**不可回滚**（除非在事务中执行并手动回滚）。
+--   2) 若目标是共享库 APP_OWNER，会删除其他同学/联调/自动化测试正在使用的数据，
+--      执行前请确认已得到数据库负责人同意，并避开正在联调的时段。
+--   3) 个人账号对 APP_OWNER 只能做 DML，脚本不包含任何 DROP/ALTER/TRUNCATE。
+--
+-- 使用方式（先切换 schema）：
+--   sqlplus 姓名全拼/密码@//120.27.157.163:1521/XEPDB1 @reset_business_data.sql
+-- 脚本默认切换 CURRENT_SCHEMA=APP_OWNER；若在个人副本上执行请自行调整。
+-- ============================================================
+
+ALTER SESSION SET CURRENT_SCHEMA = APP_OWNER;
+
+WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK;
+
+SET FEEDBACK ON
+SET SERVEROUTPUT ON
+
+PROMPT 请确认要清空共享测试库业务数据吗？输入 Y 继续，其他任意键退出。
+ACCEPT proceed CHAR PROMPT '输入 Y 确认：'
+
+DECLARE
+    v_proceed VARCHAR2(10) := UPPER(TRIM('&proceed'));
+BEGIN
+    IF v_proceed <> 'Y' THEN
+        RAISE_APPLICATION_ERROR(-20001, '已取消：未确认执行。');
+    END IF;
+END;
+/
+
+-- 用户确认后不再提示
+SET VERIFY OFF
+
+-- ---------- 第一段：订单/票务/退改/锁座（业务交易数据）----------
+DELETE FROM EXCHANGE_ITEM;
+DELETE FROM EXCHANGE_REQUEST;
+DELETE FROM REFUND_ITEM;
+DELETE FROM REFUND_REQUEST;
+DELETE FROM E_TICKET;
+DELETE FROM SEAT_RESERVATION;
+DELETE FROM SEAT_LOCK;
+DELETE FROM ORDER_ITEM;
+DELETE FROM PAYMENT;
+DELETE FROM T_ORDER_EVENT_OUTBOX;
+DELETE FROM T_ORDER;
+
+-- ---------- 第二段：用户/权限/审计数据（必须先于演出删除，避免 FK_OP_LOG_SHOW 等）----------
+DELETE FROM OPERATION_LOG;
+DELETE FROM USER_SESSION;
+DELETE FROM USER_BLACKLIST;
+DELETE FROM USER_REAL_NAME;
+DELETE FROM USER_ROLE;
+DELETE FROM ROLE_PERMISSION;
+DELETE FROM SYS_USER;
+DELETE FROM PERMISSION;
+DELETE FROM ROLE;
+DELETE FROM ORG_STRUCTURE;
+
+-- ---------- 第三段：演出/场次/座位/策略支撑数据 ----------
+DELETE FROM DYNAMIC_PRICING_RULE;
+DELETE FROM PURCHASE_LIMIT;
+DELETE FROM PRICE_STRATEGY;
+DELETE FROM SHOW_SESSION;
+DELETE FROM MARKETING_CONTENT;
+DELETE FROM SHOW_TAG;
+DELETE FROM REFUND_POLICY;
+DELETE FROM EXCHANGE_POLICY;
+DELETE FROM SHOW;
+DELETE FROM SEAT_RULE_SCOPE;
+DELETE FROM SEAT_RULE;
+DELETE FROM SEAT;
+DELETE FROM SEAT_SECTION;
+DELETE FROM SEAT_MAP;
+DELETE FROM VENUE;
+DELETE FROM TAG;
+DELETE FROM CATEGORY;
+
+COMMIT;
+
+SELECT 'reset done' AS status FROM DUAL;

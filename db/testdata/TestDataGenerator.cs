@@ -5,13 +5,14 @@ using Bogus;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using ShowtimeBackend.Data;
+using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Entities.UserPermission;
 
 namespace ShowtimeBackend.TestData
 {
-    public class TestDataGenerator
+    public partial class TestDataGenerator
     {
         private readonly AppDbContext _context;
         private readonly Random _random = new Random();
@@ -22,6 +23,14 @@ namespace ShowtimeBackend.TestData
         private readonly int _maxSessions;
         private readonly int _seatsPerSession;
         private readonly bool _enableDetailedLog;
+
+        // 新增：更贴近当前后端能力的配置项（订单/交易、动态调价、营销等）
+        private readonly int _extraUserCount;
+        private readonly bool _enableOrderSeed;
+        private readonly double _endedSessionSoldRatio;
+        private readonly double _onSaleSessionSoldRatio;
+        private readonly double _refundOrderRatio;
+        private readonly double _exchangeOrderRatio;
 
         /// <summary>测试管理员账号（拥有 Admin + USER 角色）</summary>
         public const string AdminUserName = "admin";
@@ -36,7 +45,13 @@ namespace ShowtimeBackend.TestData
             int minSessions = 3,
             int maxSessions = 5,
             int seatsPerSession = 200,
-            bool enableDetailedLog = true)
+            bool enableDetailedLog = true,
+            int extraUserCount = 60,
+            bool enableOrderSeed = true,
+            double endedSessionSoldRatio = 0.65,
+            double onSaleSessionSoldRatio = 0.18,
+            double refundOrderRatio = 0.06,
+            double exchangeOrderRatio = 0.02)
         {
             _context = context;
             _showCount = showCount;
@@ -44,7 +59,15 @@ namespace ShowtimeBackend.TestData
             _maxSessions = maxSessions;
             _seatsPerSession = seatsPerSession;
             _enableDetailedLog = enableDetailedLog;
+            _extraUserCount = Math.Max(0, extraUserCount);
+            _enableOrderSeed = enableOrderSeed;
+            _endedSessionSoldRatio = ClampRatio(endedSessionSoldRatio);
+            _onSaleSessionSoldRatio = ClampRatio(onSaleSessionSoldRatio);
+            _refundOrderRatio = ClampRatio(refundOrderRatio);
+            _exchangeOrderRatio = ClampRatio(exchangeOrderRatio);
         }
+
+        private static double ClampRatio(double value) => Math.Clamp(value, 0.0, 1.0);
 
         public void GenerateAllData()
         {
@@ -56,75 +79,131 @@ namespace ShowtimeBackend.TestData
             {
                 // ---- 用户与权限模块（幂等：已存在的角色/用户/权限不重复创建）----
                 var roles = GenerateRoles();
-                var users = GenerateUsers(roles);
+                var testUsers = GenerateUsers(roles);
+                var orgNodes = GenerateOrgStructure();
+                var extraUsers = GenerateExtraUsers(roles, orgNodes);
                 GeneratePermissions(roles);
-                Log($"[1/13] User & Permission module: {roles.Count} roles, {users.Count} users");
+                Log($"[1/15] User & Permission module: {roles.Count} roles, " +
+                    $"{testUsers.Count + extraUsers.Count} users created, {orgNodes.Count} org nodes");
 
                 // ---- 演出/座位主体数据（已存在则跳过，防止重复爆炸）----
+                List<Category> categories;
+                List<Tag> tags;
+                List<Venue> venues;
+                List<SeatMap> seatMaps;
+                List<SeatSection> seatSections;
+                List<Seat> seats;
+                List<Show> shows;
+                List<ShowSession> showSessions;
+
                 if (HasExistingShowData())
                 {
-                    Log("检测到已存在演出/座位类数据，跳过主体数据生成。");
-                    Log("如需重新生成，请先清空相关业务表（或手动处理冲突）后重跑。");
-                    transaction.Commit();
-                    Log("=== Test Data Generation Completed (main data skipped) ===");
-                    PrintStatistics();
-                    return;
+                    Log("检测到已存在演出/座位类数据，跳过主体数据生成，后续支撑/交易数据会基于现有主体数据补齐。");
+
+                    categories = _context.Set<Category>().ToList();
+                    tags = _context.Set<Tag>().ToList();
+                    venues = _context.Set<Venue>().ToList();
+                    seatMaps = _context.Set<SeatMap>().ToList();
+                    seatSections = _context.Set<SeatSection>().ToList();
+                    seats = _context.Set<Seat>().ToList();
+                    shows = _context.Set<Show>().ToList();
+                    showSessions = _context.Set<ShowSession>().ToList();
+                }
+                else
+                {
+                    categories = GenerateCategories();
+                    _context.Set<Category>().AddRange(categories);
+                    _context.SaveChanges();
+                    Log($"[2/15] Generated {categories.Count} categories");
+
+                    tags = GenerateTags();
+                    _context.Set<Tag>().AddRange(tags);
+                    _context.SaveChanges();
+                    Log($"[3/15] Generated {tags.Count} tags");
+
+                    venues = GenerateVenues();
+                    _context.Set<Venue>().AddRange(venues);
+                    _context.SaveChanges();
+                    Log($"[4/15] Generated {venues.Count} venues");
+
+                    seatMaps = GenerateSeatMaps(venues);
+                    _context.Set<SeatMap>().AddRange(seatMaps);
+                    _context.SaveChanges();
+                    Log($"[5/15] Generated {seatMaps.Count} seat maps");
+
+                    seatSections = GenerateSeatSections(seatMaps);
+                    _context.Set<SeatSection>().AddRange(seatSections);
+                    _context.SaveChanges();
+                    Log($"[6/15] Generated {seatSections.Count} seat sections");
+
+                    seats = GenerateSeats(seatSections);
+                    _context.Set<Seat>().AddRange(seats);
+                    _context.SaveChanges();
+                    Log($"[7/15] Generated {seats.Count} seats");
+
+                    shows = GenerateShows(categories);
+                    _context.Set<Show>().AddRange(shows);
+                    _context.SaveChanges();
+                    Log($"[8/15] Generated {shows.Count} shows");
+
+                    var showTags = GenerateShowTags(shows, tags);
+                    _context.Set<ShowTag>().AddRange(showTags);
+                    _context.SaveChanges();
+                    Log($"[9/15] Generated {showTags.Count} show-tag associations");
+
+                    showSessions = GenerateShowSessions(shows, seatMaps);
+                    _context.Set<ShowSession>().AddRange(showSessions);
+                    _context.SaveChanges();
+                    Log($"[10/15] Generated {showSessions.Count} show sessions");
+
+                    var priceStrategies = GeneratePriceStrategies(showSessions, seatSections);
+                    _context.Set<PriceStrategy>().AddRange(priceStrategies);
+                    _context.SaveChanges();
+                    Log($"[11/15] Generated {priceStrategies.Count} price strategies");
+
+                    var purchaseLimits = GeneratePurchaseLimits(shows, showSessions);
+                    _context.Set<PurchaseLimit>().AddRange(purchaseLimits);
+                    _context.SaveChanges();
+                    Log($"[12/15] Generated {purchaseLimits.Count} purchase limits");
+
+                    // 场次状态按“当前时间/开售时间/开演时间”推导，避免旧版随机状态与时间错位
+                    NormalizeSessionStatuses(showSessions);
+                    _context.SaveChanges();
                 }
 
-                var categories = GenerateCategories();
-                _context.Set<Category>().AddRange(categories);
-                _context.SaveChanges();
-                Log($"[2/13] Generated {categories.Count} categories");
+                // ---- 当前后端已实现模块的支撑数据（营销内容 / 动态调价 / 选座规则 / 退票改签策略）----
+                var marketingCount = GenerateMarketingContents(shows);
+                Log($"[13/15] Generated {marketingCount} marketing contents");
 
-                var tags = GenerateTags();
-                _context.Set<Tag>().AddRange(tags);
-                _context.SaveChanges();
-                Log($"[3/13] Generated {tags.Count} tags");
+                var dynamicRuleCount = GenerateDynamicPricingRules(showSessions, seatSections);
+                Log($"[14/15] Generated {dynamicRuleCount} dynamic pricing rules");
 
-                var venues = GenerateVenues();
-                _context.Set<Venue>().AddRange(venues);
-                _context.SaveChanges();
-                Log($"[4/13] Generated {venues.Count} venues");
+                var seatRuleCount = GenerateSeatRulesAndScopes(seatMaps, seatSections);
+                Log($"     Generated {seatRuleCount} seat rules (+ scopes)");
 
-                var seatMaps = GenerateSeatMaps(venues);
-                _context.Set<SeatMap>().AddRange(seatMaps);
-                _context.SaveChanges();
-                Log($"[5/13] Generated {seatMaps.Count} seat maps");
+                var refundPolicyCount = GenerateRefundPolicies(shows);
+                var exchangePolicyCount = GenerateExchangePolicies(shows);
+                Log($"     Generated {refundPolicyCount} refund policies, {exchangePolicyCount} exchange policies");
 
-                var seatSections = GenerateSeatSections(seatMaps);
-                _context.Set<SeatSection>().AddRange(seatSections);
-                _context.SaveChanges();
-                Log($"[6/13] Generated {seatSections.Count} seat sections");
+                // ---- 订单/票务/退款/改签等交易数据（仅当订单表为空时生成，保证可重复执行）----
+                if (_enableOrderSeed)
+                {
+                    var orderStats = GenerateSalesData(shows, showSessions, seatMaps, seatSections, seats);
+                    Log($"[15/15] Generated orders: {orderStats.Orders}, order items: {orderStats.OrderItems}, " +
+                        $"payments: {orderStats.Payments}, e-tickets: {orderStats.ETickets}, " +
+                        $"refunds: {orderStats.Refunds}, exchanges: {orderStats.Exchanges}, " +
+                        $"seat locks: {orderStats.SeatLocks}, reservations: {orderStats.Reservations}");
+                }
+                else
+                {
+                    Log("[15/15] Order seeding disabled by configuration.");
+                }
 
-                var seats = GenerateSeats(seatSections);
-                _context.Set<Seat>().AddRange(seats);
-                _context.SaveChanges();
-                Log($"[7/13] Generated {seats.Count} seats");
-
-                var shows = GenerateShows(categories);
-                _context.Set<Show>().AddRange(shows);
-                _context.SaveChanges();
-                Log($"[8/13] Generated {shows.Count} shows");
-
-                var showTags = GenerateShowTags(shows, tags);
-                _context.Set<ShowTag>().AddRange(showTags);
-                _context.SaveChanges();
-                Log($"[9/13] Generated {showTags.Count} show-tag associations");
-
-                var showSessions = GenerateShowSessions(shows, seatMaps);
-                _context.Set<ShowSession>().AddRange(showSessions);
-                _context.SaveChanges();
-                Log($"[10/13] Generated {showSessions.Count} show sessions");
-
-                var priceStrategies = GeneratePriceStrategies(showSessions, seatSections);
-                _context.Set<PriceStrategy>().AddRange(priceStrategies);
-                _context.SaveChanges();
-                Log($"[11/13] Generated {priceStrategies.Count} price strategies");
-
-                var purchaseLimits = GeneratePurchaseLimits(shows, showSessions);
-                _context.Set<PurchaseLimit>().AddRange(purchaseLimits);
-                _context.SaveChanges();
-                Log($"[12/13] Generated {purchaseLimits.Count} purchase limits");
+                // 用户安全/审计类的旁路数据（会话、黑名单、操作日志；幂等：按表空置判断）
+                var sessionCount = GenerateUserSessions();
+                var blacklistCount = GenerateUserBlacklist(shows);
+                var logCount = GenerateOperationLogs(shows);
+                Log($"     Generated {sessionCount} user sessions, {blacklistCount} blacklist entries, {logCount} operation logs");
 
                 transaction.Commit();
 
@@ -142,6 +221,39 @@ namespace ShowtimeBackend.TestData
                     inner = inner.InnerException;
                 }
                 throw;
+            }
+        }
+
+        /// <summary>把随机生成的场次状态修正为与时间线一致的合法状态（新库首次生成时使用）</summary>
+        private static void NormalizeSessionStatuses(IEnumerable<ShowSession> sessions)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var session in sessions)
+            {
+                if (session.SessionStatus == "ENDED" || session.StartTime <= now)
+                {
+                    session.SessionStatus = session.StartTime <= now ? "ENDED" : session.SessionStatus;
+                    continue;
+                }
+
+                if (session.SessionStatus == "SOLD_OUT")
+                {
+                    continue;
+                }
+
+                if (now < session.SaleStartTime)
+                {
+                    session.SessionStatus =
+                        (session.StartTime - now).TotalDays <= 45 ? "PRESALE" : "UPCOMING";
+                }
+                else if (now <= session.SaleEndTime)
+                {
+                    session.SessionStatus = "ONSALE";
+                }
+                else
+                {
+                    session.SessionStatus = "UPCOMING";
+                }
             }
         }
 
@@ -404,11 +516,11 @@ namespace ShowtimeBackend.TestData
                     Description = $"{shuffledNames[i % shuffledNames.Count]} - 精彩演出，不容错过！" +
                                  $"{_faker.Lorem.Sentence(10)}",
                     DurationMinutes = new[] { 90, 120, 150, 180, 210 }[_random.Next(5)],
-                    PosterUrl = $"https://posters.example.com/show_{i + 1}_{Guid.NewGuid():N}.jpg",
+                    PosterUrl = $"https://picsum.photos/seed/show{i + 1}/600/900",
                     Status = statuses[_random.Next(statuses.Length)],
                     AuditStatus = auditStatuses[_random.Next(auditStatuses.Length)],
-                    AuditBy = _random.Next(0, 3) == 0 ? null : "admin_" + _random.Next(1, 5),
-                    AuditTime = _random.Next(0, 3) == 0 ? null : DateTime.Now.AddDays(-_random.Next(1, 60))
+                    AuditBy = _random.Next(0, 3) == 0 ? null : AdminUserName,
+                    AuditTime = _random.Next(0, 3) == 0 ? null : DateTime.UtcNow.AddDays(-_random.Next(1, 60))
                 });
             }
             return shows;
@@ -444,7 +556,7 @@ namespace ShowtimeBackend.TestData
         private List<ShowSession> GenerateShowSessions(List<Show> shows, List<SeatMap> seatMaps)
         {
             var showSessions = new List<ShowSession>();
-            var statuses = new[] { "UPCOMING", "PRESALE", "ONSALE", "ONSALE", "SOLD_OUT", "ENDED" };
+            var now = DateTime.UtcNow;
 
             foreach (var show in shows)
             {
@@ -456,25 +568,47 @@ namespace ShowtimeBackend.TestData
 
                 for (int i = 0; i < sessionCount; i++)
                 {
-                    DateTime baseDate;
+                    var seatMap = availableSeatMaps[_random.Next(availableSeatMaps.Count)];
+                    var duration = show.DurationMinutes ?? 120;
 
-                    if (_random.Next(0, 2) == 0)
+                    DateTime startTime;
+                    DateTime saleStartTime;
+                    DateTime saleEndTime;
+
+                    // 时间线贴近“今天”：约 1/3 已结束、2/3 未来，未来场次保证有正在开售/预售的窗口
+                    int horizon = _random.Next(0, 10);
+                    if (horizon < 3)
                     {
-                        baseDate = DateTime.Now.AddDays(_random.Next(-30, 10));
+                        // 已结束场次：历史订单/核销数据用
+                        startTime = now.Date.AddDays(-_random.Next(5, 70)).AddHours(_random.Next(14, 21));
+                        saleStartTime = startTime.AddDays(-_random.Next(20, 45));
+                        saleEndTime = startTime.AddHours(-_random.Next(1, 4));
+                    }
+                    else if (horizon < 6)
+                    {
+                        // 近期开演：已开售（ONSALE）
+                        startTime = now.Date.AddDays(_random.Next(1, 25)).AddHours(_random.Next(14, 21));
+                        saleStartTime = startTime.AddDays(-_random.Next(15, 45));
+                        saleEndTime = startTime.AddHours(-1);
+                    }
+                    else if (horizon < 8)
+                    {
+                        // 中期：已开售或预售
+                        startTime = now.Date.AddDays(_random.Next(26, 60)).AddHours(_random.Next(14, 21));
+                        saleStartTime = _random.Next(0, 2) == 0
+                            ? startTime.AddDays(-_random.Next(15, 30))
+                            : now.Date.AddDays(_random.Next(1, 14));
+                        saleEndTime = startTime.AddHours(-1);
                     }
                     else
                     {
-                        baseDate = DateTime.Now.AddDays(_random.Next(10, 90));
+                        // 远期：未开售
+                        startTime = now.Date.AddDays(_random.Next(61, 130)).AddHours(_random.Next(14, 21));
+                        saleStartTime = startTime.AddDays(-_random.Next(30, 60));
+                        saleEndTime = startTime.AddHours(-1);
                     }
 
-                    var startTime = baseDate.Date.AddHours(_random.Next(14, 21));
-                    var duration = show.DurationMinutes ?? 120;
                     var endTime = startTime.AddMinutes(duration + _random.Next(0, 15));
-
-                    var saleStart = startTime.AddDays(-_random.Next(7, 30));
-                    var saleEnd = startTime.AddDays(-_random.Next(1, 7));
-
-                    var seatMap = availableSeatMaps[_random.Next(availableSeatMaps.Count)];
 
                     showSessions.Add(new ShowSession
                     {
@@ -482,9 +616,9 @@ namespace ShowtimeBackend.TestData
                         SeatMapId = seatMap.SeatMapId,
                         StartTime = startTime,
                         EndTime = endTime,
-                        SaleStartTime = saleStart,
-                        SaleEndTime = saleEnd,
-                        SessionStatus = statuses[_random.Next(statuses.Length)]
+                        SaleStartTime = saleStartTime,
+                        SaleEndTime = saleEndTime,
+                        SessionStatus = "UPCOMING"
                     });
                 }
             }
@@ -697,6 +831,7 @@ namespace ShowtimeBackend.TestData
             // (permCode, permName, resourceType, parentCode)  resourceType 对齐 DDL CK_PERMISSION_TYPE: MENU/BUTTON/API/DATA
             var permDefs = new[]
             {
+                // 系统/用户/角色
                 ("system:manage", "系统管理", "MENU", (string?)null),
                 ("user:manage", "用户管理", "MENU", "system:manage"),
                 ("user:view", "用户查询", "API", "user:manage"),
@@ -704,18 +839,37 @@ namespace ShowtimeBackend.TestData
                 ("role:manage", "角色管理", "MENU", "system:manage"),
                 ("role:view", "角色查询", "API", "role:manage"),
                 ("role:edit", "角色编辑", "API", "role:manage"),
+                ("blacklist:manage", "用户黑名单", "API", "user:manage"),
+                ("log:view", "操作日志", "API", "system:manage"),
+                // 演出/分类/营销
                 ("show:manage", "演出管理", "MENU", null),
                 ("show:create", "演出创建", "API", "show:manage"),
                 ("show:edit", "演出编辑", "API", "show:manage"),
                 ("show:publish", "演出发布/审核", "API", "show:manage"),
+                ("marketing:manage", "营销内容管理", "MENU", "show:manage"),
+                ("marketing:edit", "营销内容编辑", "API", "marketing:manage"),
+                // 场次/票价/动态调价
                 ("session:manage", "场次管理", "MENU", null),
                 ("session:create", "场次排布", "API", "session:manage"),
                 ("session:status", "场次状态变更", "API", "session:manage"),
+                ("session:pricing", "动态调价规则", "API", "session:manage"),
+                // 座位/选座规则
                 ("seat:manage", "座位管理", "MENU", null),
                 ("seat:edit", "座位图编辑", "API", "seat:manage"),
+                ("seatRule:manage", "选座规则管理", "MENU", "seat:manage"),
+                ("seatRule:edit", "选座规则编辑", "API", "seatRule:manage"),
+                // 订单/退票/改签/电子票
                 ("order:manage", "订单管理", "MENU", null),
                 ("order:view", "订单查询", "API", "order:manage"),
-                ("order:refund", "订单退款", "API", "order:manage")
+                ("order:issue", "订单出票", "API", "order:manage"),
+                ("refund:manage", "退票管理", "MENU", "order:manage"),
+                ("refund:review", "退票审核", "API", "refund:manage"),
+                ("refund:policy", "退票策略管理", "API", "refund:manage"),
+                ("exchange:manage", "改签管理", "MENU", "order:manage"),
+                ("exchange:review", "改签审核", "API", "exchange:manage"),
+                ("exchange:policy", "改签策略管理", "API", "exchange:manage"),
+                ("ticket:manage", "电子票管理", "MENU", "order:manage"),
+                ("ticket:redeem", "电子票核销", "API", "ticket:manage")
             };
 
             var existingCodes = _context.Set<Permission>().Select(p => p.PermCode).ToHashSet();
@@ -790,10 +944,14 @@ namespace ShowtimeBackend.TestData
             Grant(operatorRole, "show:create");
             Grant(operatorRole, "show:edit");
             Grant(operatorRole, "show:publish");
+            Grant(operatorRole, "marketing:manage");
+            Grant(operatorRole, "marketing:edit");
             Grant(operatorRole, "session:manage");
             Grant(operatorRole, "session:create");
             Grant(operatorRole, "session:status");
+            Grant(operatorRole, "session:pricing");
             Grant(operatorRole, "order:view");
+            Grant(operatorRole, "ticket:redeem");
             Grant(userRole, "user:view");
 
             _context.SaveChanges();
@@ -829,7 +987,8 @@ namespace ShowtimeBackend.TestData
         {
             Console.WriteLine();
             Console.WriteLine("=== Data Generation Statistics ===");
-            Console.WriteLine($"  ROLE:              {_context.Set<Role>().Count()}");
+            Console.WriteLine($"  ORG_STRUCTURE:      {_context.Set<OrgStructure>().Count()}");
+            Console.WriteLine($"  ROLE:               {_context.Set<Role>().Count()}");
             Console.WriteLine($"  SYS_USER:          {_context.Set<SysUser>().Count()}");
             Console.WriteLine($"  USER_ROLE:         {_context.Set<UserRole>().Count()}");
             Console.WriteLine($"  PERMISSION:        {_context.Set<Permission>().Count()}");
@@ -845,7 +1004,23 @@ namespace ShowtimeBackend.TestData
             Console.WriteLine($"  SHOW_TAG:          {_context.Set<ShowTag>().Count()}");
             Console.WriteLine($"  SHOW_SESSION:      {_context.Set<ShowSession>().Count()}");
             Console.WriteLine($"  PRICE_STRATEGY:    {_context.Set<PriceStrategy>().Count()}");
-            Console.WriteLine($"  PURCHASE_LIMIT:    {_context.Set<PurchaseLimit>().Count()}");
+            Console.WriteLine($"  PURCHASE_LIMIT:     {_context.Set<PurchaseLimit>().Count()}");
+            Console.WriteLine($"  MARKETING_CONTENT:  {_context.Set<MarketingContent>().Count()}");
+            Console.WriteLine($"  DYNAMIC_PRICING:    {_context.Set<DynamicPricingRule>().Count()}");
+            Console.WriteLine($"  SEAT_RULE:          {_context.Set<SeatRule>().Count()}");
+            Console.WriteLine($"  SEAT_RULE_SCOPE:    {_context.Set<SeatRuleScope>().Count()}");
+            Console.WriteLine($"  REFUND_POLICY:      {_context.Set<RefundPolicy>().Count()}");
+            Console.WriteLine($"  EXCHANGE_POLICY:    {_context.Set<ExchangePolicy>().Count()}");
+            Console.WriteLine($"  SEAT_LOCK:          {_context.Set<SeatLock>().Count()}");
+            Console.WriteLine($"  SEAT_RESERVATION:   {_context.Set<SeatReservation>().Count()}");
+            Console.WriteLine($"  T_ORDER:            {_context.Set<Order>().Count()}");
+            Console.WriteLine($"  ORDER_ITEM:         {_context.Set<OrderItem>().Count()}");
+            Console.WriteLine($"  PAYMENT:            {_context.Set<Payment>().Count()}");
+            Console.WriteLine($"  E_TICKET:           {_context.Set<ETicket>().Count()}");
+            Console.WriteLine($"  REFUND_REQUEST:     {_context.Set<RefundRequest>().Count()}");
+            Console.WriteLine($"  REFUND_ITEM:        {_context.Set<RefundItem>().Count()}");
+            Console.WriteLine($"  EXCHANGE_REQUEST:   {_context.Set<ExchangeRequest>().Count()}");
+            Console.WriteLine($"  EXCHANGE_ITEM:      {_context.Set<ExchangeItem>().Count()}");
             Console.WriteLine("================================================");
         }
 

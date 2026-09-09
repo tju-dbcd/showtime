@@ -124,6 +124,83 @@
   color: #1a1a2e;
 }
 
+.detail-section h2 img {
+  height: 20px;
+  width: auto;
+  margin-right: 8px;
+  vertical-align: -3px;
+}
+
+/* 演出详情信息面板（Descriptions） */
+.show-info-descriptions {
+  background: #fafafa;
+  border-radius: 12px;
+}
+
+.show-info-descriptions .ant-descriptions-item-label {
+  min-width: 96px;
+  font-weight: 500;
+}
+
+.show-name-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+/* ========== 营销内容：公告/广告/推广 ========== */
+.marketing-item {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 14px 0;
+  border-bottom: 1px dashed #f0f0f0;
+}
+
+.marketing-item:last-child {
+  border-bottom: none;
+}
+
+.marketing-img {
+  width: 180px;
+  height: 110px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.marketing-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.marketing-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.marketing-text {
+  margin: 8px 0 0;
+  color: #666;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 768px) {
+  .marketing-item {
+    flex-direction: column;
+  }
+  .marketing-img {
+    width: 100%;
+    height: auto;
+    max-height: 180px;
+  }
+}
+
 /* 轮播图 */
 .detail-gallery {
   max-width: 800px;

@@ -15,6 +15,17 @@ public record CreateShowSessionRequest(
 );
 
 /// <summary>
+/// 编辑场次基础排期信息请求 DTO
+/// </summary>
+public record UpdateShowSessionRequest(
+    DateTime StartTime,
+    DateTime EndTime,
+    DateTime SaleStartTime,
+    DateTime SaleEndTime,
+    long SeatMapId
+);
+
+/// <summary>
 /// 配置基础票价策略请求 DTO
 /// </summary>
 public record CreatePriceStrategyRequest(
@@ -25,7 +36,8 @@ public record CreatePriceStrategyRequest(
     DateTime? SaleStartTime = null,
     DateTime? SaleEndTime = null,
     int Priority = 0,
-    int? Quota = null
+    int? Quota = null,
+    PriceStrategyStatus Status = PriceStrategyStatus.ENABLED
 );
 
 /// <summary>

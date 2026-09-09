@@ -13,7 +13,9 @@ const Layout = () => {
     <div className="layout-container">
       <header className="header-nav">
         <div className="nav-content">
-          <div className="logo" onClick={() => navigate('/')}>🎫 ShowTime</div>
+          <div className="logo" onClick={() => navigate('/')}>
+            <img src="/logo.png" alt="ShowTime" />
+          </div>
           <div className="nav-links">
             <span
               className={location.pathname === '/' ? 'active' : ''}
@@ -22,16 +24,10 @@ const Layout = () => {
               首页
             </span>
             <span
-              className={location.pathname === '/search' ? 'active' : ''}
+              className={location.pathname === '/search' || location.pathname.startsWith('/performance/') ? 'active' : ''}
               onClick={() => navigate('/search')}
             >
               演出列表
-            </span>
-            <span
-              className={location.pathname.startsWith('/performance/') ? 'active' : ''}
-              onClick={() => navigate('/search')}
-            >
-              演出详情
             </span>
             <span
               className={location.pathname === '/order' ? 'active' : ''}

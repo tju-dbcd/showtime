@@ -1,34 +1,31 @@
 import { useState, useEffect } from 'react';
 import { useUser } from '@/context/UserContext';
 import { useNavigate } from 'react-router-dom';
-import { Layout, Menu, Avatar, Typography, Button, Form, Input, Modal, message, Table, Tag, Divider, Card } from 'antd';
+import { Layout, Menu, Avatar, Typography, Button, Form, Input, Modal, message, Divider, Card, Empty } from 'antd';
 import {
   UserOutlined,
   LockOutlined,
   IdcardOutlined,
-  UnorderedListOutlined,
-  HomeOutlined,
   LogoutOutlined,
-  PlusOutlined,
-  DeleteOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
-import type { Address } from '@/mock/user';
 import FileUploader from '@/components/FileUploader';
 import { updateAvatar } from '@/api/user';
+import { userAPI } from '@/api/requests';
+import type { components } from '@/api/types';
 import './UserCenter.css';
 
 const { Sider, Content } = Layout;
 const { Title, Text } = Typography;
+type RealName = components['schemas']['UserRealNameResponse'];
 
 // 菜单项配置
-const menuItems = [
+const baseMenuItems = [
   { key: 'profile', icon: <UserOutlined />, label: '个人资料' },
   { key: 'security', icon: <LockOutlined />, label: '账号安全' },
   { key: 'verify', icon: <IdcardOutlined />, label: '实名认证' },
-  { key: 'orders', icon: <UnorderedListOutlined  />, label: '我的订单' },
-  { key: 'address', icon: <HomeOutlined />, label: '收货地址' },
   { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', danger: true },
 ];
 
@@ -36,12 +33,18 @@ const UserCenter = () => {
   const navigate = useNavigate();
   const [selectedKey, setSelectedKey] = useState('profile');
   const { user, updateUser } = useUser();
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
+  // 管理端入口：仅 Admin 角色可见
+  const isAdmin = Array.isArray(user.roles) && user.roles.includes('Admin');
+  const menuItems = [
+    ...baseMenuItems.slice(0, 3),
+    ...(isAdmin ? [{ key: 'admin', icon: <SettingOutlined />, label: '管理后台' }] : []),
+    ...baseMenuItems.slice(3),
+  ];
   const [avatarUpdating, setAvatarUpdating] = useState(false);
-  const [editingAddress, setEditingAddress] = useState<Address | null>(null);
-  const [form] = Form.useForm();
-  const [addressForm] = Form.useForm();
+  const [realNames, setRealNames] = useState<RealName[]>([]);
+  const [realNameModalOpen, setRealNameModalOpen] = useState(false);
+  const [editingRealName, setEditingRealName] = useState<RealName | null>(null);
+  const [realNameForm] = Form.useForm();
 
   // 检查登录状态
   useEffect(() => {
@@ -50,6 +53,18 @@ const UserCenter = () => {
       navigate('/login');
     }
   }, [navigate]);
+
+  useEffect(() => {
+    const loadRealNames = async () => {
+      const { data, error } = await userAPI.listRealNames();
+      if (error || !data?.success) {
+        message.error(data?.message || '实名认证信息加载失败');
+        return;
+      }
+      setRealNames((data.data || []) as RealName[]);
+    };
+    void loadRealNames();
+  }, []);
 
   // 头像经 OSS 上传后先调后端持久化（AVATAR_URL），成功再更新本地 context/localStorage，刷新后仍显示。
   const handleAvatarChange = async (url?: string) => {
@@ -64,6 +79,59 @@ const UserCenter = () => {
     } finally {
       setAvatarUpdating(false);
     }
+  };
+
+  const openRealNameModal = (realName: RealName | null) => {
+    setEditingRealName(realName);
+    realNameForm.setFieldsValue(realName ? { realName: realName.realName, idCardNo: '' } : {});
+    setRealNameModalOpen(true);
+  };
+
+  const refreshRealNames = async () => {
+    const { data } = await userAPI.listRealNames();
+    if (data?.success) setRealNames((data.data || []) as RealName[]);
+  };
+
+  const handleRealNameSubmit = async (values: { realName: string; idCardNo: string }) => {
+    const result = editingRealName
+      ? await userAPI.updateRealName(Number(editingRealName.realNameId), values)
+      : await userAPI.createRealName({ ...values, isDefault: realNames.length === 0 });
+    if (result.error || !result.data?.success) {
+      message.error(result.data?.message || '实名认证保存失败');
+      return;
+    }
+    message.success(editingRealName ? '实名认证已更新' : '实名认证已添加');
+    setRealNameModalOpen(false);
+    realNameForm.resetFields();
+    await refreshRealNames();
+  };
+
+  const setDefaultRealName = async (realNameId: number) => {
+    const { data, error } = await userAPI.setDefaultRealName(realNameId);
+    if (error || !data?.success) {
+      message.error(data?.message || '设置默认实名失败');
+      return;
+    }
+    await refreshRealNames();
+  };
+
+  const deleteRealName = async (realNameId: number) => {
+    const confirmed = await new Promise<boolean>((resolve) => {
+      Modal.confirm({
+        title: '确认删除实名认证？',
+        content: '删除后如需使用实名购票，需要重新添加实名信息。',
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
+    if (!confirmed) return;
+    const { data, error } = await userAPI.deleteRealName(realNameId);
+    if (error || !data?.success) {
+      message.error(data?.message || '删除实名认证失败');
+      return;
+    }
+    message.success('实名认证已删除');
+    await refreshRealNames();
   };
 
   // 渲染个人资料
@@ -89,9 +157,6 @@ const UserCenter = () => {
           <div className="detail-row">
             <span className="label">昵称</span>
             <span className="value">{user.nickname || user.username || '用户'}</span>
-            <Button type="link" size="small" onClick={() => setIsEditModalOpen(true)}>
-              编辑
-            </Button>
           </div>
           <div className="detail-row">
             <span className="label">用户名</span>
@@ -100,16 +165,10 @@ const UserCenter = () => {
           <div className="detail-row">
             <span className="label">手机号</span>
             <span className="value">{user.phone}</span>
-            <Button type="link" size="small" onClick={() => setIsEditModalOpen(true)}>
-              修改
-            </Button>
           </div>
           <div className="detail-row">
             <span className="label">邮箱</span>
             <span className="value">{user.email}</span>
-            <Button type="link" size="small" onClick={() => setIsEditModalOpen(true)}>
-              修改
-            </Button>
           </div>
         </div>
       </div>
@@ -121,32 +180,16 @@ const UserCenter = () => {
     <div className="uc-content">
       <Title level={3}>账号安全</Title>
       <Divider />
-      <Card title="修改密码" className="security-card">
-        <Form layout="vertical">
-          <Form.Item label="当前密码" required>
-            <Input.Password placeholder="请输入当前密码" />
-          </Form.Item>
-          <Form.Item label="新密码" required>
-            <Input.Password placeholder="请输入新密码（至少6位）" />
-          </Form.Item>
-          <Form.Item label="确认新密码" required>
-            <Input.Password placeholder="请再次输入新密码" />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary">确认修改</Button>
-          </Form.Item>
-        </Form>
-      </Card>
       <Card title="绑定手机" className="security-card">
         <div className="bind-info">
           <Text>已绑定手机：{user.phone}</Text>
-          <Button type="link">更换绑定</Button>
+          <Button type="link" disabled>更换绑定</Button>
         </div>
       </Card>
       <Card title="绑定邮箱" className="security-card">
         <div className="bind-info">
           <Text>已绑定邮箱：{user.email}</Text>
-          <Button type="link">更换绑定</Button>
+          <Button type="link" disabled>更换绑定</Button>
         </div>
       </Card>
     </div>
@@ -160,7 +203,7 @@ const UserCenter = () => {
       <Card className="verify-card">
         <div className="verify-status">
           <div className="status-icon">
-            {user.isVerified ? (
+            {realNames.some((item) => item.isVerified) ? (
               <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 48 }} />
             ) : (
               <CloseCircleOutlined style={{ color: '#ff4d4f', fontSize: 48 }} />
@@ -168,10 +211,10 @@ const UserCenter = () => {
           </div>
           <div className="status-text">
             <Title level={4}>
-              {user.isVerified ? '已实名认证' : '未实名认证'}
+              {realNames.some((item) => item.isVerified) ? '已实名认证' : '未实名认证'}
             </Title>
             <Text type="secondary">
-              {user.isVerified
+              {realNames.some((item) => item.isVerified)
                 ? '您已完成实名认证，可使用全部功能'
                 : '请完善实名信息以使用更多功能'}
             </Text>
@@ -179,112 +222,19 @@ const UserCenter = () => {
         </div>
         <Divider />
         <div className="verify-info">
-          <div className="detail-row">
-            <span className="label">真实姓名</span>
-            <span className="value">{user.isVerified ? user.realName : '****'}</span>
-          </div>
-          <div className="detail-row">
-            <span className="label">身份证号</span>
-            <span className="value">
-              {user.isVerified
-                ? `${user.idCard.slice(0, 6)}********${user.idCard.slice(-4)}`
-                : '******************'}
-            </span>
-          </div>
-        </div>
-        {!user.isVerified && (
-          <Button type="primary" block style={{ marginTop: 16 }}>
-            去认证
-          </Button>
-        )}
-      </Card>
-    </div>
-  );
-
-  // 渲染我的订单
-  const renderOrders = () => (
-    <div className="uc-content">
-      <div className="orders-header">
-        <Title level={3}>我的订单</Title>
-        <Button type="link" onClick={() => navigate('/order')}>
-          查看全部 &gt;
-        </Button>
-      </div>
-      <Divider />
-      <Table
-        columns={[
-          { title: '订单号', dataIndex: 'id', key: 'id', width: 160 },
-          { title: '演出名称', dataIndex: 'eventName', key: 'eventName', width: 200 },
-          { title: '座位', dataIndex: 'seats', key: 'seats', width: 140 },
-          { title: '金额', dataIndex: 'amount', key: 'amount', render: (v) => `¥${v}` },
-          {
-            title: '状态',
-            dataIndex: 'status',
-            key: 'status',
-            render: (s) => {
-              const map = { paid: '已支付', pending: '待支付', cancelled: '已取消' };
-              const color = { paid: 'green', pending: 'orange', cancelled: 'red' };
-              return <Tag color={color[s as keyof typeof color]}>{map[s as keyof typeof map]}</Tag>;
-            },
-          },
-        ]}
-        rowKey="id"
-        pagination={false}
-        size="small"
-      />
-    </div>
-  );
-
-  // 渲染收货地址
-  const renderAddress = () => (
-    <div className="uc-content">
-      <div className="address-header">
-        <Title level={3}>收货地址</Title>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => {
-            setEditingAddress(null);
-            addressForm.resetFields();
-            setIsAddressModalOpen(true);
-          }}
-        >
-          新增地址
-        </Button>
-      </div>
-      <Divider />
-      <div className="address-list">
-        {user.addressList.map((addr) => (
-          <Card key={addr.id} className="address-card" size="small">
-            <div className="address-item">
-              <div className="addr-info">
-                <Text strong>{addr.name}</Text>
-                <Text style={{ marginLeft: 12 }}>{addr.phone}</Text>
-                {addr.isDefault && <Tag color="blue" style={{ marginLeft: 12 }}>默认</Tag>}
-                <div style={{ marginTop: 4, color: '#666' }}>
-                  {addr.province} {addr.city} {addr.district} {addr.detail}
-                </div>
-              </div>
-              <div className="addr-actions">
-                <Button
-                  type="link"
-                  size="small"
-                  onClick={() => {
-                    setEditingAddress(addr);
-                    addressForm.setFieldsValue(addr);
-                    setIsAddressModalOpen(true);
-                  }}
-                >
-                  编辑
-                </Button>
-                <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-                  删除
-                </Button>
-              </div>
+          {realNames.length === 0 && <Empty description="暂无实名信息" />}
+          {realNames.map((item) => (
+            <div className="detail-row" key={String(item.realNameId)}>
+              <span className="label">{item.realName}{item.isDefault ? '（默认）' : ''}</span>
+              <span className="value">{item.maskedIdCardNo}</span>
+              <Button type="link" size="small" onClick={() => void setDefaultRealName(Number(item.realNameId))} disabled={item.isDefault}>设为默认</Button>
+              {!item.isVerified && <Button type="link" size="small" onClick={() => openRealNameModal(item)}>编辑</Button>}
+              <Button type="link" size="small" danger onClick={() => void deleteRealName(Number(item.realNameId))}>删除</Button>
             </div>
-          </Card>
-        ))}
-      </div>
+          ))}
+        </div>
+        <Button type="primary" block style={{ marginTop: 16 }} onClick={() => openRealNameModal(null)}>新增实名认证</Button>
+      </Card>
     </div>
   );
 
@@ -294,46 +244,12 @@ const UserCenter = () => {
       title: '确认退出',
       content: '确定要退出登录吗？',
       onOk: () => {
-        localStorage.removeItem('token');
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('user');
         message.success('已退出登录');
         navigate('/login');
       },
     });
-  };
-
-  // 编辑个人资料弹窗
-  const handleEditProfile = (values: any) => {
-    updateUser({
-      ...user,
-      nickname: values.nickname,
-      phone: values.phone,
-      email: values.email,
-    });
-    setIsEditModalOpen(false);
-    message.success('个人信息已更新');
-  };
-
-  // 地址弹窗确认
-  const handleAddressSubmit = (values: any) => {
-    if (editingAddress) {
-      // 编辑
-      const updated = user.addressList.map((a) =>
-        a.id === editingAddress.id ? { ...a, ...values } : a
-      );
-      updateUser({ ...user, addressList: updated });
-      message.success('地址已更新');
-    } else {
-      // 新增
-      const newAddress: Address = {
-        id: Date.now(),
-        ...values,
-        isDefault: false,
-      };
-      updateUser({ ...user, addressList: [...user.addressList, newAddress] });
-      message.success('地址已添加');
-    }
-    setIsAddressModalOpen(false);
-    addressForm.resetFields();
   };
 
   // 根据选中菜单渲染内容
@@ -345,10 +261,6 @@ const UserCenter = () => {
         return renderSecurity();
       case 'verify':
         return renderVerify();
-      case 'orders':
-        return renderOrders();
-      case 'address':
-        return renderAddress();
       case 'logout':
         handleLogout();
         return null;
@@ -362,11 +274,10 @@ const UserCenter = () => {
       {/* 顶部返回栏（取代导航栏） */}
       <div className="uc-topbar">
         <div className="uc-topbar-content">
-          <span className="uc-logo" onClick={() => navigate('/')}>
-            🎫 ShowTime
-          </span>
+          <img className="uc-logo" src="/logo.png" alt="ShowTime" onClick={() => navigate('/')} />
           <span className="uc-back" onClick={() => navigate('/')}>
-            ← 返回首页
+            <img className="uc-back-icon" src="/return.png" alt="" />
+            返回首页
           </span>
         </div>
       </div>
@@ -389,7 +300,9 @@ const UserCenter = () => {
               label: item.label,
               danger: item.danger,
               onClick: () => {
-                if (item.key === 'logout') {
+                if (item.key === 'admin') {
+                  navigate('/admin');
+                } else if (item.key === 'logout') {
                   handleLogout();
                 } else {
                   setSelectedKey(item.key);
@@ -405,93 +318,28 @@ const UserCenter = () => {
         </Content>
       </Layout>
 
-      {/* 编辑个人资料弹窗 */}
+      {/* 实名认证弹窗 */}
       <Modal
-        title="编辑个人资料"
-        open={isEditModalOpen}
-        onCancel={() => setIsEditModalOpen(false)}
+        title={editingRealName ? '编辑实名认证' : '新增实名认证'}
+        open={realNameModalOpen}
+        onCancel={() => setRealNameModalOpen(false)}
         footer={null}
         destroyOnClose
       >
         <Form
-          form={form}
+          form={realNameForm}
           layout="vertical"
-          initialValues={{
-            nickname: user.nickname,
-            phone: user.phone,
-            email: user.email,
-          }}
-          onFinish={handleEditProfile}
+          onFinish={handleRealNameSubmit}
         >
-          <Form.Item
-            label="昵称"
-            name="nickname"
-            rules={[{ required: true, message: '请输入昵称' }]}
-          >
+          <Form.Item label="真实姓名" name="realName" rules={[{ required: true, message: '请输入真实姓名' }]}>
             <Input />
           </Form.Item>
-          <Form.Item
-            label="手机号"
-            name="phone"
-            rules={[
-              { required: true, message: '请输入手机号' },
-              { pattern: /^1\d{10}$/, message: '请输入正确的手机号' },
-            ]}
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item
-            label="邮箱"
-            name="email"
-            rules={[
-              { required: true, message: '请输入邮箱' },
-              { type: 'email', message: '请输入正确的邮箱格式' },
-            ]}
-          >
+          <Form.Item label="身份证号" name="idCardNo" rules={[{ required: true, message: '请输入身份证号' }]}>
             <Input />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block>
-              保存修改
-            </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* 地址弹窗 */}
-      <Modal
-        title={editingAddress ? '编辑地址' : '新增地址'}
-        open={isAddressModalOpen}
-        onCancel={() => setIsAddressModalOpen(false)}
-        footer={null}
-        destroyOnClose
-      >
-        <Form
-          form={addressForm}
-          layout="vertical"
-          onFinish={handleAddressSubmit}
-        >
-          <Form.Item label="收货人" name="name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item label="手机号" name="phone" rules={[{ required: true, pattern: /^1\d{10}$/ }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item label="省份" name="province" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item label="城市" name="city" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item label="区/县" name="district" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item label="详细地址" name="detail" rules={[{ required: true }]}>
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" block>
-              {editingAddress ? '更新地址' : '添加地址'}
+              保存实名认证
             </Button>
           </Form.Item>
         </Form>

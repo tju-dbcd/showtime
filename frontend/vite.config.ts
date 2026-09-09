@@ -27,6 +27,29 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      // SignalR 实时通知（WebSocket 走 ws 升级），与 /api 同源策略一致
+      '/hubs': {
+        target: devProxyTarget,
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+      },
+    },
+  },
+  build: {
+    rolldownOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('react-window')) return 'react-window';
+          if (id.includes('@microsoft/signalr')) return 'signalr';
+          if (id.includes('echarts')) return 'echarts';
+          if (id.includes('antd') || id.includes('@ant-design')) return 'antd';
+          if (id.includes('react-router')) return 'router';
+          if (id.includes('/react/') || id.includes('/react-dom/')) return 'react';
+          return 'vendor';
+        },
+      },
     },
   },
 });

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Table,
   Select,
@@ -15,9 +16,14 @@ import {
   getAdminOrderList,
   getAdminOrderDetail,
   adminCancelOrder,
+  issueOrderTickets,
+  getRefundList,
+  getExchangeList,
   type AdminOrderSummary,
   type OrderDetail,
   type OrderStatus,
+  type RefundSummary,
+  type ExchangeSummary,
 } from '../../../api/admin'
 
 const orderStatusMap: Record<OrderStatus, { text: string; color: string }> = {
@@ -46,6 +52,10 @@ const Order = () => {
   const [detailVisible, setDetailVisible] = useState(false)
   const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [relatedRefunds, setRelatedRefunds] = useState<RefundSummary[]>([])
+  const [relatedExchanges, setRelatedExchanges] = useState<ExchangeSummary[]>([])
+  const [issuing, setIssuing] = useState(false)
+  const navigate = useNavigate()
 
   const loadData = async (page = 1, pageSize = 10) => {
     setLoading(true)
@@ -79,15 +89,53 @@ const Order = () => {
   const handleViewDetail = async (orderId: number) => {
     setDetailVisible(true)
     setDetailLoading(true)
+    setOrderDetail(null)
+    setRelatedRefunds([])
+    setRelatedExchanges([])
+    // 主详情与关联售后单分离：任一关联单接口异常不影响订单详情展示
     try {
-      const res = await getAdminOrderDetail(orderId)
-      if (res.data?.data) {
-        setOrderDetail(res.data.data)
+      const orderRes = await getAdminOrderDetail(orderId)
+      if (orderRes.data?.data) {
+        setOrderDetail(orderRes.data.data)
       }
     } catch {
       message.error('加载订单详情失败')
     } finally {
       setDetailLoading(false)
+    }
+    try {
+      const [refundRes, exchangeRes] = await Promise.all([
+        getRefundList({ OrderId: orderId, PageSize: 20 }),
+        getExchangeList({ OriginalOrderId: orderId, PageSize: 20 }),
+      ])
+      if (refundRes.data?.data) {
+        setRelatedRefunds(refundRes.data.data.items || [])
+      }
+      if (exchangeRes.data?.data) {
+        setRelatedExchanges(exchangeRes.data.data.items || [])
+      }
+    } catch {
+      // 关联退票/改签单加载失败不阻断主详情
+    }
+  }
+
+  const handleIssue = async (orderId: number) => {
+    setIssuing(true)
+    try {
+      const res = await issueOrderTickets(orderId)
+      if (res.error) {
+        message.error('补出票失败')
+        return
+      }
+      message.success('补出票成功')
+      loadData(pagination.current, pagination.pageSize)
+      if (detailVisible) {
+        handleViewDetail(orderId)
+      }
+    } catch {
+      message.error('补出票失败')
+    } finally {
+      setIssuing(false)
     }
   }
 
@@ -183,6 +231,18 @@ const Order = () => {
               </Button>
             </Popconfirm>
           )}
+          {(record.orderStatus === 'PAID' || record.orderStatus === 'ISSUED') && (
+            <Popconfirm
+              title="确定为该订单补出票吗？"
+              onConfirm={() => handleIssue(Number(record.orderId))}
+              okText="确定"
+              cancelText="取消"
+            >
+              <Button type="link" size="small" disabled={issuing}>
+                补出票
+              </Button>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -237,10 +297,23 @@ const Order = () => {
         onCancel={() => setDetailVisible(false)}
         width={700}
         footer={[
+          (orderDetail?.orderStatus === 'PAID' || orderDetail?.orderStatus === 'ISSUED') && (
+            <Popconfirm
+              key="issue"
+              title="确定为该订单补出票吗？"
+              onConfirm={() => handleIssue(Number(orderDetail.orderId))}
+              okText="确定"
+              cancelText="取消"
+            >
+              <Button type="primary" loading={issuing}>
+                补出票
+              </Button>
+            </Popconfirm>
+          ),
           <Button key="close" onClick={() => setDetailVisible(false)}>
             关闭
           </Button>,
-        ]}
+        ].filter(Boolean)}
       >
         {detailLoading ? (
           <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div>
@@ -303,6 +376,82 @@ const Order = () => {
                     },
                   ]}
                 />
+              </div>
+            )}
+
+            {(relatedRefunds.length > 0 || relatedExchanges.length > 0) && (
+              <div style={{ marginTop: 16 }}>
+                <h4>关联售后单</h4>
+                {relatedRefunds.length > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <strong>退票单：</strong>
+                    <Table
+                      dataSource={relatedRefunds}
+                      rowKey="refundId"
+                      size="small"
+                      pagination={false}
+                      columns={[
+                        { title: '退票单号', dataIndex: 'refundNo', key: 'refundNo' },
+                        {
+                          title: '审核状态',
+                          dataIndex: 'approveStatus',
+                          key: 'approveStatus',
+                          render: (s: string) => s === 'PENDING' ? <Tag color="warning">待审核</Tag> : s === 'APPROVED' ? <Tag color="success">已通过</Tag> : <Tag color="error">已驳回</Tag>,
+                        },
+                        {
+                          title: '退款状态',
+                          dataIndex: 'refundStatus',
+                          key: 'refundStatus',
+                          render: (s: string) => s,
+                        },
+                        {
+                          title: '操作',
+                          key: 'action',
+                          render: () => (
+                            <Button type="link" size="small" onClick={() => navigate('/admin/refund')}>
+                              去审核/查看
+                            </Button>
+                          ),
+                        },
+                      ]}
+                    />
+                  </div>
+                )}
+                {relatedExchanges.length > 0 && (
+                  <div>
+                    <strong>改签单：</strong>
+                    <Table
+                      dataSource={relatedExchanges}
+                      rowKey="exchangeId"
+                      size="small"
+                      pagination={false}
+                      columns={[
+                        { title: '改签单号', dataIndex: 'exchangeNo', key: 'exchangeNo' },
+                        {
+                          title: '审核状态',
+                          dataIndex: 'approveStatus',
+                          key: 'approveStatus',
+                          render: (s: string) => s === 'PENDING' ? <Tag color="warning">待审核</Tag> : s === 'APPROVED' ? <Tag color="success">已通过</Tag> : <Tag color="error">已驳回</Tag>,
+                        },
+                        {
+                          title: '换票状态',
+                          dataIndex: 'exchangeStatus',
+                          key: 'exchangeStatus',
+                          render: (s: string) => s,
+                        },
+                        {
+                          title: '操作',
+                          key: 'action',
+                          render: () => (
+                            <Button type="link" size="small" onClick={() => navigate('/admin/exchange')}>
+                              去审核/查看
+                            </Button>
+                          ),
+                        },
+                      ]}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>

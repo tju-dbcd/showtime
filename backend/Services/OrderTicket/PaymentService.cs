@@ -11,7 +11,8 @@ public sealed class PaymentService(
     TimeProvider timeProvider,
     ITicketIssuanceService ticketIssuanceService,
     ILogger<PaymentService> logger,
-    IOrderTicketAuditSink auditSink) : IPaymentService
+    IOrderTicketAuditSink auditSink,
+    IOrderExpirationService orderExpirationService) : IPaymentService
 {
     public async Task<OrderTicketResult<IReadOnlyList<PaymentResponse>>> ListAsync(
         long userId,
@@ -86,23 +87,34 @@ public sealed class PaymentService(
 
             if (order.ExpireTime <= now)
             {
-                order.OrderStatus = OrderStatus.CANCELLED.ToDbString();
-                order.CancelTime = now;
-                order.UpdateBy = actor;
-                try
+                var outcome = await orderExpirationService.ExpireOrderAsync(
+                    order.OrderId,
+                    OrderExpirationService.SystemActor,
+                    now,
+                    cancellationToken);
+                if (outcome == OrderExpirationOutcome.Expired)
                 {
-                    await dbContext.SaveChangesAsync(cancellationToken);
-                }
-                catch (DbUpdateConcurrencyException)
-                {
-                    dbContext.ChangeTracker.Clear();
                     return Conflict(
-                        "ORDER_CANNOT_PAY",
-                        "The order status changed and it can no longer be paid.");
+                        "ORDER_EXPIRED",
+                        "The order has expired and was cancelled.");
                 }
+
+                dbContext.ChangeTracker.Clear();
+                var currentOrder = await LoadTrackedOrderAsync(
+                    userId,
+                    orderId,
+                    cancellationToken);
+                if (currentOrder?.Payments.Any(item =>
+                        item.PayStatus == PaymentStatus.SUCCESS.ToDbString()) == true)
+                {
+                    return Conflict(
+                        "PAYMENT_ALREADY_SUCCEEDED",
+                        "The order already has a successful payment.");
+                }
+
                 return Conflict(
-                    "ORDER_EXPIRED",
-                    "The order has expired and was cancelled.");
+                    "ORDER_CANNOT_PAY",
+                    "Only pending-payment orders can be paid.");
             }
 
             var payment = new Payment

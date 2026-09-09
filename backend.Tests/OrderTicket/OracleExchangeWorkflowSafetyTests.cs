@@ -67,6 +67,7 @@ public sealed class OracleExchangeWorkflowSafetyTests
         await ExecuteMigrationAsync(connection);
         try
         {
+            await OracleWorkflowFixture.CleanupWorkflowAsync(connection);
             await BreakMigrationBoundaryAsync(connection, boundary);
             await ExecuteMigrationAsync(connection);
             await AssertMigrationTerminalStateAsync(connection);
@@ -464,6 +465,7 @@ public sealed class OracleExchangeWorkflowSafetyTests
             return (await order.CreateAsync(
                 fixture.UserId,
                 "oracle-order-racer",
+                "oracle-order-race-key",
                 new CreateOrderRequest(
                     OracleWorkflowFixture.TargetSessionId,
                     [new CreateOrderItemRequest(
@@ -804,7 +806,7 @@ public sealed class OracleExchangeWorkflowSafetyTests
 
         var builder = new OracleConnectionStringBuilder(raw)
         {
-            Pooling = false,
+            Pooling = true,
             ConnectionTimeout = 20,
         };
         var configured = ValidatePersonalSchema(builder.UserID);
@@ -857,10 +859,12 @@ public sealed class OracleExchangeWorkflowSafetyTests
             "INSERT INTO T_ORDER (" +
             "ORDER_ID, ORDER_NO, USER_ID, SESSION_ID, ORDER_TYPE, TOTAL_AMOUNT, " +
             "DISCOUNT_AMOUNT, TICKET_COUNT, ORDER_STATUS, EXPIRE_TIME, SOURCE, " +
-            "CREATE_BY, UPDATE_BY) VALUES (" +
+            "IDEMPOTENCY_KEY, IDEMPOTENCY_REQUEST_HASH, CREATE_BY, UPDATE_BY) VALUES (" +
             ":orderId, 'ORACLE-EXCHANGE-GATE-998810001', :userId, :sessionId, " +
             "'NORMAL', 1.00, 0.00, 1, 'PAID', SYSTIMESTAMP + INTERVAL '1' DAY, " +
-            "'WEB', 'oracle-exchange-gate', 'oracle-exchange-gate')",
+            "'WEB', 'oracle-exchange-lock-gate', " +
+            "'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', " +
+            "'oracle-exchange-gate', 'oracle-exchange-gate')",
             ("orderId", OracleDbType.Int64, (object)OrderId),
             ("userId", OracleDbType.Int64, userId),
             ("sessionId", OracleDbType.Int64, (object)SessionId));
@@ -1219,6 +1223,8 @@ public sealed class OracleExchangeWorkflowSafetyTests
                         PayTime = now.AddDays(-1),
                         IssueTime = now.AddDays(-1),
                         Source = "WEB",
+                        IdempotencyKey = "oracle-exchange-workflow-root",
+                        IdempotencyRequestHash = new string('C', 64),
                         CreateBy = "oracle-gate",
                         UpdateBy = "oracle-gate",
                     },
@@ -1357,33 +1363,95 @@ public sealed class OracleExchangeWorkflowSafetyTests
             await connection.DisposeAsync();
         }
 
-        private static async Task CleanupWorkflowAsync(OracleConnection connection)
+        public static async Task CleanupWorkflowAsync(OracleConnection connection)
         {
-            await ExecuteAsync(connection, "ROLLBACK");
+            const string ownedOrders =
+                "ORDER_ID = 998820001 OR PARENT_ORDER_ID = 998820001 OR " +
+                "(SESSION_ID = 998820002 AND CREATE_BY = 'oracle-order-racer')";
+            const string ownedOrderItems =
+                "SELECT ORDER_ITEM_ID FROM ORDER_ITEM WHERE ORDER_ID IN " +
+                $"(SELECT ORDER_ID FROM T_ORDER WHERE {ownedOrders})";
             string[] statements =
             [
-                "DELETE FROM E_TICKET WHERE ORDER_ITEM_ID IN (SELECT ORDER_ITEM_ID FROM ORDER_ITEM WHERE ORDER_ID = 998820001 OR ORDER_ID IN (SELECT ORDER_ID FROM T_ORDER WHERE PARENT_ORDER_ID = 998820001))",
-                "DELETE FROM SEAT_RESERVATION WHERE SEAT_LOCK_ID = 998820001 OR ORDER_ITEM_ID IN (SELECT ORDER_ITEM_ID FROM ORDER_ITEM WHERE ORDER_ID = 998820001 OR ORDER_ID IN (SELECT ORDER_ID FROM T_ORDER WHERE PARENT_ORDER_ID = 998820001))",
-                "DELETE FROM EXCHANGE_ITEM WHERE EXCHANGE_ID IN (SELECT EXCHANGE_ID FROM EXCHANGE_REQUEST WHERE ORDER_ID = 998820001)",
-                "DELETE FROM EXCHANGE_REQUEST WHERE ORDER_ID = 998820001",
-                "DELETE FROM PAYMENT WHERE ORDER_ID = 998820001 OR ORDER_ID IN (SELECT ORDER_ID FROM T_ORDER WHERE PARENT_ORDER_ID = 998820001)",
-                "DELETE FROM ORDER_ITEM WHERE ORDER_ID IN (SELECT ORDER_ID FROM T_ORDER WHERE SESSION_ID = 998820002 AND CREATE_BY = 'oracle-order-racer')",
-                "DELETE FROM ORDER_ITEM WHERE ORDER_ID IN (SELECT ORDER_ID FROM T_ORDER WHERE PARENT_ORDER_ID = 998820001)",
-                "DELETE FROM ORDER_ITEM WHERE ORDER_ID = 998820001",
-                "DELETE FROM T_ORDER WHERE SESSION_ID = 998820002 AND CREATE_BY = 'oracle-order-racer'",
+                "DELETE FROM REFUND_ITEM WHERE REFUND_ID IN " +
+                "(SELECT REFUND_ID FROM REFUND_REQUEST WHERE ORDER_ID IN " +
+                $"(SELECT ORDER_ID FROM T_ORDER WHERE {ownedOrders})) OR " +
+                $"ORDER_ITEM_ID IN ({ownedOrderItems})",
+                "DELETE FROM REFUND_REQUEST WHERE ORDER_ID IN " +
+                $"(SELECT ORDER_ID FROM T_ORDER WHERE {ownedOrders})",
+                "DELETE FROM EXCHANGE_ITEM WHERE EXCHANGE_ID IN " +
+                "(SELECT EXCHANGE_ID FROM EXCHANGE_REQUEST WHERE ORDER_ID IN " +
+                $"(SELECT ORDER_ID FROM T_ORDER WHERE {ownedOrders})) OR " +
+                $"ORDER_ITEM_ID IN ({ownedOrderItems})",
+                "DELETE FROM EXCHANGE_REQUEST WHERE ORDER_ID IN " +
+                $"(SELECT ORDER_ID FROM T_ORDER WHERE {ownedOrders})",
+                $"DELETE FROM E_TICKET WHERE ORDER_ITEM_ID IN ({ownedOrderItems})",
+                "DELETE FROM SEAT_RESERVATION WHERE SEAT_LOCK_ID = 998820001 OR " +
+                $"ORDER_ITEM_ID IN ({ownedOrderItems})",
+                "DELETE FROM PAYMENT WHERE ORDER_ID IN " +
+                $"(SELECT ORDER_ID FROM T_ORDER WHERE {ownedOrders})",
+                "DELETE FROM ORDER_ITEM WHERE ORDER_ID IN " +
+                $"(SELECT ORDER_ID FROM T_ORDER WHERE {ownedOrders})",
                 "DELETE FROM T_ORDER WHERE PARENT_ORDER_ID = 998820001",
-                "DELETE FROM T_ORDER WHERE ORDER_ID = 998820001",
-                "DELETE FROM SEAT_LOCK WHERE SEAT_LOCK_ID = 998820001",
-                "DELETE FROM PRICE_STRATEGY WHERE PRICE_STRATEGY_ID IN (998820001, 998820002)",
-                "DELETE FROM SEAT WHERE SEAT_ID IN (998820001, 998820002)",
-                "DELETE FROM EXCHANGE_POLICY WHERE POLICY_ID = 998820001",
-                "DELETE FROM REFUND_POLICY WHERE POLICY_ID = 998820002",
-                "DELETE FROM SEAT_SECTION WHERE SEAT_SECTION_ID = 998820001",
-                "DELETE FROM SHOW_SESSION WHERE SESSION_ID IN (998820001, 998820002)",
-                "COMMIT",
+                "DELETE FROM T_ORDER WHERE SESSION_ID = 998820002 " +
+                "AND CREATE_BY = 'oracle-order-racer'",
+                "DELETE FROM T_ORDER WHERE ORDER_ID = 998820001 " +
+                "AND CREATE_BY = 'oracle-gate'",
+                "DELETE FROM SEAT_LOCK WHERE SEAT_LOCK_ID = 998820001 " +
+                "AND CREATE_BY = 'oracle-gate'",
+                "DELETE FROM PRICE_STRATEGY WHERE PRICE_STRATEGY_ID IN " +
+                "(998820001, 998820002) AND CREATE_BY = 'oracle-gate'",
+                "DELETE FROM SEAT WHERE SEAT_ID IN (998820001, 998820002) " +
+                "AND CREATE_BY = 'oracle-gate'",
+                "DELETE FROM EXCHANGE_POLICY WHERE POLICY_ID = 998820001 " +
+                "AND CREATE_BY = 'oracle-gate'",
+                "DELETE FROM REFUND_POLICY WHERE POLICY_ID = 998820002 " +
+                "AND CREATE_BY = 'oracle-gate'",
+                "DELETE FROM SEAT_SECTION WHERE SEAT_SECTION_ID = 998820001 " +
+                "AND CREATE_BY = 'oracle-gate'",
+                "DELETE FROM SHOW_SESSION WHERE SESSION_ID IN " +
+                "(998820001, 998820002) AND CREATE_BY = 'oracle-gate'",
             ];
+            var failures = new List<Exception>();
+            try
+            {
+                await ExecuteAsync(connection, "ROLLBACK");
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
             foreach (var statement in statements)
-                await ExecuteAsync(connection, statement);
+            {
+                try
+                {
+                    await ExecuteAsync(connection, statement);
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(new InvalidOperationException(
+                        $"Oracle workflow cleanup failed for: {statement}",
+                        exception));
+                }
+            }
+
+            try
+            {
+                await ExecuteAsync(connection, "COMMIT");
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+                await ExecuteAsync(connection, "ROLLBACK");
+            }
+
+            if (failures.Count > 0)
+            {
+                throw new AggregateException(
+                    "Oracle workflow cleanup did not reach a clean terminal state.",
+                    failures);
+            }
         }
     }
 

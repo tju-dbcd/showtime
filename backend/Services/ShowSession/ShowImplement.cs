@@ -52,12 +52,39 @@ public class AdminShowService : IAdminShowService
         await ValidateCategoryExistsAsync(request.CategoryId, cancellationToken);
 
         // Status 已由 DTO 枚举 + JSON 模型绑定保证合法（取值与 DDL CK_SHOW_STATUS 一致）
+        if (request.Status == ShowStatus.PUBLISHED &&
+            show.AuditStatus != ShowAuditStatus.APPROVED.ToDbString())
+        {
+            throw new InvalidOperationException("演出须先通过审核才能发布");
+        }
+
         show.ShowName = request.ShowName;
         show.CategoryId = request.CategoryId;
         show.Description = request.Description;
         show.DurationMinutes = request.DurationMinutes;
         show.PosterUrl = request.PosterUrl;
         show.Status = request.Status.ToDbString();
+
+        _context.Shows.Update(show);
+        return await _context.SaveChangesAsync(cancellationToken) > 0;
+    }
+
+    public async Task<bool> SetShowAuditStatusAsync(
+        long showId,
+        ShowAuditStatus auditStatus,
+        CancellationToken cancellationToken = default)
+    {
+        var show = await _context.Shows.FindAsync(new object[] { showId }, cancellationToken);
+        if (show == null)
+            throw new KeyNotFoundException($"未找到 ID 为 {showId} 的演出");
+
+        show.AuditStatus = auditStatus.ToDbString();
+        // 已发布的演出被驳回时自动下架，避免“已发布但审核未通过”的 C 端不可见状态
+        if (auditStatus == ShowAuditStatus.REJECTED &&
+            show.Status == ShowStatus.PUBLISHED.ToDbString())
+        {
+            show.Status = ShowStatus.UNPUBLISHED.ToDbString();
+        }
 
         _context.Shows.Update(show);
         return await _context.SaveChangesAsync(cancellationToken) > 0;

@@ -61,6 +61,13 @@ public sealed class SessionSeatMapQueryService
         if (map is null)
             return NotFound(sessionId);
 
+        // 用户端选座/场次选择需要“位置”提示（场馆名），随座位图快照一并返回
+        var venue = await _db.Venues.AsNoTracking()
+            .Where(item => item.VenueId == map.VenueId)
+            .Select(item => item.VenueName)
+            .SingleOrDefaultAsync(cancellationToken);
+        var venueName = string.IsNullOrWhiteSpace(venue) ? $"场馆{map.VenueId}" : venue;
+
         var sections = await _db.SeatSections.AsNoTracking()
             .Where(item => item.SeatMapId == map.SeatMapId)
             .OrderBy(item => item.DisplayOrder)
@@ -155,6 +162,7 @@ public sealed class SessionSeatMapQueryService
         var mapDto = new SessionSeatMapMapDto(
             map.SeatMapId,
             map.VenueId,
+            venueName,
             map.MapCode,
             map.MapName,
             map.MapVersion,

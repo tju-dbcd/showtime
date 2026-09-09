@@ -8,11 +8,6 @@ import './Home.css';
 
 const { Title, Text } = Typography;
 
-// 热门演出数量
-const HOT_COUNT = 3;
-// 近期演出数量
-const UPCOMING_COUNT = 6;
-
 const Home = () => {
   const navigate = useNavigate();
   const [shows, setShows] = useState<ShowDto[]>([]);
@@ -24,28 +19,33 @@ const Home = () => {
   const fetchShows = async () => {
     setLoading(true);
     try {
-      const response: any = await showAPI.getShows({
+      const { data, error } = await showAPI.getShows({
         PageIndex: 1,
         PageSize: 20,
         Status: 'PUBLISHED',
       });
 
-      const result = response.data ? response.data : response;
+      if (error) {
+        message.error('获取演出列表失败');
+        return;
+      }
 
-      if (result.success && result.data) {
-        const list = result.data.items || [];
+      if (data?.success && data?.data) {
+        const list = (data.data.items || []).map((item: any) => ({
+          ...item,
+          showId: Number(item.showId),
+          categoryId: Number(item.categoryId),
+          durationMinutes: item.durationMinutes !== null ? Number(item.durationMinutes) : null,
+        }));
         setShows(list);
-
-        // 取前3个作为热门
-        setHotShows(list.slice(0, HOT_COUNT));
-        // 取接下来6个作为近期
-        setUpcomingShows(list.slice(HOT_COUNT, HOT_COUNT + UPCOMING_COUNT));
+        setHotShows(list.slice(0, 3));
+        setUpcomingShows(list.slice(3, 9));
       } else {
-        message.error(result.message || '获取演出列表失败');
+        message.error(data?.message || '获取演出列表失败');
       }
     } catch (error: any) {
       console.error('获取演出列表失败:', error);
-      message.error(error.response?.data?.message || '获取演出列表失败');
+      message.error(error.message || '获取演出列表失败');
     } finally {
       setLoading(false);
     }
@@ -73,7 +73,7 @@ const Home = () => {
   if (loading) {
     return (
       <div className="home-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-        <Spin size="large" tip="加载演出列表..." />
+        <Spin size="large" description="加载演出列表..." />
       </div>
     );
   }
@@ -102,7 +102,7 @@ const Home = () => {
           <Title level={1} style={{ color: 'white', margin: 0 }}>
             {shows[0].showName}
           </Title>
-          <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 18 }}>
+          <Text className="hero-sub">
             {shows[0].description || '精彩演出，即将上演'}
           </Text>
           <Button
@@ -149,6 +149,8 @@ const Home = () => {
                   cover={
                     <img
                       alt={show.showName}
+                      loading="lazy"
+                      decoding="async"
                       src={getPoster(show)}
                       style={{ height: 200, objectFit: 'cover' }}
                     />
@@ -157,7 +159,7 @@ const Home = () => {
                 >
                   <Card.Meta
                     title={show.showName}
-                    description={show.description?.slice(0, 30) || ''}
+                    description={<div className="home-card-desc">{show.description || ''}</div>}
                   />
                 </Card>
               </Col>
@@ -167,41 +169,43 @@ const Home = () => {
           <Empty description="暂无热门演出" />
         )}
 
-        {/* ====== 近期演出 ====== */}
-        <div className="section-header" style={{ marginTop: 48 }}>
-          <Title level={3}>
-            <CalendarOutlined /> 近期演出
-          </Title>
-          <Button type="link" onClick={() => navigate('/search')}>
-            查看全部 &gt;
-          </Button>
-        </div>
+        {/* ====== 近期演出：仅有剩余演出时展示，避免空区块误导 ====== */}
+        {upcomingShows.length > 0 && (
+          <>
+            <div className="section-header" style={{ marginTop: 48 }}>
+              <Title level={3}>
+                <CalendarOutlined /> 近期演出
+              </Title>
+              <Button type="link" onClick={() => navigate('/search')}>
+                查看全部 &gt;
+              </Button>
+            </div>
 
-        {upcomingShows.length > 0 ? (
-          <Row gutter={[24, 24]}>
-            {upcomingShows.map((show) => (
-              <Col key={show.showId} xs={12} sm={12} md={8} lg={6}>
-                <Card
-                  hoverable
-                  cover={
-                    <img
-                      alt={show.showName}
-                      src={getPoster(show)}
-                      style={{ height: 180, objectFit: 'cover' }}
+            <Row gutter={[24, 24]}>
+              {upcomingShows.map((show) => (
+                <Col key={show.showId} xs={12} sm={12} md={8} lg={6}>
+                  <Card
+                    hoverable
+                    cover={
+                      <img
+                        alt={show.showName}
+                        loading="lazy"
+                        decoding="async"
+                        src={getPoster(show)}
+                        style={{ height: 180, objectFit: 'cover' }}
+                      />
+                    }
+                    onClick={() => navigate(`/performance/${show.showId}`)}
+                  >
+                    <Card.Meta
+                      title={show.showName}
+                      description={<div className="home-card-desc">{show.description || ''}</div>}
                     />
-                  }
-                  onClick={() => navigate(`/performance/${show.showId}`)}
-                >
-                  <Card.Meta
-                    title={show.showName}
-                    description={show.description?.slice(0, 20) || ''}
-                  />
-                </Card>
-              </Col>
-            ))}
-          </Row>
-        ) : (
-          <Empty description="暂无近期演出" />
+                  </Card>
+                </Col>
+              ))}
+            </Row>
+          </>
         )}
       </div>
     </div>

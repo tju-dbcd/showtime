@@ -102,6 +102,47 @@ public sealed class ShowSessionClientControllersTests
         Assert.All(strategies, s => Assert.Equal(PriceStrategyStatus.ENABLED, s.Status));
     }
 
+    [Fact]
+    public async Task GetPricingStrategies_WhenTimeTierSwitch_ReturnsOnlyCurrentEffectiveTier()
+    {
+        await using var db = CreateDbContext();
+        long targetSessionId = 100;
+        var fakeTime = new FakeTimeProvider(new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero));
+        var now = fakeTime.GetUtcNow().UtcDateTime;
+
+        db.ShowSessions.Add(new ShowSession
+        {
+            SessionId = targetSessionId,
+            ShowId = 1,
+            SeatMapId = 1,
+            StartTime = now.AddDays(10),
+            EndTime = now.AddDays(10).AddHours(2),
+            SaleStartTime = now.AddDays(-30),
+            SaleEndTime = now.AddDays(10),
+            SessionStatus = "ONSALE"
+        });
+        db.PriceStrategy.AddRange(
+            new PriceStrategy { SessionId = targetSessionId, SeatSectionId = 1, PriceType = "EARLY_BIRD", Price = 100m, SaleStartTime = now.AddDays(-30), SaleEndTime = now.AddDays(-1), Status = "ENABLED" },
+            new PriceStrategy { SessionId = targetSessionId, SeatSectionId = 1, PriceType = "STANDARD", Price = 180m, SaleStartTime = now.AddDays(-1), SaleEndTime = now.AddDays(10), Status = "ENABLED" },
+            new PriceStrategy { SessionId = targetSessionId, SeatSectionId = 2, PriceType = "VIP", Price = 300m, SaleStartTime = now.AddDays(-5), SaleEndTime = now.AddDays(10), Status = "ENABLED" },
+            new PriceStrategy { SessionId = targetSessionId, SeatSectionId = 3, PriceType = "EARLY_BIRD", Price = 50m, SaleStartTime = now.AddDays(-30), SaleEndTime = now.AddDays(-10), Status = "ENABLED" }
+        );
+        await db.SaveChangesAsync();
+
+        var controller = CreateClientController(db, fakeTime);
+
+        // 时间在标准档窗口内（早鸟已结束）：第 1 票区只返回 STANDARD；第 2 票区返回 VIP；
+        // 第 3 票区所有档都已过窗口 → 不返回
+        var actionResult = await controller.GetPricingStrategies(targetSessionId, CancellationToken.None);
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<IEnumerable<PricingStrategyDto>>>(okResult.Value);
+        Assert.True(apiResponse.Success);
+        var strategies = apiResponse.Data!.ToList();
+        Assert.Equal(2, strategies.Count);
+        Assert.Contains(strategies, s => s.SeatSectionId == 1 && s.PriceType == PriceType.STANDARD && s.Price == 180m);
+        Assert.Contains(strategies, s => s.SeatSectionId == 2 && s.PriceType == PriceType.VIP && s.Price == 300m);
+    }
+
     /// <summary>
     /// 只显示窗口内的座位为正确情况
     /// </summary>

@@ -1,7 +1,25 @@
 import React, { createContext, useState, useContext } from 'react';
 import type { ReactNode } from 'react';
-import { mockUser } from '@/mock/user';
-import type { User } from '@/mock/user';
+
+export interface User {
+  id: number;
+  username: string;
+  nickname: string;
+  avatar: string;
+  phone: string;
+  email: string;
+  roles: string[];
+}
+
+const emptyUser: User = {
+  id: 0,
+  username: '',
+  nickname: '',
+  avatar: '',
+  phone: '',
+  email: '',
+  roles: [],
+};
 
 interface UserContextType {
   user: User;
@@ -11,25 +29,23 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // 尝试从 localStorage 读取用户信息
   const getInitialUser = (): User => {
     const stored = localStorage.getItem('user');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        // 如果后端返回的是 userName，映射到 username；avatarUrl 映射到 avatar
-        if (parsed.userName && !parsed.username) {
-          parsed.username = parsed.userName;
-        }
-        if (parsed.avatarUrl && !parsed.avatar) {
-          parsed.avatar = parsed.avatarUrl;
-        }
-        return { ...mockUser, ...parsed };
-      } catch {
-        return mockUser;
-      }
+    if (!stored) return emptyUser;
+
+    try {
+      const parsed = JSON.parse(stored);
+      return {
+        ...emptyUser,
+        ...parsed,
+        id: Number(parsed.userId ?? parsed.id ?? 0),
+        username: parsed.userName ?? parsed.username ?? '',
+        avatar: parsed.avatarUrl ?? parsed.avatar ?? '',
+        roles: Array.isArray(parsed.roles) ? parsed.roles.map(String) : [],
+      };
+    } catch {
+      return emptyUser;
     }
-    return mockUser;
   };
 
   const [user, setUser] = useState<User>(getInitialUser());
@@ -39,8 +55,6 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // 同步更新 localStorage
     const current = JSON.parse(localStorage.getItem('user') || '{}');
     localStorage.setItem('user', JSON.stringify({ ...current, ...newUser }));
-    // 也更新 mockUser（让其他地方引用 mockUser 的也能拿到最新数据）
-    Object.assign(mockUser, newUser);
   };
 
   return (

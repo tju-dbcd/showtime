@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="Showtime 压测计划" enabled="true">
+      <stringProp name="TestPlan.comments">核心业务链路压测：登录→锁座→下单。
+可调参数（-J 覆盖）：DOMAIN/PORT/PROTOCOL（默认 localhost/5146/http）、THREADS（默认 50）、LOOPS（默认 1）、RAMP_UP（默认 60）、SESSION_ID（默认 1）、SEAT_MIN（默认 1）、PRICE_STRATEGY_ID（默认 1）。
+前置数据：SESSION_ID 场次需存在且包含 SEAT_MIN..SEAT_MIN+THREADS-1 这些可售座位，PRICE_STRATEGY_ID 是该场次有效定价策略；账号由 seed_users.py 批量创建并写入 test_users.csv。</stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+    </TestPlan>
+    <hashTree>
+      <!-- 线程组：完整业务流程（登录→锁座→下单）。每个虚拟用户固定使用 seatId = SEAT_MIN + 线程号 - 1，
+           保证并发下不同线程不抢同一座位；LOOPS 默认 1（每轮即完整购票一次）。 -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="完整业务流程压测" enabled="true">
+        <stringProp name="TestPlan.comments">每线程固定 seatId，避免并发抢座；LOOPS 默认 1</stringProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">${__P(LOOPS,1)}</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">${__P(THREADS,50)}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">${__P(RAMP_UP,60)}</stringProp>
+      </ThreadGroup>
+
+      <hashTree>
+        <!-- CSV 数据文件（测试用户账号/密码） -->
+        <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="测试用户数据" enabled="true">
+          <stringProp name="fileEncoding">UTF-8</stringProp>
+          <stringProp name="filename">test_users.csv</stringProp>
+          <stringProp name="variableNames">account,password</stringProp>
+          <boolProp name="ignoreFirstLine">true</boolProp>
+          <boolProp name="recycle">true</boolProp>
+          <boolProp name="stopThread">false</boolProp>
+          <stringProp name="delimiter">,</stringProp>
+        </CSVDataSet>
+        <hashTree></hashTree>
+
+        <!-- HTTP 请求默认值 -->
+        <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP 请求默认值" enabled="true">
+          <stringProp name="HTTPSampler.domain">${__P(DOMAIN,localhost)}</stringProp>
+          <stringProp name="HTTPSampler.port">${__P(PORT,5146)}</stringProp>
+          <stringProp name="HTTPSampler.protocol">${__P(PROTOCOL,http)}</stringProp>
+          <stringProp name="HTTPSampler.contentEncoding">UTF-8</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <stringProp name="HTTPSampler.connect_timeout">10000</stringProp>
+          <stringProp name="HTTPSampler.response_timeout">180000</stringProp>
+        </ConfigTestElement>
+        <hashTree></hashTree>
+
+        <!-- 全局 HTTP 头（仅 Content-Type/Accept；鉴权头只在登录后的选座/下单处添加） -->
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP 头管理器" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="" elementType="Header">
+              <stringProp name="Header.name">Content-Type</stringProp>
+              <stringProp name="Header.value">application/json</stringProp>
+            </elementProp>
+            <elementProp name="" elementType="Header">
+              <stringProp name="Header.name">Accept</stringProp>
+              <stringProp name="Header.value">application/json</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree></hashTree>
+
+        <!-- 1. 登录 -->
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="1. 登录" enabled="true">
+          <stringProp name="HTTPSampler.path">/api/auth/login</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <stringProp name="HTTPSampler.connect_timeout">10000</stringProp>
+          <stringProp name="HTTPSampler.response_timeout">180000</stringProp>
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{"account":"${account}","password":"${password}"}</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+        </HTTPSamplerProxy>
+
+        <hashTree>
+
+          <!-- 提取 accessToken -->
+          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取 Token" enabled="true">
+            <stringProp name="JSONPostProcessor.referenceNames">accessToken</stringProp>
+            <stringProp name="JSONPostProcessor.jsonPathExprs">$.data.accessToken</stringProp>
+            <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+          </JSONPostProcessor>
+          <hashTree></hashTree>
+
+          <!-- 登录响应断言 -->
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="登录响应断言" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="-1349267989">"success":true</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.ignore_status">0</intProp>
+          </ResponseAssertion>
+          <hashTree></hashTree>
+        </hashTree>
+
+        <!-- 登录后的业务控制器：选座→下单（挂载 Bearer 鉴权头） -->
+        <GenericController guiclass="LogicControllerGui" testclass="GenericController" testname="登录后业务：选座→下单" enabled="true">
+          <boolProp name="GenericController.interactive">false</boolProp>
+        </GenericController>
+        <hashTree>
+          <!-- 鉴权头（只作用于下方锁座/下单采样器） -->
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Bearer 鉴权头" enabled="true">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">Authorization</stringProp>
+                <stringProp name="Header.value">Bearer ${accessToken}</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree></hashTree>
+
+          <!-- 2. 锁座（POST /api/sessions/{sessionId}/seat-locks） -->
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="2. 锁座" enabled="true">
+            <stringProp name="HTTPSampler.path">/api/sessions/${__P(SESSION_ID,1)}/seat-locks</stringProp>
+            <stringProp name="HTTPSampler.method">POST</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <stringProp name="HTTPSampler.connect_timeout">10000</stringProp>
+          <stringProp name="HTTPSampler.response_timeout">180000</stringProp>
+            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                  <stringProp name="Argument.value">{"seatIds":[${__intSum(${__P(SEAT_MIN,1)},${__threadNum},-1)}]}</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+          </HTTPSamplerProxy>
+
+          <hashTree>
+            <!-- 提取锁座接口返回的 lockToken，供下单使用 -->
+            <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取 LockToken" enabled="true">
+              <stringProp name="JSONPostProcessor.referenceNames">lockToken</stringProp>
+              <stringProp name="JSONPostProcessor.jsonPathExprs">$.data.locks[0].lockToken</stringProp>
+              <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+            </JSONPostProcessor>
+            <hashTree></hashTree>
+
+            <!-- 锁座响应断言 -->
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="锁座响应断言" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-1349267989">"success":true</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.ignore_status">0</intProp>
+            </ResponseAssertion>
+            <hashTree></hashTree>
+          </hashTree>
+
+          <!-- 3. 下单（携带真实 lockToken） -->
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="3. 下单" enabled="true">
+            <stringProp name="HTTPSampler.path">/api/orders</stringProp>
+            <stringProp name="HTTPSampler.method">POST</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <stringProp name="HTTPSampler.connect_timeout">10000</stringProp>
+          <stringProp name="HTTPSampler.response_timeout">180000</stringProp>
+            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                  <stringProp name="Argument.value">{"sessionId":${__P(SESSION_ID,1)},"items":[{"seatId":${__intSum(${__P(SEAT_MIN,1)},${__threadNum},-1)},"priceStrategyId":${__P(PRICE_STRATEGY_ID,1)},"lockToken":"${lockToken}"}],"remark":"load-test"}</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+          </HTTPSamplerProxy>
+
+          <hashTree>
+            <!-- 幂等键（必填，≤64 字符）：用本欢锁座返回的 lockToken（每次唯一） -->
+            <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Idempotency-Key" enabled="true">
+              <collectionProp name="HeaderManager.headers">
+                <elementProp name="" elementType="Header">
+                  <stringProp name="Header.name">Idempotency-Key</stringProp>
+                  <stringProp name="Header.value">${lockToken}</stringProp>
+                </elementProp>
+              </collectionProp>
+            </HeaderManager>
+            <hashTree></hashTree>
+            <!-- 下单响应断言 -->
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="下单响应断言" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-1349267989">"success":true</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.ignore_status">0</intProp>
+            </ResponseAssertion>
+            <hashTree></hashTree>
+          </hashTree>
+        </hashTree>
+      </hashTree>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

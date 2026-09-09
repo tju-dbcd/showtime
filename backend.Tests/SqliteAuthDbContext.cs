@@ -6,6 +6,21 @@ namespace ShowtimeBackend.Tests;
 internal sealed class SqliteAuthDbContext(DbContextOptions<SqliteAuthDbContext> options)
     : AppDbContext(options)
 {
+    public int SaveChangesCallCount { get; private set; }
+    public int? ThrowOnSaveChangesCall { get; set; }
+
+    public void ResetPersistenceCounter() => SaveChangesCallCount = 0;
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        SaveChangesCallCount++;
+        if (ThrowOnSaveChangesCall == SaveChangesCallCount)
+            throw new InvalidOperationException("Injected persistence failure for rollback test.");
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

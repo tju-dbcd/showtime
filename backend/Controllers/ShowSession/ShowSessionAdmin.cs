@@ -67,14 +67,62 @@ public class AdminShowSessionController : ControllerBase
     }
 
     /// <summary>
+    /// 编辑/更新场次基础排期信息
+    /// </summary>
+    [HttpPut("sessions/{sessionId:long}")]
+    [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<ShowSessionDto>), StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<ApiResponse<ShowSessionDto>>> UpdateSession(
+        [FromRoute] long sessionId,
+        [FromBody] UpdateShowSessionRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var updated = await _adminService.UpdateSessionAsync(sessionId, request, cancellationToken);
+            return Ok(ApiResponse<ShowSessionDto>.Ok(updated, "场次更新成功"));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ApiResponse<ShowSessionDto>.Fail("NOT_FOUND", ex.Message));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ApiResponse<ShowSessionDto>.Fail("INVALID_ARGUMENT", ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ApiResponse<ShowSessionDto>.Fail("OPERATION_CONFLICT", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// 获取场次全部基础票价策略（管理端维护用，含禁用档与售票窗口）
+    /// </summary>
+    [HttpGet("sessions/{sessionId:long}/pricing-strategies")]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<AdminPriceStrategyDto>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<IEnumerable<AdminPriceStrategyDto>>>> GetAdminPricingStrategies(
+        [FromRoute] long sessionId,
+        CancellationToken cancellationToken)
+    {
+        var strategies = await _adminService.GetAdminPricingStrategiesAsync(sessionId, cancellationToken);
+        return Ok(ApiResponse<IEnumerable<AdminPriceStrategyDto>>.Ok(strategies, "获取票价策略成功"));
+    }
+
+    /// <summary>
     /// 配置或覆盖更新场次基础票价策略
     /// </summary>
+    /// <remarks>
+    /// 当请求体传入空数组 <c>[]</c> 时，将静默清空该场次下的所有现有票价策略。
+    /// </remarks>
     [HttpPost("sessions/{sessionId:long}/pricing-strategies")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<object>>> ConfigurePriceStrategies(
         [FromRoute] long sessionId,
         [FromBody] IEnumerable<CreatePriceStrategyRequest> requests,
@@ -88,12 +136,13 @@ public class AdminShowSessionController : ControllerBase
 
         if (requests == null)
         {
-            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "请求体不能为空"));
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "请求体不能为 null"));
         }
 
         try
         {
-            await _adminService.ConfigurePriceStrategiesAsync(sessionId, requests, cancellationToken);
+            var operatorName = User.Identity?.Name ?? "admin";
+            await _adminService.ConfigurePriceStrategiesAsync(sessionId, requests, operatorName, cancellationToken);
             return Ok(ApiResponse<object>.Ok(null!, "票价策略配置成功"));
         }
         catch (KeyNotFoundException ex)
@@ -109,12 +158,14 @@ public class AdminShowSessionController : ControllerBase
     /// <summary>
     /// 配置或覆盖更新场次动态调价规则
     /// </summary>
+    /// <remarks>
+    /// 1. 当请求体传入空数组 <c>[]</c> 时，将静默清空该场次下的所有现有动态调价规则。<br/>
+    /// 2. <c>TriggerType</c> 支持 <c>TIME_WINDOW</c> 与 <c>INVENTORY_RATE</c>。注意：<c>INVENTORY_RATE</c> 当前版本规则评估计算恒为 <c>false</c>。
+    /// </remarks>
     [HttpPost("sessions/{sessionId:long}/dynamic-pricing-rules")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<object>>> ConfigureDynamicPricingRules(
         [FromRoute] long sessionId,
         [FromBody] IEnumerable<CreateDynamicPricingRuleRequest> requests,
@@ -128,15 +179,15 @@ public class AdminShowSessionController : ControllerBase
             return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", errorMessage));
         }
 
-        // 拦截空列表请求
-        if (requests == null) //不在阻挡空列表
+        if (requests == null)
         {
-            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "动态调价规则列表不能为空"));
+            return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", "动态调价规则列表不能为 null"));
         }
 
         try
         {
-            await _adminService.ConfigureDynamicPricingRulesAsync(sessionId, requests, cancellationToken);
+            var operatorName = User.Identity?.Name ?? "admin";
+            await _adminService.ConfigureDynamicPricingRulesAsync(sessionId, requests, operatorName, cancellationToken);
             return Ok(ApiResponse<object>.Ok(null!, "动态调价规则配置成功"));
         }
         catch (KeyNotFoundException ex)
@@ -252,6 +303,7 @@ public class AdminShowController : ControllerBase
     [HttpPut("{showId:long}")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<object>>> UpdateShow(
         [FromRoute] long showId,
@@ -270,6 +322,32 @@ public class AdminShowController : ControllerBase
         catch (ArgumentException ex)
         {
             return BadRequest(ApiResponse<object>.Fail("INVALID_ARGUMENT", ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ApiResponse<object>.Fail("OPERATION_CONFLICT", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// 更新演出审核状态（通过/驳回）
+    /// </summary>
+    [HttpPut("{showId:long}/audit-status")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<object>>> UpdateShowAuditStatus(
+        [FromRoute] long showId,
+        [FromBody] UpdateShowAuditStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _showService.SetShowAuditStatusAsync(showId, request.AuditStatus, cancellationToken);
+            return Ok(ApiResponse<object>.Ok(null!, "演出审核状态已更新"));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ApiResponse<object>.Fail("NOT_FOUND", ex.Message));
         }
     }
 

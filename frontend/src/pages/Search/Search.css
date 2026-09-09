@@ -1,26 +1,119 @@
-/* 搜索页整体布局 */
 .search-layout {
   width: 100%;
-  min-height: 100vh;
+  height: calc(100vh - 64px);
+  overflow: hidden;
   background: #f0f2f5;
+  display: block !important;
 }
 
-/* 左侧黑条 — 固定高度，贴左边 */
 .search-sider {
-  height: 100vh;
-  position: sticky !important;
-  top: 0;
+  position: fixed !important;
+  top: 64px;
   left: 0;
+  bottom: 0;
   overflow-y: auto;
   flex-shrink: 0;
+  z-index: 20;
 }
 
-/* 右侧内容 — 撑满剩余宽度 */
 .search-content {
-  flex: 1;
+  position: fixed;
+  top: 64px;
+  right: 0;
+  bottom: 0;
+  left: 280px;
+  width: auto !important;
+  margin: 0 !important;
+  overflow-y: auto;
   background: #f5f5f5;
   padding: 0 !important;
-  margin: 0 !important;
+}
+
+.show-grid {
+  width: 100%;
+}
+
+.show-grid .ant-card {
+  height: 100%;
+}
+
+.show-grid .ant-card-cover,
+.show-poster {
+  width: 100%;
+  display: block;
+  aspect-ratio: 15 / 9;
+  height: auto !important;
+  object-fit: cover;
+}
+
+.show-grid .ant-card-cover {
+  overflow: hidden;
+}
+
+.show-grid .ant-card-body {
+  min-width: 0;
+  padding: 12px;
+}
+
+.show-grid .ant-card-meta-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.show-card-description {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 20px;
+  min-height: 40px;
+}
+
+.filter-select {
+  width: 100%;
+}
+
+.search-sider .filter-label {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.search-sider .filter-select .ant-select-selector {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  color: #fff !important;
+  color-scheme: dark;
+}
+
+.search-sider .filter-select .ant-select-selection-item,
+.search-sider .filter-select .ant-select-selection-placeholder,
+.search-sider .filter-select .ant-select-selection-search-input,
+.search-sider .filter-select .ant-select-arrow {
+  color: #fff !important;
+}
+
+.price-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.price-inputs .ant-input-number {
+  min-width: 0;
+  width: 100%;
+}
+
+.price-inputs .ant-input-number-input {
+  padding-left: 4px;
+}
+
+.price-separator {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.72);
 }
 
 /* ========== 搜索页自定义搜索框 ========== */
@@ -33,9 +126,8 @@
   border: 1px solid #d9d9d9;
   background: #fff;
   transition: border-color 0.3s;
-  width: 280px;
+  width: 40px;
 }
-
 .search-input-wrapper:hover,
 .search-input-wrapper:focus-within {
   border-color: #ff4d4f;
@@ -75,6 +167,9 @@
   .search-input-wrapper {
     width: 100%;
     max-width: 280px;
+  }
+  .search-content {
+    left: 180px;
   }
   .search-result-header {
     flex-direction: column;

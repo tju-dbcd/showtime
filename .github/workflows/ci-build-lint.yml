@@ -11,6 +11,8 @@ env:
   DOTNET_VERSION: '10.0.x'
   # ✅ 修复：使用合法的 32 字节 Base64 密钥（不含 - 号）
   TicketSecurity__SigningKeyBase64: 'dGVzdC1rZXktZm9yLWNpLW9ubHktZG8tbm90LXVzZS1pbi1wcm9kdWN0aW9u'
+  # CI-ONLY：32 字节实名数据加密密钥，生产环境必须由密钥管理系统注入
+  IdentityData__EncryptionKey: 'QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI='
 
 jobs:
   build:

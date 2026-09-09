@@ -12,4 +12,10 @@ public enum AuthFailure
     DefaultRoleUnavailable,
     UserNotFound,
     InvalidAvatarUrl,
+    SessionUnavailable,
+    InvalidRefreshToken,
+    RefreshTokenExpired,
+    RefreshTokenLoggedOut,
+    RefreshTokenLocked,
+    RefreshTokenReused,
 }

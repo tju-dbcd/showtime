@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Data.Sqlite;
@@ -234,6 +235,7 @@ public sealed class ExchangeConcurrencyTests
             return (await order.CreateAsync(
                 7,
                 "order-racer",
+                "test-key-exchange-race",
                 new CreateOrderRequest(
                     22, [new CreateOrderItemRequest(701, 801, null, "lock-701")], null),
                 timeout.Token)).IsSuccess;
@@ -392,6 +394,38 @@ public sealed class ExchangeConcurrencyTests
         Assert.Equal("EXCHANGING", await fixture.Db.Set<ETicket>().AsNoTracking()
             .Where(item => item.OrderItemId == 101)
             .Select(item => item.TicketStatus).SingleAsync());
+    }
+
+    [Fact]
+    public async Task CreateAsync_WritesExchangeRequestedAuditEvent()
+    {
+        await using var fixture = await ExchangeQuoteServiceTests.CreateFixtureAsync(
+            [105m], [125m], fee: 5m);
+        var sink = new RecordingAuditSink();
+        var service = new ExchangeApplicationService(
+            fixture.Db,
+            new ExchangePolicyEngine(),
+            fixture.TimeProvider,
+            auditSink: sink);
+
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            11,
+            new CreateExchangeRequest(
+                22,
+                [new ExchangeTargetItemRequest(101, 701, 801, "lock-701")],
+                null));
+
+        Assert.True(result.IsSuccess);
+        var auditEvent = Assert.Single(sink.Events);
+        Assert.Equal("EXCHANGE_REQUESTED", auditEvent.Operation);
+        Assert.Equal(11, auditEvent.OrderId);
+        Assert.Equal("alice", auditEvent.Actor);
+        Assert.Equal(1, auditEvent.TicketCount);
+        Assert.Equal(
+            result.Value!.ExchangeId.ToString(CultureInfo.InvariantCulture),
+            auditEvent.Metadata!["ExchangeId"]);
     }
 
     [Fact]
@@ -630,6 +664,19 @@ public sealed class ExchangeConcurrencyTests
         public AppDbContext CreateContext() => CreateSharedContext(connectionString);
 
         public ValueTask DisposeAsync() => keeper.DisposeAsync();
+    }
+
+    private sealed class RecordingAuditSink : IOrderTicketAuditSink
+    {
+        public List<OrderTicketAuditEvent> Events { get; } = [];
+
+        public ValueTask WriteAsync(
+            OrderTicketAuditEvent auditEvent,
+            CancellationToken cancellationToken)
+        {
+            Events.Add(auditEvent);
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class DeterministicTicketTokenService : ITicketTokenService

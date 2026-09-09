@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using ShowtimeBackend.Common;
@@ -10,6 +11,8 @@ using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.ShowSessionChange;
 using ShowtimeBackend.DTOs.ShowSessionDto;
 using ShowtimeBackend.Entities.ShowSession;
+using ShowtimeBackend.Entities.SeatZone;
+using ShowtimeBackend.Entities.OrderTicket;
 using ShowtimeBackend.Services.Impl;
 
 namespace ShowtimeBackend.Tests.ShowSessionTest;
@@ -116,6 +119,53 @@ public sealed class ShowSessionAdminControllersTests
     }
 
     [Fact]
+    public async Task GetAdminPricingStrategies_ReturnsAllTiersIncludingDisabledAndWindows()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        var now = DateTime.UtcNow;
+        db.PriceStrategy.AddRange(
+            new PriceStrategy
+            {
+                SessionId = session.SessionId,
+                SeatSectionId = 1,
+                StrategyName = "早鸟票策略",
+                PriceType = "EARLY_BIRD",
+                Price = 100m,
+                SaleStartTime = now.AddDays(-5),
+                SaleEndTime = now.AddDays(-1),
+                Priority = 0,
+                Status = "ENABLED"
+            },
+            new PriceStrategy
+            {
+                SessionId = session.SessionId,
+                SeatSectionId = 2,
+                StrategyName = "标准票策略",
+                PriceType = "STANDARD",
+                Price = 180m,
+                SaleStartTime = now.AddDays(-1),
+                SaleEndTime = now.AddDays(5),
+                Priority = 1,
+                Status = "DISABLED"
+            }
+        );
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var actionResult = await controller.GetAdminPricingStrategies(session.SessionId, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<IEnumerable<AdminPriceStrategyDto>>>(okResult.Value);
+        Assert.True(apiResponse.Success);
+        var strategies = apiResponse.Data!.ToList();
+        Assert.Equal(2, strategies.Count);
+        var disabled = strategies.Single(s => s.SeatSectionId == 2);
+        Assert.Equal(PriceStrategyStatus.DISABLED, disabled.Status);
+        Assert.Equal(PriceType.STANDARD, disabled.PriceType);
+    }
+
+    [Fact]
     public async Task ConfigurePriceStrategies_WhenSessionNotExists_ReturnsNotFound()
     {
         await using var db = CreateDbContext();
@@ -190,6 +240,7 @@ public sealed class ShowSessionAdminControllersTests
     {
         await using var db = CreateDbContext();
         var session = SeedShowSession(db, 1, 10);
+        SeedSeatMapWithSections(db, 10, 1, 2);
 
         db.PriceStrategy.Add(new PriceStrategy
         {
@@ -235,6 +286,247 @@ public sealed class ShowSessionAdminControllersTests
     }
 
     [Fact]
+    public async Task ConfigurePriceStrategies_WhenSectionBelongsToAnotherSeatMap_ReturnsBadRequest()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        // 场次绑定座位图 10，但请求里配的是座位图 99 的票区
+        SeedSeatMapWithSections(db, 10, 1, 2);
+        SeedSeatMapWithSections(db, 99, 900);
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var requests = new[]
+        {
+            new CreatePriceStrategyRequest(
+                SeatSectionId: 900,
+                StrategyName: "错误票区策略",
+                PriceType: PriceType.STANDARD,
+                Price: 200m,
+                SaleStartTime: null,
+                SaleEndTime: null)
+        };
+
+        var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, requests, CancellationToken.None);
+
+        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
+
+        // 失败不应写入任何策略
+        var strategiesInDb = await db.PriceStrategy.Where(p => p.SessionId == session.SessionId).ToListAsync();
+        Assert.Empty(strategiesInDb);
+    }
+
+    [Fact]
+    public async Task ConfigurePriceStrategies_WhenSectionDoesNotExist_ReturnsBadRequest()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        SeedSeatMapWithSections(db, 10, 1);
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var requests = new[]
+        {
+            new CreatePriceStrategyRequest(
+                SeatSectionId: 999999,
+                StrategyName: "不存在票区",
+                PriceType: PriceType.STANDARD,
+                Price: 200m,
+                SaleStartTime: null,
+                SaleEndTime: null)
+        };
+
+        var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, requests, CancellationToken.None);
+
+        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
+    }
+
+    [Fact]
+    public async Task ConfigurePriceStrategies_WhenOldStrategyReferencedByOrder_DisablesInsteadOfDeleting()
+    {
+        // ORDER_ITEM 通过外键引用已成交订单的票价策略行：替换票价策略时被引用的旧行不能删除，
+        // 应改为 DISABLED 留存（历史引用不失效、也不再参与生效票档选择）。
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        SeedSeatMapWithSections(db, 10, 1);
+
+        db.PriceStrategy.Add(new PriceStrategy
+        {
+            SessionId = session.SessionId,
+            SeatSectionId = 1,
+            StrategyName = "旧策略",
+            PriceType = "STANDARD",
+            Price = 100m,
+            SaleStartTime = DateTime.UtcNow.AddDays(-5),
+            SaleEndTime = DateTime.UtcNow.AddDays(5),
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+
+        var old = await db.PriceStrategy.SingleAsync(p => p.SessionId == session.SessionId);
+        db.Set<OrderItem>().Add(new OrderItem
+        {
+            OrderId = 1,
+            SeatId = 1,
+            PriceStrategyId = old.PriceStrategyId,
+            UnitPrice = 100m,
+            ItemStatus = "NORMAL"
+        });
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var newRequests = new[]
+        {
+            new CreatePriceStrategyRequest(
+                SeatSectionId: 1,
+                StrategyName: "新策略",
+                PriceType: PriceType.STANDARD,
+                Price: 200m,
+                SaleStartTime: null,
+                SaleEndTime: null)
+        };
+
+        var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, newRequests, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(okResult.Value);
+        Assert.True(apiResponse.Success);
+
+        var strategies = (await db.PriceStrategy.Where(p => p.SessionId == session.SessionId).ToListAsync())
+            .OrderBy(p => p.PriceStrategyId)
+            .ToList();
+        Assert.Equal(2, strategies.Count);
+        Assert.Contains(strategies, p => p.PriceStrategyId == old.PriceStrategyId && p.Status == "DISABLED");
+        Assert.Contains(strategies, p => p.Price == 200m && p.Status == "ENABLED");
+
+        // 历史订单项仍能引用旧策略行
+        var orderItem = await db.Set<OrderItem>().SingleAsync(oi => oi.PriceStrategyId == old.PriceStrategyId);
+        Assert.NotNull(orderItem);
+    }
+
+    [Fact]
+    public async Task ConfigurePriceStrategies_WithEmptyRequests_WhenOldStrategyReferencedByOrder_DisablesInsteadOfDeleting()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        SeedSeatMapWithSections(db, 10, 1);
+
+        db.PriceStrategy.Add(new PriceStrategy
+        {
+            SessionId = session.SessionId,
+            SeatSectionId = 1,
+            StrategyName = "旧策略",
+            PriceType = "STANDARD",
+            Price = 100m,
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+
+        var old = await db.PriceStrategy.SingleAsync(p => p.SessionId == session.SessionId);
+        db.Set<OrderItem>().Add(new OrderItem
+        {
+            OrderId = 1,
+            SeatId = 1,
+            PriceStrategyId = old.PriceStrategyId,
+            UnitPrice = 100m,
+            ItemStatus = "NORMAL"
+        });
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var actionResult = await controller.ConfigurePriceStrategies(session.SessionId, Array.Empty<CreatePriceStrategyRequest>(), CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(okResult.Value);
+        Assert.True(apiResponse.Success);
+
+        var remaining = await db.PriceStrategy.Where(p => p.SessionId == session.SessionId).ToListAsync();
+        var archived = Assert.Single(remaining);
+        Assert.Equal(old.PriceStrategyId, archived.PriceStrategyId);
+        Assert.Equal("DISABLED", archived.Status);
+    }
+
+    [Fact]
+    public async Task UpdateSession_WhenChangingSeatMapWithExistingPriceStrategies_ReturnsConflict()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        SeedSeatMapWithSections(db, 10, 1);
+
+        db.PriceStrategy.Add(new PriceStrategy
+        {
+            SessionId = session.SessionId,
+            SeatSectionId = 1,
+            StrategyName = "已有票价",
+            PriceType = "STANDARD",
+            Price = 100m,
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var newStart = DateTime.UtcNow.AddDays(20);
+        var request = new UpdateShowSessionRequest(
+            StartTime: newStart,
+            EndTime: newStart.AddHours(3),
+            SaleStartTime: newStart.AddDays(-3),
+            SaleEndTime: newStart.AddHours(-1),
+            SeatMapId: 20);
+
+        var actionResult = await controller.UpdateSession(session.SessionId, request, CancellationToken.None);
+
+        var conflictResult = Assert.IsType<ConflictObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<ShowSessionDto>>(conflictResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("OPERATION_CONFLICT", apiResponse.Code);
+
+        // 座位图未被改动
+        var updated = await db.ShowSessions.FindAsync(session.SessionId);
+        Assert.Equal(10, updated!.SeatMapId);
+    }
+
+    [Fact]
+    public async Task UpdateSession_WhenChangingSeatMapWithExistingDynamicRules_ReturnsConflict()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        SeedSeatMapWithSections(db, 10, 1);
+
+        db.DynamicPricingRules.Add(new DynamicPricingRule
+        {
+            SessionId = session.SessionId,
+            RuleName = "已有规则",
+            TriggerType = "TIME_WINDOW",
+            AdjustmentType = "DISCOUNT_RATE",
+            AdjustmentValue = 0.9m,
+            Status = "ENABLED"
+        });
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var newStart = DateTime.UtcNow.AddDays(20);
+        var request = new UpdateShowSessionRequest(
+            StartTime: newStart,
+            EndTime: newStart.AddHours(3),
+            SaleStartTime: newStart.AddDays(-3),
+            SaleEndTime: newStart.AddHours(-1),
+            SeatMapId: 20);
+
+        var actionResult = await controller.UpdateSession(session.SessionId, request, CancellationToken.None);
+
+        var conflictResult = Assert.IsType<ConflictObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<ShowSessionDto>>(conflictResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("OPERATION_CONFLICT", apiResponse.Code);
+    }
+
+    [Fact]
     public async Task UpdateSessionStatus_WhenValidStatus_UpdatesDatabase()
     {
         await using var db = CreateDbContext();
@@ -269,6 +561,112 @@ public sealed class ShowSessionAdminControllersTests
         var apiResponse = Assert.IsType<ApiResponse<object>>(notFoundResult.Value);
         Assert.False(apiResponse.Success);
         Assert.Equal("NOT_FOUND", apiResponse.Code);
+    }
+
+    [Fact]
+    public async Task UpdateSession_WhenValidRequest_UpdatesFieldsAndReturnsOk()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10, initialStatus: "PRESALE");
+        var controller = CreateAdminController(db);
+
+        var newStart = DateTime.UtcNow.AddDays(20);
+        var request = new UpdateShowSessionRequest(
+            StartTime: newStart,
+            EndTime: newStart.AddHours(3),
+            SaleStartTime: newStart.AddDays(-3),
+            SaleEndTime: newStart.AddHours(-1),
+            SeatMapId: 20);
+
+        var actionResult = await controller.UpdateSession(session.SessionId, request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<ShowSessionDto>>(okResult.Value);
+        Assert.True(apiResponse.Success);
+        Assert.NotNull(apiResponse.Data);
+        Assert.Equal(request.StartTime, apiResponse.Data.StartTime);
+        Assert.Equal(request.SeatMapId, apiResponse.Data.SeatMapId);
+        Assert.Equal(SessionStatus.PRESALE, apiResponse.Data.SessionStatus);
+
+        var updated = await db.ShowSessions.FindAsync(session.SessionId);
+        Assert.NotNull(updated);
+        Assert.Equal(request.EndTime, updated.EndTime);
+        Assert.Equal(request.SeatMapId, updated.SeatMapId);
+    }
+
+    [Fact]
+    public async Task UpdateSession_WhenSessionNotExists_ReturnsNotFound()
+    {
+        await using var db = CreateDbContext();
+        var controller = CreateAdminController(db);
+        var request = CreateValidUpdateRequest(
+            startTime: DateTime.UtcNow.AddDays(10),
+            endTime: DateTime.UtcNow.AddDays(10).AddHours(2));
+
+        var actionResult = await controller.UpdateSession(9999, request, CancellationToken.None);
+
+        var notFoundResult = Assert.IsType<NotFoundObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<ShowSessionDto>>(notFoundResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("NOT_FOUND", apiResponse.Code);
+    }
+
+    [Fact]
+    public async Task UpdateSession_WhenEndTimeBeforeStartTime_ReturnsBadRequest()
+    {
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        var controller = CreateAdminController(db);
+        var invalid = CreateValidUpdateRequest(
+            startTime: DateTime.UtcNow.AddDays(10),
+            endTime: DateTime.UtcNow.AddDays(10).AddHours(-1));
+
+        var actionResult = await controller.UpdateSession(session.SessionId, invalid, CancellationToken.None);
+
+        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<ShowSessionDto>>(badRequestResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
+    }
+
+    [Fact]
+    public async Task UpdateSession_WhenScheduleConflictsWithAnotherSession_ReturnsConflict()
+    {
+        await using var db = CreateDbContext();
+        var baseTime = DateTime.UtcNow.AddDays(5);
+
+        var first = SeedShowSession(db, 1, 100);
+        first.StartTime = baseTime;
+        first.EndTime = baseTime.AddHours(2);
+        await db.SaveChangesAsync();
+
+        db.ShowSessions.Add(new ShowSession
+        {
+            ShowId = 1,
+            SeatMapId = 100,
+            StartTime = baseTime.AddHours(3),
+            EndTime = baseTime.AddHours(5),
+            SaleStartTime = baseTime.AddDays(-1),
+            SaleEndTime = baseTime.AddHours(2),
+            SessionStatus = "UPCOMING"
+        });
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var conflicting = CreateValidUpdateRequest(
+            startTime: baseTime.AddHours(1),
+            endTime: baseTime.AddHours(4),
+            seatMapId: 100);
+
+        var second = await db.ShowSessions
+            .OrderByDescending(s => s.SessionId)
+            .FirstAsync(s => s.SessionId != first.SessionId);
+        var actionResult = await controller.UpdateSession(second.SessionId, conflicting, CancellationToken.None);
+
+        var conflictResult = Assert.IsType<ConflictObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<ShowSessionDto>>(conflictResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("OPERATION_CONFLICT", apiResponse.Code);
     }
 
     [Fact]
@@ -351,6 +749,7 @@ public sealed class ShowSessionAdminControllersTests
     {
         await using var db = CreateDbContext();
         var session = SeedShowSession(db, 1, 10);
+        SeedSeatMapWithSections(db, 10, 1);
 
         db.DynamicPricingRules.Add(new DynamicPricingRule
         {
@@ -390,10 +789,50 @@ public sealed class ShowSessionAdminControllersTests
     }
 
     [Fact]
-    public async Task ConfigureDynamicPricingRules_WhenExceptionOccurs_RollsBackTransaction()
+    public async Task ConfigureDynamicPricingRules_WhenScopedSectionBelongsToAnotherSeatMap_ReturnsBadRequest()
     {
         await using var db = CreateDbContext();
         var session = SeedShowSession(db, 1, 10);
+        SeedSeatMapWithSections(db, 10, 1);
+        SeedSeatMapWithSections(db, 99, 900);
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var invalidRequests = new[]
+        {
+            new CreateDynamicPricingRuleRequest(
+                SeatSectionId: 900,
+                RuleName: "错误票区规则",
+                TriggerType: "TIME_WINDOW",
+                StartOffsetMinutes: 120,
+                EndOffsetMinutes: 30,
+                AdjustmentType: "DISCOUNT_RATE",
+                AdjustmentValue: 0.8m,
+                Priority: 1)
+        };
+
+        var actionResult = await controller.ConfigureDynamicPricingRules(session.SessionId, invalidRequests, CancellationToken.None);
+
+        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
+
+        // 失败不应写入任何规则
+        var rulesInDb = await db.DynamicPricingRules.Where(r => r.SessionId == session.SessionId).ToListAsync();
+        Assert.Empty(rulesInDb);
+    }
+
+    [Fact]
+    public async Task ConfigureDynamicPricingRules_WhenPreTransactionValidationFails_LeavesExistingRulesUntouched()
+    {
+        // 请求在 Service 校验层（StartOffset/EndOffset 时间窗口校验）即抛 ArgumentException，
+        // 该校验发生在 BeginTransactionAsync 之前，属“事务前参数校验失败”，并不会真正触发
+        // catch { RollbackAsync } 分支。本用例只断言：失败不会对存量规则造成任何改动；
+        // 真正覆盖回滚分支的用例见 ConfigureDynamicPricingRules_WhenInTransactionWriteFails_RollsBack。
+        await using var db = CreateDbContext();
+        var session = SeedShowSession(db, 1, 10);
+        SeedSeatMapWithSections(db, 10, 1);
 
         db.DynamicPricingRules.Add(new DynamicPricingRule
         {
@@ -402,19 +841,143 @@ public sealed class ShowSessionAdminControllersTests
             TriggerType = "TIME_WINDOW",
             AdjustmentType = "AMOUNT_OFF",
             AdjustmentValue = 20m,
-            Status = "ENABLED"
+            Status = "ENABLED",
+            CreateBy = "admin",
+            UpdateBy = "admin",
+            CreateTime = DateTime.UtcNow,
+            UpdateTime = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
 
-        var mockAdminService = new AdminShowSessionService(db);
+        var controller = CreateAdminController(db);
 
-        var count = await db.DynamicPricingRules.CountAsync(r => r.SessionId == session.SessionId);
-        Assert.Equal(1, count);
+        // 构造非法调价时间窗口（StartOffset 10 < EndOffset 30），在 Service 校验层抛出 ArgumentException
+        var invalidRequests = new[]
+        {
+            new CreateDynamicPricingRuleRequest(
+                SeatSectionId: 1,
+                RuleName: "非法规则",
+                TriggerType: "TIME_WINDOW",
+                StartOffsetMinutes: 10,
+                EndOffsetMinutes: 30,
+                AdjustmentType: "DISCOUNT_RATE",
+                AdjustmentValue: 0.8m,
+                Priority: 1)
+        };
+
+        var actionResult = await controller.ConfigureDynamicPricingRules(session.SessionId, invalidRequests, CancellationToken.None);
+
+        var badRequestResult = Assert.IsType<BadRequestObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(badRequestResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("INVALID_ARGUMENT", apiResponse.Code);
+
+        // 存量规则保持不变（既未删除也未新增）
+        var rulesInDb = await db.DynamicPricingRules
+            .Where(r => r.SessionId == session.SessionId)
+            .ToListAsync();
+
+        Assert.Single(rulesInDb);
+        Assert.Equal("初始规则", rulesInDb[0].RuleName);
+    }
+
+    [Fact]
+    public async Task ConfigureDynamicPricingRules_WhenInTransactionWriteFails_RollsBack()
+    {
+        // 真实事务回滚覆盖：用 SQLite 内存库让 SaveChanges 在事务内抛 DbUpdateException
+        // （写入一条 RULE_NAME 为 NULL、违反 NOT NULL 约束的规则），从而真正执行
+        // catch { RollbackAsync } 分支，并断言旧规则被完整保留。
+        using var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=False;");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(connection)
+            .ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCustomizer, SqliteTestModelCustomizer>()
+            .Options;
+
+        await using var db = new AppDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var session = SeedShowSession(db, 1, 10);
+        SeedSeatMapWithSections(db, 10, 1);
+        await db.SaveChangesAsync();
+
+        db.DynamicPricingRules.Add(new DynamicPricingRule
+        {
+            SessionId = session.SessionId,
+            RuleName = "初始规则",
+            TriggerType = "TIME_WINDOW",
+            AdjustmentType = "AMOUNT_OFF",
+            AdjustmentValue = 20m,
+            Status = "ENABLED",
+            CreateBy = "admin",
+            UpdateBy = "admin",
+            CreateTime = DateTime.UtcNow,
+            UpdateTime = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var service = new AdminShowSessionService(db);
+
+        // 触发"事务内写入失败"：RULE_NAME 在表中为 NOT NULL（IsRequired），这里把 RuleName 置为 null，
+        // 令 SaveChanges 在事务内抛出 DbUpdateException（NOT NULL 约束冲突，跨提供程序稳定，
+        // 不依赖 SQLite 是否复刻 CHECK 约束）。
+        var invalidRequests = new[]
+        {
+            new CreateDynamicPricingRuleRequest(
+                SeatSectionId: 1,
+                RuleName: null!,
+                TriggerType: "TIME_WINDOW",
+                StartOffsetMinutes: 120,
+                EndOffsetMinutes: 30,
+                AdjustmentType: "DISCOUNT_RATE",
+                AdjustmentValue: 0.8m,
+                Priority: 1)
+        };
+
+        await Assert.ThrowsAsync<DbUpdateException>(
+            () => service.ConfigureDynamicPricingRulesAsync(session.SessionId, invalidRequests));
+
+        // 事务已回滚：初始规则仍在、坏规则未插入
+        var rulesInDb = await db.DynamicPricingRules
+            .Where(r => r.SessionId == session.SessionId)
+            .ToListAsync();
+
+        Assert.Single(rulesInDb);
+        Assert.Equal("初始规则", rulesInDb[0].RuleName);
     }
 
     // ==========================================
     // Helper Methods
     // ==========================================
+
+    private static void SeedSeatMapWithSections(AppDbContext db, long seatMapId, params long[] sectionIds)
+    {
+        var now = DateTime.UtcNow;
+        db.SeatMaps.Add(new SeatMap
+        {
+            SeatMapId = seatMapId,
+            VenueId = 1,
+            MapCode = $"MAP_{seatMapId}",
+            MapName = $"地图{seatMapId}",
+            MapStatus = "ENABLED",
+            CreateTime = now,
+            UpdateTime = now
+        });
+
+        foreach (var sectionId in sectionIds)
+        {
+            db.SeatSections.Add(new SeatSection
+            {
+                SeatSectionId = sectionId,
+                SeatMapId = seatMapId,
+                SectionCode = $"SEC_{sectionId}",
+                SectionName = $"票区{sectionId}",
+                CreateTime = now,
+                UpdateTime = now
+            });
+        }
+    }
 
     private static AppDbContext CreateDbContext()
     {
@@ -469,6 +1032,20 @@ public sealed class ShowSessionAdminControllersTests
         );
     }
 
+    private static UpdateShowSessionRequest CreateValidUpdateRequest(
+        DateTime startTime,
+        DateTime endTime,
+        long seatMapId = 10)
+    {
+        return new UpdateShowSessionRequest(
+            StartTime: startTime,
+            EndTime: endTime,
+            SaleStartTime: startTime.AddDays(-5),
+            SaleEndTime: startTime.AddHours(-1),
+            SeatMapId: seatMapId
+        );
+    }
+
     private static ShowSession SeedShowSession(
         AppDbContext db,
         long showId,
@@ -505,5 +1082,24 @@ public sealed class ShowSessionAdminControllersTests
             SessionStatus = status,
             CreateTime = DateTime.UtcNow
         };
+    }
+}
+
+// 主键类型在 SQLite 中不能使用 AUTOINCREMENT，如果在模型中硬编码了主键类型（NUMBER(19,0)），可能会导致 SQLite 报错。
+internal sealed class SqliteTestModelCustomizer : Microsoft.EntityFrameworkCore.Infrastructure.ModelCustomizer
+{
+    public SqliteTestModelCustomizer(Microsoft.EntityFrameworkCore.Infrastructure.ModelCustomizerDependencies dependencies)
+        : base(dependencies) { }
+
+    public override void Customize(ModelBuilder modelBuilder, DbContext context)
+    {
+        base.Customize(modelBuilder, context);
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                property.SetColumnType(null); // 清空主键硬编码类型，避免 SQLite 报 AUTOINCREMENT 错误
+            }
+        }
     }
 }

@@ -22,6 +22,7 @@ public sealed record SessionSeatMapDto(
 public sealed record SessionSeatMapMapDto(
     long SeatMapId,
     long VenueId,
+    string VenueName,
     string MapCode,
     string MapName,
     string MapVersion,

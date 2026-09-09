@@ -1,135 +1,45 @@
 # 测试数据生成工具
 
-## 1. 测试项目配置 TestDataGenerator.csproj
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
+> 生成器会写入实名测试数据。运行前必须设置与后端一致的
+> `IdentityData__EncryptionKey`（Base64 编码的 32 字节密钥），否则会拒绝执行；
+> 密钥不得写入 `appsettings.json` 或提交到 Git。
 
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+## 1. 功能范围
 
-  <ItemGroup>
-    <PackageReference Include="Bogus" Version="35.6.1" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.9" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.9" />
-    <PackageReference Include="Oracle.EntityFrameworkCore" Version="10.23.26200" />
-  </ItemGroup>
+生成器面向**当前完整 schema（38 张表）**，覆盖用户/权限、演出/场次/座位/票价主体数据，
+以及后端各阶段新增模块的支撑数据与交易数据：
 
-  <ItemGroup>
-    <ProjectReference Include="..\..\backend\ShowtimeBackend.csproj" />
-  </ItemGroup>
+| 分组 | 表 | 说明 |
+|---|---|---|
+| 用户与权限 | `ORG_STRUCTURE`、`ROLE`、`SYS_USER`、`USER_ROLE`、`PERMISSION`、`ROLE_PERMISSION`、`USER_REAL_NAME`、`USER_BLACKLIST`、`USER_SESSION`、`OPERATION_LOG` | 组织架构、管理员/运营/观众账号（批量）、实名、登录会话、黑名单、操作日志 |
+| 演出主体 | `CATEGORY`、`TAG`、`SHOW`、`SHOW_TAG`、`VENUE`、`SEAT_MAP`、`SEAT_SECTION`、`SEAT`、`SHOW_SESSION`、`PRICE_STRATEGY`、`PURCHASE_LIMIT` | 演出、分类标签、场馆座位图、场次票价、限购 |
+| 营销/策略支撑 | `MARKETING_CONTENT`、`DYNAMIC_PRICING_RULE`、`SEAT_RULE`、`SEAT_RULE_SCOPE`、`REFUND_POLICY`、`EXCHANGE_POLICY` | 公告/广告/促销、动态调价、选座规则、退票改签策略 |
+| 订单/票务交易 | `T_ORDER`、`ORDER_ITEM`、`PAYMENT`、`E_TICKET`、`SEAT_LOCK`、`SEAT_RESERVATION`、`REFUND_REQUEST`、`REFUND_ITEM`、`EXCHANGE_REQUEST`、`EXCHANGE_ITEM` | 已结束/在售场次的订单历史、支付、出票、锁座/占座、退票、改签，状态互相一致 |
 
-  <ItemGroup>
-    <None Update="appsettings.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
+**幂等性约定**（可重复执行）：
+- 角色、权限、测试账号、批量观众账号按业务键去重；
+- 演出主体数据：检测到 `CATEGORY/SEAT_MAP/VENUE` 已有数据则跳过；
+- 支撑数据、用户会话/黑名单/操作日志：目标表已有数据则跳过；
+- 交易数据：`T_ORDER` 已有订单则跳过。
 
-</Project>
+> 注意：主体演出数据（CATEGORY/SEAT_MAP/VENUE 等）若已存在则跳过生成，避免重复；
+> 如需重置请先清空相关业务表（见 `reset_business_data.sql`）后重跑。
 
+## 2. 运行方式
+
+```bash
+cd db/testdata
+# 设置实名加密密钥（32 字节 Base64），与后端保持一致
+export IdentityData__EncryptionKey="<Base64-32-bytes>"
+dotnet run -- "User Id=<姓名全拼>;Password=<密码>;Data Source=<host>:1521/XEPDB1"
 ```
-## 2. Program.cs运行入口示例
-```csharp
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using ShowtimeBackend.Data;
-using ShowtimeBackend.TestData;
 
-namespace ShowtimeBackend.TestDataRunner;
+也可以不传连接串，改用 `appsettings.json` 中 `ConnectionStrings:DefaultConnection`。
 
-class Program
-{
-    static void Main(string[] args)
-    {
-        Console.WriteLine("========================================");
-        Console.WriteLine("  ShowtimeBackend Test Data Generator");
-        Console.WriteLine("========================================");
-        Console.WriteLine();
+生成期间会打印每阶段数量与最终统计；非交互环境（CI/管道重定向）不会阻塞等待按键。
 
-        try
-        {
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-                .Build();
+## 3. 配置说明（appsettings.json DataGeneration）
 
-            string connectionString = args.Length > 0
-                ? args[0]
-                : configuration.GetConnectionString("DefaultConnection")!;
-
-            if (string.IsNullOrEmpty(connectionString))
-            {
-                Console.WriteLine("[ERROR] Connection string not found.");
-                Console.WriteLine("Usage: dotnet run [connection_string]");
-                Console.WriteLine("Example: dotnet run \"User Id=your_user;Password=your_pass;Data Source=//host:1521/XEPDB1\"");
-                return;
-            }
-
-            var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
-            optionsBuilder.UseOracle(connectionString);
-
-            using var context = new AppDbContext(optionsBuilder.Options);
-
-            Console.WriteLine("Checking database connection...");
-            context.Database.EnsureCreated();
-
-            var genConfig = configuration.GetSection("DataGeneration");
-            int showCount = int.Parse(genConfig["ShowCount"] ?? "10");
-            int minSessions = int.Parse(genConfig["MinSessionsPerShow"] ?? "3");
-            int maxSessions = int.Parse(genConfig["MaxSessionsPerShow"] ?? "5");
-            int seatsPerSession = int.Parse(genConfig["SeatsPerSession"] ?? "200");
-            bool enableDetailedLog = bool.Parse(genConfig["EnableDetailedLog"] ?? "true");
-
-            Console.WriteLine("Configuration:");
-            Console.WriteLine($"  Shows:              {showCount}");
-            Console.WriteLine($"  Sessions per show:  {minSessions} ~ {maxSessions}");
-            Console.WriteLine($"  Seats per session:  {seatsPerSession}");
-            Console.WriteLine();
-
-            var generator = new TestDataGenerator(
-                context,
-                showCount,
-                minSessions,
-                maxSessions,
-                seatsPerSession,
-                enableDetailedLog
-            );
-
-            generator.GenerateAllData();
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[ERROR] {ex.Message}");
-            Console.Error.WriteLine(ex.StackTrace);
-            Environment.ExitCode = 1;
-        }
-
-        Console.WriteLine();
-        Console.WriteLine("Press any key to exit...");
-        Console.ReadKey();
-    }
-
-    private static string ExtractDbName(string connectionString)
-    {
-        var parts = connectionString.Split(';');
-        foreach (var part in parts)
-        {
-            if (part.Trim().StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
-            {
-                return part.Split('=')[1].Trim();
-            }
-        }
-        return "unknown";
-    }
-}
-
-```
-## 3. appsettings.json 配置文件
 ```json
 {
   "ConnectionStrings": {
@@ -140,23 +50,39 @@ class Program
     "MinSessionsPerShow": 3,
     "MaxSessionsPerShow": 5,
     "SeatsPerSession": 200,
-    "EnableDetailedLog": true
+    "EnableDetailedLog": true,
+    "ExtraUserCount": 60,
+    "EnableOrderSeed": true,
+    "EndedSessionSoldRatio": 0.65,
+    "OnSaleSessionSoldRatio": 0.18,
+    "RefundOrderRatio": 0.06,
+    "ExchangeOrderRatio": 0.02
+  },
+  "IdentityData": {
+    "EncryptionKey": "Set the IdentityData__EncryptionKey environment variable; never store the real key here."
   }
 }
-```## 4. 生成的数据范围
+```
 
-除演出/场次/座位/票价等主体数据外，还会生成**用户与权限模块**的基础数据（幂等，已存在则跳过）：
+| 键 | 默认值 | 含义 |
+|---|---|---|
+| `ExtraUserCount` | 60 | 除 admin/testuser1~3 外额外生成的观众账号数（用户名 `user1001` 起，幂等） |
+| `EnableOrderSeed` | true | 是否生成订单/支付/票务等交易数据 |
+| `EndedSessionSoldRatio` | 0.65 | 已结束场次的售出比例 |
+| `OnSaleSessionSoldRatio` | 0.18 | 在售场次的售出比例（保留足够余座给选座演示） |
+| `RefundOrderRatio` | 0.06 | 已出票订单中产生退票申请的比例 |
+| `ExchangeOrderRatio` | 0.02 | 已出票订单中产生改签的比例 |
 
-| 表 | 内容 |
-|---|---|
-| ROLE | `USER`（普通用户）、`OPERATOR`（运营人员）、`Admin`（系统管理员） |
-| SYS_USER | `admin` + `testuser1~3` 共 4 个测试账号（密码使用 ASP.NET Core Identity 标准哈希存储） |
-| USER_ROLE | admin 挂 Admin+USER 角色；其余挂 USER |
-| USER_REAL_NAME | 每个测试账号 1 条**已实名认证**记录（订单按实名购票流程可用） |
-| PERMISSION / ROLE_PERMISSION | 系统管理/演出/场次/座位/订单等 19 项权限树；Admin 全量授权，OPERATOR 运营授权，USER 基础授权 |
+> 降低 `EnableOrderSeed`/比例可显著缩短运行时间；提高 `ExtraUserCount` 可让
+> 用户分析看板/实名购票演示有更多数据。
 
-**测试账号**（登录/注册接口可直接使用）：
-- 管理员：`admin` / `Admin@12345`
-- 普通用户：`testuser1` / `Test@12345`（testuser2、testuser3 密码相同）
+## 4. 测试账号
 
-> 注意：主体演出数据（CATEGORY/SEAT_MAP/VENUE 等）若已存在则跳过生成，避免重复；如需重置请先清空相关业务表后重跑。
+**登录/注册接口可直接使用**：
+- 管理员：`admin` / `Admin@12345`（Admin + USER 角色）
+- 普通用户：`testuser1`~`testuser3` / `Test@12345`
+- 批量观众：`user1001`~`user1060`（密码与 testuser 相同 `Test@12345`）
+
+## 5. 验证
+
+`VerifyTestData.sql` 提供常用数据量/分布校验 SQL（在 APP_OWNER schema 下执行）。

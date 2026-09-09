@@ -17,6 +17,7 @@ public interface IOrderService
     Task<OrderTicketResult<OrderResponse>> CreateAsync(
         long userId,
         string actor,
+        string? idempotencyKey,
         CreateOrderRequest request,
         CancellationToken cancellationToken);
 

@@ -11,27 +11,30 @@ const Login = () => {
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      const response: any = await authAPI.login({
+      const { data, error } = await authAPI.login({
         account: values.username,
         password: values.password,
       });
 
-      const result = response.data ? response.data : response;
+      if (error) {
+        message.error(error.message || '登录失败');
+        return;
+      }
 
-      if (result.success && result.data) {
-        const loginData = result.data;
+      if (data?.success && data?.data) {
+        const loginData = data.data;
         localStorage.setItem('accessToken', loginData.accessToken);
         localStorage.setItem('user', JSON.stringify(loginData.user));
         message.success('登录成功！');
         setTimeout(() => {
-          navigate('/');
+          window.location.href = '/';
         }, 500);
       } else {
-        message.error(result.message || '登录失败');
+        message.error(data?.message || '登录失败');
       }
     } catch (error: any) {
       console.error('登录异常:', error);
-      message.error(error.response?.data?.message || '登录失败，请检查网络连接');
+      message.error(error.message || '网络错误');
     } finally {
       setLoading(false);
     }

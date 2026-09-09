@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using System.Text.Json;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
@@ -7,11 +9,41 @@ using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Entities.ShowSession;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
 
 namespace ShowtimeBackend.Tests.OrderTicket;
 
 public sealed class OrderServiceTests
 {
+    [Fact]
+    public async Task CreateAsync_UsesConfiguredPendingPaymentExpiration()
+    {
+        await using var db = CreateDbContext();
+        await SeedCatalogAsync(db);
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
+        await AddActiveLockAsync(db, 50, "lock-50", now.UtcDateTime);
+        var service = new OrderService(
+            db,
+            new FixedTimeProvider(now),
+            expirationOptions: Options.Create(new OrderExpirationOptions
+            {
+                PendingPaymentExpireMinutes = 20,
+            }));
+
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            "test-key-expiration",
+            new CreateOrderRequest(
+                10,
+                [new CreateOrderItemRequest(50, 60, null, "lock-50")],
+                null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(now.UtcDateTime.AddMinutes(20), result.Value!.ExpireTime);
+    }
+
     [Fact]
     public async Task CreateAsync_ComputesAmountsFromEnabledPriceStrategies()
     {
@@ -35,7 +67,12 @@ public sealed class OrderServiceTests
             ],
             "靠近过道");
 
-        var result = await service.CreateAsync(7, "alice", request, CancellationToken.None);
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            "test-key-pricing",
+            request,
+            CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(376m, result.Value!.TotalAmount);
@@ -57,6 +94,18 @@ public sealed class OrderServiceTests
             Assert.NotNull(item.OrderItemId);
             Assert.NotNull(item.SeatLockId);
         });
+        var outbox = await db.OrderEventOutbox.SingleAsync();
+        Assert.Equal(OrderCreatedEvent.TypeName, outbox.EventType);
+        Assert.Equal(OrderCreatedEvent.RoutingKeyName, outbox.RoutingKey);
+        Assert.Equal(result.Value.OrderId, outbox.AggregateId);
+        Assert.Equal("PENDING", outbox.Status);
+        var orderCreated = JsonSerializer.Deserialize<OrderCreatedEvent>(
+            outbox.Payload,
+            OrderCreatedEvent.SerializerOptions);
+        Assert.NotNull(orderCreated);
+        Assert.Equal(result.Value.OrderNo, orderCreated.OrderNo);
+        Assert.Equal(2, orderCreated.TicketCount);
+        Assert.Equal(7, orderCreated.UserId);
     }
 
     [Fact]
@@ -70,6 +119,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-missing-lock",
             new CreateOrderRequest(
                 10,
                 [new CreateOrderItemRequest(50, 60, null, "missing-lock")],
@@ -93,6 +143,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-long-token",
             new CreateOrderRequest(
                 10,
                 [new CreateOrderItemRequest(50, 60, null, new string('a', 65))],
@@ -120,6 +171,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-too-many-seats",
             new CreateOrderRequest(10, items, null),
             CancellationToken.None);
 
@@ -140,6 +192,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-wrong-token",
             new CreateOrderRequest(
                 10,
                 [new CreateOrderItemRequest(50, 60, null, "wrong-token")],
@@ -175,6 +228,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-expired-lock",
             new CreateOrderRequest(
                 10,
                 [new CreateOrderItemRequest(50, 60, null, "expired-token")],
@@ -202,7 +256,12 @@ public sealed class OrderServiceTests
             ],
             null);
 
-        var result = await service.CreateAsync(7, "alice", request, CancellationToken.None);
+        var result = await service.CreateAsync(
+            7,
+            "alice",
+            "test-key-duplicate-seats",
+            request,
+            CancellationToken.None);
 
         Assert.False(result.IsSuccess);
         Assert.Equal("ORDER_INVALID_ITEMS", result.ErrorCode);
@@ -218,6 +277,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-unavailable-seat",
             new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null, "test-lock")], null),
             CancellationToken.None);
 
@@ -235,6 +295,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-price-session",
             new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null, "test-lock")], null),
             CancellationToken.None);
 
@@ -261,6 +322,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-real-name",
             new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, 70, "test-lock")], null),
             CancellationToken.None);
 
@@ -282,6 +344,7 @@ public sealed class OrderServiceTests
         var result = await service.CreateAsync(
             7,
             "alice",
+            "test-key-missing-session",
             new CreateOrderRequest(10, [new CreateOrderItemRequest(50, 60, null, "test-lock")], null),
             CancellationToken.None);
 

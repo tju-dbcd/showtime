@@ -8,11 +8,15 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.Entities.UserPermission;
 using ShowtimeBackend.Services.FileStorage;
+using ShowtimeBackend.Services.OrderTicket;
+using ShowtimeBackend.Services.OrderTicket.Messaging;
+using ShowtimeBackend.Services.UserPermission;
 
 namespace ShowtimeBackend.Tests;
 
@@ -22,6 +26,7 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
     public const string TestAudience = "ShowtimeFrontend.Tests";
     public const string TestKey =
         "showtime-tests-only-jwt-key-which-is-longer-than-32-bytes";
+    public const long TestSessionId = long.MaxValue;
 
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
     private readonly FixedTimeProvider _timeProvider;
@@ -31,34 +36,44 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
     private readonly IFileStorageService? _customFileStorage;
     private readonly bool _localStorageEnabled;
     private readonly string? _localStorageRoot;
+    private readonly IReadOnlyDictionary<string, string?>? _additionalConfiguration;
+    private readonly bool _enableOrderExpirationWorker;
+    private readonly bool _enableOrderEventOutboxWorker;
 
     public AuthTestFactory(
         string? jwtKey = TestKey,
         bool ossEnabled = false,
         bool replaceWithFakeStorage = false,
         IFileStorageService? customFileStorage = null,
-        bool localStorageEnabled = false)
+        bool localStorageEnabled = false,
+        bool enableOrderExpirationWorker = false,
+        bool enableOrderEventOutboxWorker = false,
+        IReadOnlyDictionary<string, string?>? additionalConfiguration = null)
     {
         _jwtKey = jwtKey;
         _ossEnabled = ossEnabled;
         _replaceWithFakeStorage = replaceWithFakeStorage;
         _customFileStorage = customFileStorage;
         _localStorageEnabled = localStorageEnabled;
+        _additionalConfiguration = additionalConfiguration;
+        _enableOrderExpirationWorker = enableOrderExpirationWorker;
+        _enableOrderEventOutboxWorker = enableOrderEventOutboxWorker;
         // 本地磁盘存储用例指向独立临时目录，测试结束整目录清理
         _localStorageRoot = localStorageEnabled
             ? Path.Combine(
                 Path.GetTempPath(),
                 "showtime-tests-files-" + Guid.NewGuid().ToString("N"))
             : null;
-        UtcNow = DateTimeOffset.UtcNow;
-        _timeProvider = new FixedTimeProvider(UtcNow);
+        _timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
         _connection.Open();
     }
 
     /// <summary>localStorageEnabled=true 时本地磁盘存储的根目录（测试临时目录），供用例断言落盘。</summary>
     public string? LocalStorageRoot => _localStorageRoot;
 
-    public DateTimeOffset UtcNow { get; }
+    public DateTimeOffset UtcNow => _timeProvider.GetUtcNow();
+
+    public void AdvanceTime(TimeSpan amount) => _timeProvider.Advance(amount);
 
     public HttpClient CreateApiClient() =>
         CreateClient(new WebApplicationFactoryClientOptions
@@ -128,9 +143,18 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
                 ["Jwt:Key"] = _jwtKey,
                 ["Jwt:Issuer"] = TestIssuer,
                 ["Jwt:Audience"] = TestAudience,
-                ["Jwt:ExpirationMinutes"] = "120",
+                ["Jwt:ExpirationMinutes"] = "15",
+                ["Jwt:RefreshTokenExpirationDays"] = "7",
+                ["Jwt:RefreshTokenReuseGraceSeconds"] = "30",
+                ["RateLimiting:LoginPerMinute"] = "5",
+                ["RateLimiting:RegisterPerMinute"] = "3",
+                ["RateLimiting:RefreshPerMinute"] = "10",
+                ["RateLimiting:AuthenticatedPerMinute"] = "120",
+                ["RateLimiting:AnonymousPerMinute"] = "60",
                 ["TicketSecurity:SigningKeyBase64"] =
                     "ERERERERERERERERERERERERERERERERERERERERERE=",
+                ["IdentityData:EncryptionKey"] =
+                    "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=",
                 // 测试环境默认不启用 OSS（kill-switch 关闭，跳过启动期配置校验）；
                 // ossEnabled=true 时给出合法占位配置（AccessKey 由测试注入 fake 或在校验前短路，不真连 OSS）。
                 ["Oss:Enabled"] = _ossEnabled ? "true" : "false",
@@ -150,13 +174,43 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
                     _localStorageEnabled ? _localStorageRoot! : Path.GetTempPath(),
                 ["LocalStorage:BaseUrl"] = "/files",
             });
+            if (_additionalConfiguration is not null)
+            {
+                configuration.AddInMemoryCollection(_additionalConfiguration);
+            }
         });
         builder.ConfigureServices(services =>
         {
+            if (!_enableOrderExpirationWorker)
+            {
+                var workerDescriptors = services
+                    .Where(descriptor =>
+                        descriptor.ServiceType == typeof(IHostedService) &&
+                        descriptor.ImplementationType == typeof(OrderExpirationWorker))
+                    .ToList();
+                foreach (var descriptor in workerDescriptors)
+                    services.Remove(descriptor);
+            }
+
+            // PR65 后 outbox worker 默认始终注册（RabbitMQ 关闭时进程内完成退款/通知）；
+            // 绝大多数用例并不需要后台轮询，默认移除以免后台 worker 变更库状态造成竞态，
+            // 需要验证兜底链路/注册的用例显式开启。
+            if (!_enableOrderEventOutboxWorker)
+            {
+                var outboxWorkerDescriptors = services
+                    .Where(descriptor =>
+                        descriptor.ServiceType == typeof(IHostedService) &&
+                        descriptor.ImplementationType == typeof(OrderEventOutboxWorker))
+                    .ToList();
+                foreach (var descriptor in outboxWorkerDescriptors)
+                    services.Remove(descriptor);
+            }
+
             services.RemoveAll<AppDbContext>();
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
             services.RemoveAll<TimeProvider>();
+            services.RemoveAll<IUserSessionService>();
 
             if (_customFileStorage is not null)
             {
@@ -175,14 +229,22 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
             services.AddSingleton<TimeProvider>(_timeProvider);
             services.AddControllers()
                 .AddApplicationPart(typeof(TestAuthorizationController).Assembly);
-            services.AddDbContext<SqliteAuthDbContext>(options =>
-                options.UseSqlite(_connection));
+            services.AddDbContext<SqliteAuthDbContext>((provider, options) =>
+                options
+                    .UseSqlite(_connection)
+                    .AddInterceptors(
+                        provider.GetRequiredService<
+                            ShowtimeBackend.Data.Interceptors.UserRealNameEncryptionInterceptor>()));
             services.AddScoped<AppDbContext>(provider =>
                 provider.GetRequiredService<SqliteAuthDbContext>());
             // 审计 sink 使用独立 DbContext 实例写入 OPERATION_LOG：
             // 表结构由 SqliteAuthDbContext.EnsureCreated 建立，factory 仅负责出实例做 INSERT。
             services.AddDbContextFactory<AppDbContext>(options =>
                 options.UseSqlite(_connection));
+            services.AddScoped<UserSessionService>();
+            services.AddScoped<IUserSessionService>(provider =>
+                new TestUserSessionService(
+                    provider.GetRequiredService<UserSessionService>()));
         });
     }
 
@@ -212,6 +274,58 @@ public sealed class AuthTestFactory : WebApplicationFactory<Program>
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => utcNow;
+        private long _utcTicks = utcNow.UtcTicks;
+
+        public override DateTimeOffset GetUtcNow() =>
+            new(Interlocked.Read(ref _utcTicks), TimeSpan.Zero);
+
+        public void Advance(TimeSpan amount) =>
+            Interlocked.Add(ref _utcTicks, amount.Ticks);
+    }
+
+    private sealed class TestUserSessionService(
+        UserSessionService inner) : IUserSessionService
+    {
+        public Task<UserSessionResult<SessionIssueData>> StartAsync(
+            long userId,
+            ClientRequestMetadata client,
+            CancellationToken cancellationToken) =>
+            inner.StartAsync(userId, client, cancellationToken);
+
+        public Task<UserSessionResult<SessionRefreshData>> RotateAsync(
+            string refreshToken,
+            CancellationToken cancellationToken) =>
+            inner.RotateAsync(refreshToken, cancellationToken);
+
+        public Task<bool> IsActiveAsync(
+            long userId,
+            long sessionId,
+            CancellationToken cancellationToken) =>
+            sessionId == TestSessionId
+                ? Task.FromResult(true)
+                : inner.IsActiveAsync(userId, sessionId, cancellationToken);
+
+        public Task<int> LogoutCurrentAsync(
+            long userId,
+            long sessionId,
+            CancellationToken cancellationToken) =>
+            inner.LogoutCurrentAsync(userId, sessionId, cancellationToken);
+
+        public Task<int> LogoutAllAsync(
+            long userId,
+            CancellationToken cancellationToken) =>
+            inner.LogoutAllAsync(userId, cancellationToken);
+
+        public Task<IReadOnlyList<ShowtimeBackend.DTOs.UserPermission.UserSessionResponse>> ListAsync(
+            long userId,
+            long currentSessionId,
+            CancellationToken cancellationToken) =>
+            inner.ListAsync(userId, currentSessionId, cancellationToken);
+
+        public Task<UserSessionResult<int>> RevokeAsync(
+            long userId,
+            long targetSessionId,
+            CancellationToken cancellationToken) =>
+            inner.RevokeAsync(userId, targetSessionId, cancellationToken);
     }
 }

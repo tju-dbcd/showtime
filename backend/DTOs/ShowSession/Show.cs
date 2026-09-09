@@ -26,6 +26,13 @@ public record UpdateShowRequest(
 );
 
 /// <summary>
+/// 更新演出审核状态请求参数（通过/驳回）
+/// </summary>
+public record UpdateShowAuditStatusRequest(
+    ShowAuditStatus AuditStatus // 取值见 Common.Enums.ShowAuditStatus：PENDING/APPROVED/REJECTED
+);
+
+/// <summary>
 /// 演出列表查询参数
 /// </summary>
 public record ShowQueryRequest(

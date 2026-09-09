@@ -29,4 +29,20 @@ namespace ShowtimeBackend.DTOs.ShowSessionDto
         PriceType PriceType,
         decimal Price,
         PriceStrategyStatus Status);
+
+    /// <summary>
+    /// 管理端场次基础票价策略（含全部档位、窗口与状态，供后台维护）
+    /// </summary>
+    public record AdminPriceStrategyDto(
+        long PriceStrategyId,
+        long SessionId,
+        long SeatSectionId,
+        string StrategyName,
+        PriceType PriceType,
+        decimal Price,
+        DateTime? SaleStartTime,
+        DateTime? SaleEndTime,
+        int Priority,
+        long? Quota,
+        PriceStrategyStatus Status);
 }

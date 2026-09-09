@@ -7,6 +7,7 @@ using ShowtimeBackend.Common.TicketSecurity;
 using ShowtimeBackend.Data;
 using ShowtimeBackend.DTOs.OrderTicket;
 using ShowtimeBackend.Entities.OrderTicket;
+using ShowtimeBackend.Entities.SeatZone;
 using ShowtimeBackend.Services.OrderTicket;
 
 namespace ShowtimeBackend.Tests.OrderTicket;
@@ -110,7 +111,27 @@ public sealed class PaymentServiceTests
     {
         await using var connection = await CreateConnectionAsync();
         await using var db = await CreateDbContextAsync(connection);
-        db.Add(CreateOrder(expireTime: new DateTime(2026, 8, 2, 11, 59, 59)));
+        var order = CreateOrder(expireTime: new DateTime(2026, 8, 2, 11, 59, 59));
+        order.Payments.Add(new Payment
+        {
+            PaymentId = 2,
+            PaymentNo = "PAY000002",
+            UserId = 7,
+            PayAmount = 150m,
+            PayChannel = "ALIPAY",
+            PayStatus = "PENDING",
+        });
+        db.Add(order);
+        db.Add(new SeatReservation
+        {
+            SeatReservationId = 1,
+            SessionId = 10,
+            SeatId = 100,
+            OrderItemId = 1,
+            ReservationType = "ORDER",
+            ReservationStatus = "ACTIVE",
+            ReserveTime = new DateTime(2026, 8, 2, 11, 45, 0),
+        });
         await db.SaveChangesAsync();
         var service = CreateService(
             db,
@@ -126,6 +147,36 @@ public sealed class PaymentServiceTests
         Assert.False(result.IsSuccess);
         Assert.Equal("ORDER_EXPIRED", result.ErrorCode);
         Assert.Equal("CANCELLED", (await db.Set<Order>().SingleAsync()).OrderStatus);
+        Assert.Equal("CANCELLED", (await db.SeatReservations.SingleAsync()).ReservationStatus);
+        Assert.Equal("CLOSED", (await db.Set<Payment>().SingleAsync()).PayStatus);
+    }
+
+    [Fact]
+    public async Task PayAsync_WhenExpirationLosesWithoutSuccessfulPayment_ReturnsCannotPay()
+    {
+        await using var connection = await CreateConnectionAsync();
+        await using var db = await CreateDbContextAsync(connection);
+        db.Add(CreateOrder(expireTime: new DateTime(2026, 8, 2, 11, 59, 59)));
+        await db.SaveChangesAsync();
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
+        var service = new PaymentService(
+            db,
+            new FixedTimeProvider(now),
+            new TicketIssuanceService(CreateTokenService()),
+            NullLogger<PaymentService>.Instance,
+            new NullOrderTicketAuditSink(),
+            new LosingExpirationService(db));
+
+        var result = await service.PayAsync(
+            7,
+            "alice",
+            1,
+            new MockPaymentRequest(PaymentChannel.ALIPAY, PaymentResult.SUCCESS),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ORDER_CANNOT_PAY", result.ErrorCode);
+        Assert.Equal("CANCELLED", (await db.Set<Order>().AsNoTracking().SingleAsync()).OrderStatus);
         Assert.Empty(await db.Set<Payment>().ToListAsync());
     }
 
@@ -145,7 +196,8 @@ public sealed class PaymentServiceTests
             new TicketIssuanceService(
                 new ThrowOnSecondGenerateTokenService(CreateTokenService())),
             NullLogger<PaymentService>.Instance,
-            new NullOrderTicketAuditSink());
+            new NullOrderTicketAuditSink(),
+            CreateExpirationService(db, now));
 
         var result = await service.PayAsync(
             7,
@@ -216,7 +268,16 @@ public sealed class PaymentServiceTests
             new FixedTimeProvider(now),
             new TicketIssuanceService(CreateTokenService()),
             NullLogger<PaymentService>.Instance,
-            auditSink ?? new NullOrderTicketAuditSink());
+            auditSink ?? new NullOrderTicketAuditSink(),
+            CreateExpirationService(db, now));
+
+    private static OrderExpirationService CreateExpirationService(
+        AppDbContext db,
+        DateTimeOffset now) => new(
+        db,
+        new FixedTimeProvider(now),
+        Options.Create(new OrderExpirationOptions()),
+        NullLogger<OrderExpirationService>.Instance);
 
     private static HmacTicketTokenService CreateTokenService() => new(
         Options.Create(new TicketSecurityOptions
@@ -282,6 +343,29 @@ public sealed class PaymentServiceTests
             CancellationToken cancellationToken) =>
             ValueTask.FromException(
                 new InvalidOperationException("Simulated audit failure."));
+    }
+
+    private sealed class LosingExpirationService(AppDbContext dbContext)
+        : IOrderExpirationService
+    {
+        public Task<OrderExpirationBatchResult> ExpireDueBatchAsync(
+            long? afterOrderId = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public async Task<OrderExpirationOutcome> ExpireOrderAsync(
+            long orderId,
+            string actor,
+            DateTime now,
+            CancellationToken cancellationToken = default)
+        {
+            await dbContext.Set<Order>()
+                .Where(item => item.OrderId == orderId)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(item => item.OrderStatus, "CANCELLED"),
+                    cancellationToken);
+            return OrderExpirationOutcome.Skipped;
+        }
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

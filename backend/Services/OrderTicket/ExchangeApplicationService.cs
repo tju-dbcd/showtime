@@ -1,4 +1,7 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShowtimeBackend.Common;
 using ShowtimeBackend.Data;
@@ -17,10 +20,15 @@ public sealed class ExchangeApplicationService(
     TimeProvider timeProvider,
     IExchangeLockCoordinator? lockCoordinator = null,
     IOptions<ExchangeOptions>? options = null,
-    ISeatLockGuard? seatLockGuard = null) : IExchangeApplicationService
+    ISeatLockGuard? seatLockGuard = null,
+    IOrderTicketAuditSink? auditSink = null,
+    ILogger<ExchangeApplicationService>? logger = null) : IExchangeApplicationService
 {
     private const decimal MaxOracleAmount = 99_999_999.99m;
     private readonly ExchangeOptions exchangeOptions = options?.Value ?? new ExchangeOptions();
+    private readonly IOrderTicketAuditSink auditSink = auditSink ?? new NullOrderTicketAuditSink();
+    private readonly ILogger<ExchangeApplicationService> logger =
+        logger ?? NullLogger<ExchangeApplicationService>.Instance;
 
     public async Task<OrderTicketResult<ExchangeQuoteResponse>> QuoteAsync(
         long userId,
@@ -147,10 +155,10 @@ public sealed class ExchangeApplicationService(
         var seats = await dbContext.Set<Seat>().AsNoTracking()
             .Where(item => targetSeatIds.Contains(item.SeatId))
             .ToDictionaryAsync(item => item.SeatId, cancellationToken);
-        var strategyIds = request.TargetItems.Select(item => item.PriceStrategyId).Distinct().ToArray();
         var strategies = await dbContext.Set<PriceStrategy>().AsNoTracking()
-            .Where(item => strategyIds.Contains(item.PriceStrategyId))
-            .ToDictionaryAsync(item => item.PriceStrategyId, cancellationToken);
+            .Where(item => item.SessionId == targetSession.SessionId && item.Status == "ENABLED")
+            .ToListAsync(cancellationToken);
+        var strategyById = strategies.ToDictionary(item => item.PriceStrategyId);
         var locks = await dbContext.Set<SeatLock>().AsNoTracking()
             .Where(item => item.SessionId == targetSession.SessionId && item.UserId == userId &&
                            targetSeatIds.Contains(item.SeatId) && item.LockStatus == "ACTIVE" &&
@@ -169,7 +177,7 @@ public sealed class ExchangeApplicationService(
                 return Conflict("EXCHANGE_TARGET_SEAT_UNAVAILABLE", "A target seat is unavailable.");
             }
 
-            if (!strategies.TryGetValue(requestedItem.PriceStrategyId, out var strategy) ||
+            if (!strategyById.TryGetValue(requestedItem.PriceStrategyId, out var strategy) ||
                 strategy.SessionId != targetSession.SessionId ||
                 strategy.SeatSectionId != seat.SeatSectionId || strategy.Status != "ENABLED")
             {
@@ -183,16 +191,24 @@ public sealed class ExchangeApplicationService(
             }
 
             var originalItem = originalItems[requestedItem.OriginalOrderItemId];
+
+            // 方案 A：改签目标价也按锁定时点的“当前生效票档”计价
+            var effective = PricingTierSelector.SelectEffective(strategies, seat.SeatSectionId, seatLock.CreateTime);
+            if (effective is null)
+            {
+                return Invalid("EXCHANGE_TARGET_NO_EFFECTIVE_PRICE", "The target region has no active price tier at lock time.");
+            }
+
             var newUnitPrice = PricingChange.CalculateRealtimePrice(
-                strategy.Price, targetSession.StartTime, seatLock.CreateTime,
-                strategy.SeatSectionId, dynamicRules);
+                effective.Price, targetSession.StartTime, seatLock.CreateTime,
+                effective.SeatSectionId, dynamicRules);
             if (!IsOracleAmount(originalItem.UnitPrice) || !IsOracleAmount(newUnitPrice))
             {
                 return Invalid("EXCHANGE_AMOUNT_INVALID", "An exchange amount is outside the supported range.");
             }
 
             quoteItems.Add(new ExchangeQuoteItemResponse(
-                originalItem.OrderItemId, requestedItem.SeatId, requestedItem.PriceStrategyId,
+                originalItem.OrderItemId, requestedItem.SeatId, effective.PriceStrategyId,
                 originalItem.RealNameId, originalItem.UnitPrice, newUnitPrice));
         }
 
@@ -425,6 +441,14 @@ public sealed class ExchangeApplicationService(
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
+            await WriteExchangeRequestedAuditAsync(
+                orderId,
+                exchange.ExchangeId,
+                quote,
+                actor,
+                now,
+                cancellationToken);
+
             if (seatLockGuard is not null)
             {
                 foreach (var item in request.TargetItems)
@@ -644,6 +668,44 @@ public sealed class ExchangeApplicationService(
 
     private static string CreateBusinessNumber(string prefix, DateTime now) =>
         $"{prefix}{now:yyyyMMddHHmmssfff}{Guid.NewGuid():N}"[..28].ToUpperInvariant();
+
+    private async Task WriteExchangeRequestedAuditAsync(
+        long orderId,
+        long exchangeId,
+        ExchangeQuoteResponse quote,
+        string actor,
+        DateTime occurredAt,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await auditSink.WriteAsync(
+                new OrderTicketAuditEvent(
+                    "EXCHANGE_REQUESTED",
+                    orderId,
+                    actor,
+                    quote.Items.Count,
+                    occurredAt,
+                    Metadata: new Dictionary<string, string>
+                    {
+                        ["ExchangeId"] = exchangeId.ToString(CultureInfo.InvariantCulture),
+                        ["TargetSessionId"] = quote.TargetSessionId.ToString(CultureInfo.InvariantCulture),
+                        ["ApproveStatus"] = "PENDING",
+                        ["ExchangeStatus"] = "PENDING",
+                        ["ExchangeFee"] = quote.ExchangeFee.ToString(CultureInfo.InvariantCulture),
+                        ["PriceDiff"] = quote.PriceDiff.ToString(CultureInfo.InvariantCulture),
+                    }),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Order-ticket audit sink failed for exchange request {ExchangeId} on order {OrderId}.",
+                exchangeId,
+                orderId);
+        }
+    }
 
     private async Task RollbackAndClearAsync(
         Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,

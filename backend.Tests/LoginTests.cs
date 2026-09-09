@@ -26,9 +26,10 @@ public sealed class LoginTests
         var response = await AuthTestFactory.ReadResponseAsync<LoginResponse>(httpResponse);
         Assert.True(response.Success);
         Assert.Equal("Bearer", response.Data!.TokenType);
-        Assert.Equal(7200, response.Data.ExpiresIn);
+        Assert.Equal(900, response.Data.ExpiresIn);
         Assert.Equal(["USER"], response.Data.User.Roles);
         Assert.False(string.IsNullOrWhiteSpace(response.Data.AccessToken));
+        Assert.False(string.IsNullOrWhiteSpace(response.Data.RefreshToken));
     }
 
     [Fact]

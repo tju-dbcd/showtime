@@ -185,6 +185,8 @@ export interface OrderResponse {
   items: OrderItemResponse[];
   payments: PaymentResponse[];
   tickets: ETicketSummaryResponse[];
+  createTime: string;
+  parentOrderId: number | null;
 }
 
 export interface OrderSummaryResponse {
@@ -197,6 +199,7 @@ export interface OrderSummaryResponse {
   orderStatus: string;
   expireTime: string;
   createTime: string;
+  parentOrderId: number | null;
 }
 
 export interface PagedOrderResponse {
@@ -244,6 +247,7 @@ export interface ETicketSummaryResponse {
   eTicketNo: string;
   orderItemId: number;
   ticketStatus: string;
+  qrCode?: string;
 }
 
 export interface TicketResponse extends ETicketSummaryResponse {

@@ -285,6 +285,80 @@ public sealed class ShowAdminControllerTests
         Assert.Null(dbShow);
     }
 
+    [Fact]
+    public async Task UpdateShow_WhenPublishWithoutApproval_ReturnsConflict()
+    {
+        await using var db = CreateAndSeedDbContext();
+        var show = CreateShowEntity("待审核演出", "DRAFT", "PENDING");
+        db.Shows.Add(show);
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var updateRequest = new UpdateShowRequest("新名字", 1, null, 120, null, ShowStatus.PUBLISHED);
+
+        var actionResult = await controller.UpdateShow(show.ShowId, updateRequest, CancellationToken.None);
+
+        var conflictResult = Assert.IsType<ConflictObjectResult>(actionResult.Result);
+        var apiResponse = Assert.IsType<ApiResponse<object>>(conflictResult.Value);
+        Assert.False(apiResponse.Success);
+        Assert.Equal("OPERATION_CONFLICT", apiResponse.Code);
+    }
+
+    [Fact]
+    public async Task UpdateShowAuditStatus_WhenApproved_UpdatesAudit()
+    {
+        await using var db = CreateAndSeedDbContext();
+        var show = CreateShowEntity("待审核演出", "DRAFT", "PENDING");
+        db.Shows.Add(show);
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var actionResult = await controller.UpdateShowAuditStatus(
+            show.ShowId,
+            new UpdateShowAuditStatusRequest(ShowAuditStatus.APPROVED),
+            CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        Assert.True(Assert.IsType<ApiResponse<object>>(okResult.Value).Success);
+        var updated = await db.Shows.FindAsync(show.ShowId);
+        Assert.Equal("APPROVED", updated!.AuditStatus);
+    }
+
+    [Fact]
+    public async Task UpdateShowAuditStatus_WhenRejectPublished_AutoUnpublishes()
+    {
+        await using var db = CreateAndSeedDbContext();
+        var show = CreateShowEntity("已发布演出", "PUBLISHED", "APPROVED");
+        db.Shows.Add(show);
+        await db.SaveChangesAsync();
+
+        var controller = CreateAdminController(db);
+        var actionResult = await controller.UpdateShowAuditStatus(
+            show.ShowId,
+            new UpdateShowAuditStatusRequest(ShowAuditStatus.REJECTED),
+            CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(actionResult.Result);
+        var updated = await db.Shows.FindAsync(show.ShowId);
+        Assert.Equal("REJECTED", updated!.AuditStatus);
+        Assert.Equal("UNPUBLISHED", updated.Status);
+    }
+
+    [Fact]
+    public async Task UpdateShowAuditStatus_WhenShowNotExist_ReturnsNotFound()
+    {
+        await using var db = CreateAndSeedDbContext();
+        var controller = CreateAdminController(db);
+
+        var actionResult = await controller.UpdateShowAuditStatus(
+            9999,
+            new UpdateShowAuditStatusRequest(ShowAuditStatus.APPROVED),
+            CancellationToken.None);
+
+        var notFoundResult = Assert.IsType<NotFoundObjectResult>(actionResult.Result);
+        Assert.Equal("NOT_FOUND", Assert.IsType<ApiResponse<object>>(notFoundResult.Value).Code);
+    }
+
     // ==========================================
     // C 端演出查询（ClientShowService）单测
     // ==========================================

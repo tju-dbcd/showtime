@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "SHOWTIME 演出票务平台 · 系统架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1190, 585]
+  },
+  "components": [
+    { "id": "audience", "type": "external", "label": "观众（C 端用户）", "sublabel": "演出浏览 · 购票 · 电子票", "pos": [30, 86], "size": [140, 64] },
+    { "id": "operator", "type": "external", "label": "运营管理员（B 端）", "sublabel": "发布 · 审核 · 退改 · 核销", "pos": [30, 320], "size": [140, 64] },
+    { "id": "spa-client", "type": "frontend", "label": "React 用户端 SPA", "sublabel": "浏览 · 选座 · 下单 · 支付", "tag": "React 19 · Vite · AntD", "pos": [230, 80], "size": [180, 88] },
+    { "id": "spa-admin", "type": "frontend", "label": "React 管理端 SPA", "sublabel": "演出 · 场次 · 订单 · 退改", "tag": "React 19 · AntD 6", "pos": [230, 314], "size": [180, 88] },
+    { "id": "nginx", "type": "cloud", "label": "Nginx 反向代理", "sublabel": "静态托管 · 反向代理", "tag": "HTTPS · /api、/hubs", "pos": [490, 92], "size": [150, 76] },
+    { "id": "api", "type": "backend", "label": "ASP.NET Core 后端", "sublabel": "Controller · Service · EF Core", "tag": ".NET 10 · JWT · SignalR", "pos": [680, 82], "size": [200, 104] },
+    { "id": "oracle", "type": "database", "label": "Oracle 21c XE", "sublabel": "36 张表 · APP_OWNER", "tag": "EF Core 持久化", "pos": [960, 88], "size": [180, 84] },
+    { "id": "redis", "type": "database", "label": "Redis 7", "sublabel": "选座锁 / 缓存", "tag": "SET NX · TTL", "pos": [960, 216], "size": [180, 72] },
+    { "id": "rabbitmq", "type": "messagebus", "label": "RabbitMQ 3（可选）", "sublabel": "订单事件总线", "tag": "事务性 Outbox", "pos": [960, 330], "size": [180, 72] },
+    { "id": "oss", "type": "external", "label": "阿里云 OSS（可选）", "sublabel": "海报 / 图片存储", "tag": "本地存储降级", "pos": [960, 444], "size": [180, 72] }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "公网 · 用户浏览器（不可信）", "wraps": ["audience", "operator", "spa-client", "spa-admin"], "pad": 26 },
+    { "kind": "security-group", "label": "服务端受信区", "wraps": ["nginx", "api"], "pad": 26 },
+    { "kind": "region", "label": "外部 / 基础设施依赖（独立信任域）", "wraps": ["oracle", "redis", "rabbitmq", "oss"], "pad": 26 }
+  ],
+  "connections": [
+    { "id": "buy", "from": "audience", "to": "spa-client", "variant": "emphasis" },
+    { "id": "buy-http", "from": "spa-client", "to": "nginx", "label": "HTTPS · /api、/hubs", "variant": "emphasis", "labelAt": [360, 200] },
+    { "id": "gateway-api", "from": "nginx", "to": "api", "variant": "emphasis" },
+    { "id": "lock-seats", "from": "api", "to": "redis", "label": "锁座防超卖", "variant": "emphasis", "fromSide": "bottom", "toSide": "left" },
+    { "id": "persist", "from": "api", "to": "oracle", "label": "EF Core 读写", "variant": "emphasis" },
+    { "id": "admin", "from": "operator", "to": "spa-admin" },
+    { "id": "admin-http", "from": "spa-admin", "to": "nginx" },
+    { "id": "events", "from": "api", "to": "rabbitmq", "label": "事件发布（可选）", "variant": "dashed", "fromSide": "bottom", "toSide": "left" },
+    { "id": "files", "from": "api", "to": "oss", "label": "文件上传（可选）", "variant": "dashed", "fromSide": "bottom", "toSide": "left" }
+  ],
+  "cards": [
+    {
+      "dot": "violet",
+      "title": "主链路（高亮）",
+      "items": [
+        "浏览 → 选座锁座 → 下单 → 支付 → 出票",
+        "锁座：Redis 抢锁 · 唯一索引兜底",
+        "通知/防伪：Outbox→SignalR · HMAC 电子票"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "后端四大领域模块",
+      "items": [
+        "用户权限：JWT/RBAC · 会话 · 审计",
+        "演出场次：发布 · 调价 · 限购 · 营销",
+        "座位/订单：锁座释放 · 状态机 · 退改核销"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "技术栈要点",
+      "items": [
+        "后端：.NET 10 · EF Core · OpenAPI · Serilog",
+        "前端：React 19 · TS · Vite · AntD 6 · ECharts",
+        "中间件：Oracle · Redis · RabbitMQ · SignalR · OSS"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "信任边界与安全",
+      "items": [
+        "入口：仅暴露 Nginx 443 · 后端不直连",
+        "凭据：环境变量注入 · APP_OWNER 持 Schema",
+        "API：JWT+RBAC · 限流 · 上传代理校验"
+      ]
+    }
+  ]
+}

@@ -9,11 +9,24 @@ public record CreateDynamicPricingRuleRequest(
     [StringLength(100, ErrorMessage = "规则名称不能超过100字符")]
     string RuleName,
 
+    /// <summary>
+    /// 触发类型：TIME_WINDOW 或 INVENTORY_RATE
+    /// </summary>
+    /// <remarks> INVENTORY_RATE 当前评估计算逻辑恒定返回 false。</remarks>
     [Required]
     [RegularExpression("^(TIME_WINDOW|INVENTORY_RATE)$", ErrorMessage = "TriggerType 必须为 TIME_WINDOW 或 INVENTORY_RATE")]
     string TriggerType,
 
+    /// <summary>
+    /// 相对场次开始时间倒计时的触发窗口“较早边界”（分钟）。语义：从开演时刻向前倒推，
+    /// StartOffsetMinutes 与 EndOffsetMinutes 共同界定窗口，须满足 StartOffsetMinutes &gt;= EndOffsetMinutes。
+    /// 例：开演前 120 分钟~30 分钟内触发 → StartOffsetMinutes=120、EndOffsetMinutes=30。
+    /// </summary>
     int? StartOffsetMinutes,
+
+    /// <summary>
+    /// 相对场次开始时间倒计时的触发窗口“较晚边界”（分钟）。语义见 StartOffsetMinutes。
+    /// </summary>
     int? EndOffsetMinutes,
 
     [Required]

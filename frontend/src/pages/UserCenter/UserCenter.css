@@ -24,9 +24,9 @@
 }
 
 .uc-logo {
-  color: #ff4d4f;
-  font-size: 20px;
-  font-weight: bold;
+  display: block;
+  height: 40px;
+  width: auto;
   cursor: pointer;
 }
 
@@ -39,6 +39,13 @@
 
 .uc-back:hover {
   color: white;
+}
+
+.uc-back-icon {
+  height: 18px;
+  width: auto;
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 
 /* ========== 主体布局 ========== */
@@ -205,48 +212,6 @@
   margin-top: 8px;
 }
 
-/* ========== 订单 ========== */
-.orders-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-/* ========== 收货地址 ========== */
-.address-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.address-list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.address-card {
-  border-radius: 12px;
-  border: 1px solid #f0f0f0;
-}
-
-.address-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.addr-info {
-  flex: 1;
-}
-
-.addr-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
 /* ========== 响应式适配 ========== */
 @media (max-width: 1024px) {
   .uc-sider {
@@ -254,9 +219,6 @@
     flex: 0 0 200px !important;
     max-width: 200px !important;
     min-width: 200px !important;
-  }
-  .address-list {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -290,8 +252,5 @@
   .detail-row .label {
     width: 60px;
     font-size: 13px;
-  }
-  .address-list {
-    grid-template-columns: 1fr;
   }
 }

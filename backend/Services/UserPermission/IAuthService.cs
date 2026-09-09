@@ -6,10 +6,16 @@ public interface IAuthService
 {
     Task<AuthServiceResult<RegisterResponse>> RegisterAsync(
         RegisterRequest request,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? actorUserName = null);
 
     Task<AuthServiceResult<LoginResponse>> LoginAsync(
         LoginRequest request,
+        ClientRequestMetadata client,
+        CancellationToken cancellationToken);
+
+    Task<AuthServiceResult<RefreshTokenResponse>> RefreshAsync(
+        RefreshTokenRequest request,
         CancellationToken cancellationToken);
 
     /// <summary>更新当前用户头像 URL，返回更新后的用户信息（校验：http/https 绝对 URL，≤500 字符）。</summary>

@@ -16,7 +16,8 @@ public sealed class JwtTokenService(
 
     public JwtTokenResult CreateToken(
         SysUser user,
-        IReadOnlyCollection<string> roleCodes)
+        IReadOnlyCollection<string> roleCodes,
+        long sessionId)
     {
         var issuedAt = timeProvider.GetUtcNow();
         var expiresAt = issuedAt.AddMinutes(_options.ExpirationMinutes);
@@ -25,6 +26,7 @@ public sealed class JwtTokenService(
         {
             new(JwtRegisteredClaimNames.Sub, user.UserId.ToString(CultureInfo.InvariantCulture)),
             new(JwtRegisteredClaimNames.UniqueName, user.UserName),
+            new("sid", sessionId.ToString(CultureInfo.InvariantCulture)),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")),
             new(
                 JwtRegisteredClaimNames.Iat,

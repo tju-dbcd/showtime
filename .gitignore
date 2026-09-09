@@ -57,3 +57,8 @@ logs/
 
 ## 本地磁盘文件存储（backend/showtime-files，LocalStorage:RootDirectory 默认值）
 showtime-files/
+
+## JMeter 压测产物（jtl/HTML 报告/token/座位计划，仅本地留存作证据，不入库）
+test/jmeter/out/
+*.jtl
+jmeter.log

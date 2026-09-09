@@ -12,22 +12,34 @@ public sealed partial class AuthService(
     AppDbContext dbContext,
     IPasswordHasher<SysUser> passwordHasher,
     IJwtTokenService jwtTokenService,
+    IUserSessionService userSessionService,
     TimeProvider timeProvider,
     ILogger<AuthService> logger) : IAuthService
 {
     private const string DefaultRoleCode = "USER";
+
+    /// <summary>用于“账号不存在/不唯一”分支的等时假哈希，避免登录的计时侧信道/账号枚举。</summary>
+    private readonly string _dummyPasswordHash =
+        passwordHasher.HashPassword(
+            new SysUser { UserName = "__dummy__" },
+            "dummy-password-value");
 
     /// <summary>头像 URL 长度上限，与 SYS_USER.AVATAR_URL VARCHAR2(500 CHAR) 一致。</summary>
     private const int MaxAvatarUrlLength = 500;
 
     public async Task<AuthServiceResult<RegisterResponse>> RegisterAsync(
         RegisterRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? actorUserName = null)
     {
         var userName = request.UserName.Trim();
         var phone = request.Phone.Trim();
         var email = NormalizeOptionalEmail(request.Email);
         var nickname = NormalizeOptionalText(request.Nickname);
+        // 管理端代建账号时以操作人作为创建者；自助注册沿用注册用户名。
+        var creator = string.IsNullOrWhiteSpace(actorUserName)
+            ? userName
+            : actorUserName.Trim();
 
         var conflict = await FindRegistrationConflictAsync(
             userName,
@@ -59,8 +71,8 @@ public sealed partial class AuthService(
             Email = email,
             UserType = "NORMAL",
             Status = 1,
-            CreateBy = userName,
-            UpdateBy = userName,
+            CreateBy = creator,
+            UpdateBy = creator,
         };
         user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
         user.UserRoles.Add(new UserRole { RoleId = defaultRole.RoleId });
@@ -111,6 +123,7 @@ public sealed partial class AuthService(
 
     public async Task<AuthServiceResult<LoginResponse>> LoginAsync(
         LoginRequest request,
+        ClientRequestMetadata client,
         CancellationToken cancellationToken)
     {
         var account = request.Account.Trim();
@@ -142,6 +155,11 @@ public sealed partial class AuthService(
 
         if (matches.Count != 1)
         {
+            // 等时假哈希：与“密码错误”分支耗时一致，避免通过响应时间探测账号是否存在。
+            passwordHasher.VerifyHashedPassword(
+                new SysUser { UserName = "__dummy__" },
+                _dummyPasswordHash,
+                request.Password);
             return AuthServiceResult<LoginResponse>.Failed(
                 AuthFailure.InvalidCredentials);
         }
@@ -182,7 +200,21 @@ public sealed partial class AuthService(
             .Order(StringComparer.Ordinal)
             .ToArray();
 
-        var token = jwtTokenService.CreateToken(user, roleCodes);
+        var sessionResult = await userSessionService.StartAsync(
+            user.UserId,
+            client,
+            cancellationToken);
+        if (!sessionResult.IsSuccess)
+        {
+            return AuthServiceResult<LoginResponse>.Failed(
+                AuthFailure.SessionUnavailable);
+        }
+
+        var session = sessionResult.Value!;
+        var token = jwtTokenService.CreateToken(
+            user,
+            roleCodes,
+            session.SessionId);
         var expiresIn = Math.Max(
             0,
             (long)Math.Ceiling(
@@ -193,9 +225,45 @@ public sealed partial class AuthService(
             "Bearer",
             expiresIn,
             token.ExpiresAtUtc,
+            session.RefreshToken,
+            session.RefreshTokenExpiresAtUtc,
             CreateUserResponse(user, roleCodes));
 
         return AuthServiceResult<LoginResponse>.Succeeded(response);
+    }
+
+    public async Task<AuthServiceResult<RefreshTokenResponse>> RefreshAsync(
+        RefreshTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        var sessionResult = await userSessionService.RotateAsync(
+            request.RefreshToken,
+            cancellationToken);
+        if (!sessionResult.IsSuccess)
+        {
+            return AuthServiceResult<RefreshTokenResponse>.Failed(
+                MapSessionFailure(sessionResult.Failure));
+        }
+
+        var session = sessionResult.Value!;
+        var accessToken = jwtTokenService.CreateToken(
+            session.User,
+            session.RoleCodes,
+            session.SessionId);
+        var expiresIn = Math.Max(
+            0,
+            (long)Math.Ceiling(
+                (accessToken.ExpiresAtUtc - timeProvider.GetUtcNow().UtcDateTime)
+                .TotalSeconds));
+
+        return AuthServiceResult<RefreshTokenResponse>.Succeeded(
+            new RefreshTokenResponse(
+                accessToken.AccessToken,
+                "Bearer",
+                expiresIn,
+                accessToken.ExpiresAtUtc,
+                session.RefreshToken,
+                session.RefreshTokenExpiresAtUtc));
     }
 
     private async Task<AuthFailure> FindRegistrationConflictAsync(
@@ -296,6 +364,17 @@ public sealed partial class AuthService(
         var normalized = value?.Trim();
         return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
+
+    private static AuthFailure MapSessionFailure(UserSessionFailure failure) =>
+        failure switch
+        {
+            UserSessionFailure.Expired => AuthFailure.RefreshTokenExpired,
+            UserSessionFailure.LoggedOut => AuthFailure.RefreshTokenLoggedOut,
+            UserSessionFailure.Locked => AuthFailure.RefreshTokenLocked,
+            UserSessionFailure.TokenReused => AuthFailure.RefreshTokenReused,
+            UserSessionFailure.AccountUnavailable => AuthFailure.AccountDisabled,
+            _ => AuthFailure.InvalidRefreshToken,
+        };
 
     [GeneratedRegex(@"^(?:\+?[0-9]{6,19}|[0-9]{20})$")]
     private static partial Regex PhoneRegex();

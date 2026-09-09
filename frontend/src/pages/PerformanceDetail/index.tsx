@@ -1,16 +1,57 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, message, Tag, Divider, Spin, Empty } from 'antd';
+import { Button, message, Tag, Divider, Spin, Empty, Descriptions } from 'antd';
 import { CalendarOutlined, ClockCircleOutlined } from '@ant-design/icons';
-import { showAPI } from '@/api/requests';
+import { showAPI, marketingAPI } from '@/api/requests';
 import type { ShowDto } from '@/types/api';
+import type { components } from '@/api/types';
 import './PerformanceDetail.css';
+
+type MarketingContentDto = components['schemas']['MarketingContentDto'];
+type MarketingContentType = components['schemas']['MarketingContentType'];
+
+const marketingTypeText: Record<MarketingContentType, string> = {
+  NOTICE: '公告',
+  AD: '广告',
+  PROMOTION: '推广',
+};
+
+const showStatusMeta: Record<string, { text: string; color: string }> = {
+  DRAFT: { text: '草稿', color: 'default' },
+  PUBLISHED: { text: '已发布', color: 'success' },
+  UNPUBLISHED: { text: '已下架', color: 'warning' },
+};
+
+const auditStatusMeta: Record<string, { text: string; color: string }> = {
+  PENDING: { text: '审核中', color: 'processing' },
+  APPROVED: { text: '审核通过', color: 'success' },
+  REJECTED: { text: '审核未通过', color: 'error' },
+};
 
 const PerformanceDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [show, setShow] = useState<ShowDto | null>(null);
+  const [marketing, setMarketing] = useState<MarketingContentDto[]>([]);
+  const [categoryNames, setCategoryNames] = useState<Map<number, string>>(new Map());
   const [loading, setLoading] = useState(true);
+
+  // ========== 加载分类（用于详情页展示分类名称） ==========
+  useEffect(() => {
+    void showAPI.getCategories()
+      .then(({ data, error }) => {
+        if (!error && data?.success && Array.isArray(data.data)) {
+          const map = new Map<number, string>();
+          (data.data as Array<{ categoryId: number | string; categoryName?: string }>).forEach(item => {
+            if (item.categoryId != null && item.categoryName) {
+              map.set(Number(item.categoryId), item.categoryName);
+            }
+          });
+          setCategoryNames(map);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   // ========== 获取演出详情 ==========
   useEffect(() => {
@@ -33,6 +74,24 @@ const PerformanceDetail = () => {
       }
     };
     fetchDetail();
+  }, [id]);
+
+  // ========== 获取演出关联的生效营销内容（公告/广告/推广） ==========
+  useEffect(() => {
+    const fetchMarketing = async () => {
+      if (!id) return;
+      try {
+        const { data, error } = await marketingAPI.getShowMarketing(Number(id));
+        if (!error && data?.success && Array.isArray(data.data)) {
+          setMarketing(data.data as MarketingContentDto[]);
+        } else {
+          setMarketing([]);
+        }
+      } catch {
+        setMarketing([]);
+      }
+    };
+    void fetchMarketing();
   }, [id]);
 
   // ========== 加载中 ==========
@@ -67,6 +126,12 @@ const PerformanceDetail = () => {
     return hours > 0 ? `${hours}小时${mins > 0 ? ` ${mins}分钟` : ''}` : `${mins}分钟`;
   };
 
+  // ========== 分类名称（无映射时回退到编号） ==========
+  const getCategoryName = (categoryId: number | null | undefined): string => {
+    if (categoryId == null) return '未分类';
+    return categoryNames.get(Number(categoryId)) || `分类 #${categoryId}`;
+  };
+
   return (
     <div className="detail-container">
       {/* ====== 顶部海报区 ====== */}
@@ -84,6 +149,8 @@ const PerformanceDetail = () => {
             <img
               src={show.posterUrl || 'https://picsum.photos/seed/fallback/300/400'}
               alt={show.showName}
+              loading="lazy"
+              decoding="async"
               className="detail-poster"
             />
           </div>
@@ -95,15 +162,15 @@ const PerformanceDetail = () => {
             <div className="detail-meta">
               <div className="meta-item">
                 <CalendarOutlined className="meta-icon" />
-                <span>状态：{show.status || '未知'}</span>
+                <span>状态：{(showStatusMeta[show.status]?.text ?? show.status) || '未知'}</span>
               </div>
               <div className="meta-item">
                 <ClockCircleOutlined className="meta-icon" />
                 <span>时长：{formatDuration(show.durationMinutes)}</span>
               </div>
               <div className="meta-item">
-                <Tag color={show.status === 'Published' ? 'green' : 'orange'}>
-                  {show.status || '未发布'}
+                <Tag color={showStatusMeta[show.status]?.color ?? 'default'}>
+                  {(showStatusMeta[show.status]?.text ?? show.status) || '未知'}
                 </Tag>
               </div>
             </div>
@@ -118,40 +185,89 @@ const PerformanceDetail = () => {
 
       {/* ====== 下方内容区 ====== */}
       <div className="detail-body">
-        <div className="detail-section">
-          <h2>🎬 演出详情</h2>
-          <Divider />
-          <div className="detail-info-grid">
-            <div className="info-item">
-              <span className="label">演出名称</span>
-              <span className="value">{show.showName}</span>
-            </div>
-            <div className="info-item">
-              <span className="label">分类 ID</span>
-              <span className="value">{show.categoryId || '未分类'}</span>
-            </div>
-            <div className="info-item">
-              <span className="label">时长</span>
-              <span className="value">{formatDuration(show.durationMinutes)}</span>
-            </div>
-            <div className="info-item">
-              <span className="label">状态</span>
-              <span className="value">{show.status || '未知'}</span>
-            </div>
-            <div className="info-item">
-              <span className="label">审核状态</span>
-              <span className="value">{show.auditStatus || '未审核'}</span>
-            </div>
-            <div className="info-item">
-              <span className="label">创建时间</span>
-              <span className="value">{new Date(show.createTime).toLocaleString('zh-CN')}</span>
-            </div>
+        {/* ====== 营销内容：公告/广告/推广 ====== */}
+        {marketing.length > 0 && (
+          <div className="detail-section">
+            <h2>公告与活动</h2>
+            <Divider />
+            {marketing.map(item => (
+              <div key={String(item.contentId)} className="marketing-item">
+                {item.imageUrl && (
+                  <img
+                    className="marketing-img"
+                    src={item.imageUrl}
+                    alt={item.title}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                )}
+                <div className="marketing-body">
+                  <div className="marketing-title">
+                    <Tag
+                      color={
+                        item.contentType === 'NOTICE'
+                          ? 'blue'
+                          : item.contentType === 'AD'
+                            ? 'gold'
+                            : 'geekblue'
+                      }
+                    >
+                      {marketingTypeText[item.contentType] || item.contentType}
+                    </Tag>
+                    <span>{item.title}</span>
+                  </div>
+                  {item.contentText && (
+                    <p className="marketing-text">{item.contentText}</p>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
+        )}
+
+        <div className="detail-section">
+          <h2><img src="/show.png" alt="" />演出详情</h2>
+          <Divider />
+          <Descriptions
+            className="show-info-descriptions"
+            bordered
+            size="middle"
+            column={{ xs: 1, sm: 2 }}
+          >
+            <Descriptions.Item label="演出名称" span={2}>
+              <span className="show-name-value">{show.showName}</span>
+            </Descriptions.Item>
+            <Descriptions.Item label="演出分类">
+              {getCategoryName(show.categoryId)}
+            </Descriptions.Item>
+            <Descriptions.Item label="演出时长">
+              {formatDuration(show.durationMinutes)}
+            </Descriptions.Item>
+            <Descriptions.Item label="演出状态">
+              {(() => {
+                const meta = showStatusMeta[show.status]
+                return meta
+                  ? <Tag color={meta.color}>{meta.text}</Tag>
+                  : <Tag color="default">{show.status || '未知'}</Tag>
+              })()}
+            </Descriptions.Item>
+            <Descriptions.Item label="审核状态">
+              {(() => {
+                const meta = auditStatusMeta[show.auditStatus]
+                return meta
+                  ? <Tag color={meta.color}>{meta.text}</Tag>
+                  : <Tag color="default">{show.auditStatus || '未知'}</Tag>
+              })()}
+            </Descriptions.Item>
+            <Descriptions.Item label="创建时间" span={2}>
+              {new Date(show.createTime).toLocaleString('zh-CN')}
+            </Descriptions.Item>
+          </Descriptions>
         </div>
 
         {show.description && (
           <div className="detail-section">
-            <h2>📖 详细介绍</h2>
+            <h2><img src="/introduce.png" alt="" />详细介绍</h2>
             <Divider />
             <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>{show.description}</p>
           </div>

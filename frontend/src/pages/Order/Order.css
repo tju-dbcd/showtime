@@ -73,6 +73,45 @@
   cursor: not-allowed;
 }
 
+.order-row-card {
+  border-radius: 10px;
+}
+
+.order-row-main {
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto auto;
+  align-items: center;
+  gap: 18px;
+}
+
+.order-row-number {
+  font-family: monospace;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.order-row-amount {
+  color: #ff4d4f;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.order-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.order-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin: 20px 0;
+}
+
 /* ========== 支付弹窗 ========== */
 .payment-modal .ant-modal-content {
   border-radius: 16px;
@@ -187,5 +226,17 @@
     height: 40px;
     padding: 0 24px;
     font-size: 15px;
+  }
+  .order-row-main {
+    grid-template-columns: 1fr auto;
+    gap: 4px 8px;
+  }
+  .order-row-main > .ant-tag {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .order-row-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
   }
 }
